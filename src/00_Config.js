@@ -481,7 +481,8 @@ var ACTION = Object.freeze({
   FORCE_LOGOUT:    'FORCE_LOGOUT',
   PASSWORD_CHANGE: 'PASSWORD_CHANGE',
   PASSWORD_RESET:  'PASSWORD_RESET',
-  // ผู้ดูแลถูกสร้างด้วยมือจากตัวแก้ไข Apps Script (createAdminUser ใน 98_Migrate.gs)
+  // ผู้ดูแลถูกสร้างด้วยมือ (เดิมคือ createAdminUser ใน 98_Migrate.gs ซึ่งถูกลบไปแล้ว
+  // พร้อมเส้นทางยุคชีต · เส้นเทียบที่แช่แข็งไว้คือ wo-webapp @ 51949d3)
   // ต้องมีร่องรอย เพราะเป็นทางเดียวในระบบที่สร้างสิทธิ์สูงสุดได้โดยไม่ผ่านผู้ดูแลคนไหนเลย
   // ประตูแบบนี้ต้องเปิดแล้วมีเสียง ไม่ใช่เปิดได้เงียบ ๆ
   ADMIN_CREATED:   'ADMIN_CREATED',
