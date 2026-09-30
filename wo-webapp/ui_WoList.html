@@ -1,0 +1,479 @@
+<!DOCTYPE html>
+<html lang="th">
+<head>
+  <base target="_top">
+  <meta charset="utf-8">
+  <?!= include('ui_Style') ?>
+</head>
+<body>
+<div id="pageData"
+  data-wo-id="<?= woId ?>" data-dept="<?= dept ?>" data-view="<?= view ?>" data-route="<?= route ?>"
+  data-base-url="<?= baseUrl ?>" data-home-url="<?= homeUrl ?>"
+  data-bootstrap="<?= bootstrapJson ?>" hidden></div>
+
+<div class="app" id="app">
+  <aside class="side" id="side">
+    <a class="side-head" id="brandLink" href="#">
+      <span class="side-mark" aria-hidden="true">
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+          stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M3 11l9-7 9 7"/><path d="M5 10v10h14V10"/><path d="M10 20v-6h4v6"/>
+        </svg>
+      </span>
+      <span class="side-title">ระบบใบสั่งงาน<small>กลับหน้าแรก</small></span>
+    </a>
+    <nav class="side-nav" id="navBar" aria-label="เมนูหลัก"></nav>
+    <div class="side-foot" id="navFoot"></div>
+  </aside>
+  <button type="button" class="scrim" id="scrim" aria-label="ปิดเมนู" hidden></button>
+
+  <div class="main-col">
+    <header class="topbar">
+      <button type="button" class="icon-btn btn-menu" id="btnMenu" aria-label="เปิดเมนู">
+        <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+          stroke-width="1.8" stroke-linecap="round"><path d="M4 7h16"/><path d="M4 12h16"/><path d="M4 17h16"/></svg>
+      </button>
+      <button type="button" class="icon-btn btn-collapse" id="btnCollapse" aria-label="พับหรือกางแถบเมนู">
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+          stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M4 5h16"/><path d="M4 12h10"/><path d="M4 19h16"/><path d="M19 9l3 3-3 3"/></svg>
+      </button>
+      <h1 id="pageTitle">ใบงานทั้งหมด</h1>
+      <span class="who" id="whoami">กำลังตรวจสอบผู้ใช้…</span>
+    </header>
+
+    <main>
+  <div id="message" class="msg"></div>
+
+  <section class="card">
+    <div class="track-tools">
+      <input type="search" id="q" placeholder="ค้นหา เลขที่ใบงาน ลูกค้า โครงการ หรือสถานที่">
+      <button type="button" id="btnSearch">ค้นหา</button>
+      <button type="button" id="btnFilters" class="ghost">ตัวกรอง</button>
+      <button type="button" id="btnClear" class="ghost">ล้างทั้งหมด</button>
+    </div>
+
+    <div id="filters" hidden></div>
+    <div id="summary" class="result-line"></div>
+    <div id="list"><div class="loading">กำลังโหลดรายการใบงาน…</div></div>
+    <div id="pager" class="pager"></div>
+  </section>
+    </main>
+  </div>
+</div>
+
+<?!= include('ui_Script') ?>
+<?!= include('ui_Nav') ?>
+<?!= include('ui_Auth') ?>
+<script>
+/*
+  ใบงานทั้งหมด — รายการที่ย้ายออกมาจากหน้าแรก (SPEC 17.3)
+
+  **ชื่อหน้าคือ "ใบงานทั้งหมด" ไม่ใช่ "ประวัติ"** เพราะรายการนี้มีทั้งงานที่กำลังทำ
+  และงานที่จบแล้ว · ถ้าเรียกว่าประวัติ คนจะเข้าใจว่ามีแต่ของเก่า แล้วจะไม่มาใช้ค้น
+  งานที่กำลังทำอยู่ สุดท้ายจะกลับไปขอให้เอารายการไปไว้หน้าแรกอีก
+
+  ทุก Role เห็นได้ทุกใบ ทุกแผนก (SPEC 2) · การค้น การกรอง การเรียง และการนับยอดรวม
+  ทำที่ฐานข้อมูลทั้งหมด (กฎข้อ 28) หน้านี้ได้มาแค่ยี่สิบแถวของหน้าที่กำลังดู
+  จึงไม่มีที่ใดในไฟล์นี้ที่วนกรองข้อมูลเอง — ถ้าวันไหนมีโค้ดแบบนั้นโผล่มา แปลว่า
+  มีคนส่งข้อมูลทั้งระบบมาที่เบราว์เซอร์แล้ว ซึ่งเป็นสิ่งที่งานรอบนี้ตั้งใจกำจัด
+*/
+
+/*
+  คีย์ที่หน้านี้ต้องใช้จากก้อนข้อมูลที่เซิร์ฟเวอร์ฝังมา (SPEC 17.3)
+  ประกาศไว้ตรงนี้เพื่อให้เทสต์ฝั่งเซิร์ฟเวอร์อ่านไปตรวจได้ว่าส่งมาครบจริง
+*/
+var PAGE_NEEDS = ['user', 'menu', 'labels', 'rows', 'filters', 'total', 'page', 'query'];
+
+/*
+  ตัวกรองที่เป็นรายการเลือกหลายค่าได้ — ชื่อคีย์ตรงกับที่เซิร์ฟเวอร์รับ
+
+  **เหลือเฉพาะตัวที่ตัวเลือกเป็นค่าคงที่ของระบบ** · เดิมมีตัวกรองสถานที่ ลูกค้า
+  และโครงการ ที่สร้างรายการตัวเลือกจากค่าที่มีอยู่จริงในใบงานทุกใบ ซึ่งทำได้
+  ก็ต่อเมื่ออ่านทั้งตารางมาก่อน — คือสิ่งเดียวกับที่งานรอบนี้ตั้งใจกำจัด
+  สามอย่างนั้นค้นได้จากช่องค้นหาช่องเดียวข้างบนเหมือนเดิมทุกประการ
+*/
+var FILTER_FIELDS = [
+  { key: 'statuses',     label: 'สถานะรวม',            labelTable: 'woStatus' },
+  { key: 'taskStatuses', label: 'สถานะรายแผนก',        labelTable: 'taskStatus' },
+  { key: 'departments',  label: 'แผนกผู้รับงาน',        labelTable: 'assignment' },
+  { key: 'routes',       label: 'สายอนุมัติ',           labelTable: 'route' },
+  { key: 'payments',     label: 'การชำระเงิน',          labelTable: 'payment' }
+];
+
+var state = { query: emptyQuery(), data: null };
+
+document.addEventListener('DOMContentLoaded', function () {
+  initNav('wolist');
+  // บอกไว้ว่าถ้าต้องล็อกอินกลางคัน แล้วล็อกอินเสร็จ ให้กลับมาทำอะไรต่อ (SPEC 17.3)
+  bootPage(loadList, reload);
+});
+
+/** เงื่อนไขเปล่า — ใช้ทั้งตอนเปิดหน้าและตอนกดล้างทั้งหมด */
+function emptyQuery() {
+  return {
+    text: '', statuses: [], taskStatuses: [], departments: [], routes: [],
+    payments: [], overdue: false, reopened: false, from: '', to: '', page: 1
+  };
+}
+
+/** เปิดหน้า — เมนูและรายการรอบแรกมาพร้อมกันในคำขอเดียว (SPEC 17.3) */
+function loadList() {
+  // ทุกกล่องที่ขึ้นว่ากำลังโหลด ต้องจบลงด้วยอะไรสักอย่างเสมอ (SPEC 17.4)
+  var doneList = guardLoading('list');
+
+  // หน้านี้ไม่มีด่าน guardPage เพราะทุกคนที่ล็อกอินได้ต้องเข้าหน้าแรกได้เสมอ
+  // ไม่งั้นจะไม่มีทางไปไหนต่อเลย · ส่วนข้อมูลใบงาน ทุก Role ดูได้อยู่แล้ว (SPEC 2)
+  startPage('list', PAGE_NEEDS).then(function (started) {
+    if (!started.allowed) { doneList(); return; }
+
+    bindTools();
+    apply(started.boot);
+
+    /*
+      มีตัวกรองติดมากับลิงก์ = ผู้ใช้กดไทล์บนแดชบอร์ดเข้ามา · กางแผงตัวกรองให้เห็นเลย
+      ไม่งั้นผู้ใช้จะเห็นรายการที่แคบกว่าปกติโดยไม่รู้ว่ากรองอะไรอยู่ แล้วนึกว่าข้อมูลหาย
+    */
+    if (hasActiveFilters()) document.getElementById('filters').hidden = false;
+    doneList();
+  });
+}
+
+/** ผูกปุ่มและช่องค้นหาเข้ากับการกด — ทำครั้งเดียวตอนเปิดหน้า */
+function bindTools() {
+  document.getElementById('btnSearch').addEventListener('click', runSearch);
+  document.getElementById('btnFilters').addEventListener('click', toggleFilters);
+  document.getElementById('btnClear').addEventListener('click', clearAll);
+  document.getElementById('list').addEventListener('click', openRow);
+  document.getElementById('pager').addEventListener('click', changePage);
+  document.getElementById('filters').addEventListener('change', readFilters);
+
+  // กด Enter ในช่องค้นหา ต้องได้ผลเหมือนกดปุ่มค้นหา ไม่ใช่เงียบไปเฉย ๆ
+  document.getElementById('q').addEventListener('keydown', function (event) {
+    if (event.key === 'Enter') runSearch();
+  });
+}
+
+/** ค้นหาจากคำที่พิมพ์ */
+function runSearch() {
+  state.query.text = document.getElementById('q').value;
+  state.query.page = 1;
+  reload();
+}
+
+/**
+ * ตอนนี้มีตัวกรองอะไรทำงานอยู่บ้างไหม (ไม่นับคำค้นและเลขหน้า)
+ * @return {boolean}
+ */
+function hasActiveFilters() {
+  for (var i = 0; i < FILTER_FIELDS.length; i++) {
+    if ((state.query[FILTER_FIELDS[i].key] || []).length) return true;
+  }
+  return !!(state.query.overdue || state.query.reopened ||
+    state.query.from || state.query.to);
+}
+
+/** เปิด-ปิดแผงตัวกรอง */
+function toggleFilters() {
+  var box = document.getElementById('filters');
+  box.hidden = !box.hidden;
+}
+
+/** ล้างคำค้นและตัวกรองทั้งหมด กลับไปหน้าแรกของรายการ */
+function clearAll() {
+  state.query = emptyQuery();
+  document.getElementById('q').value = '';
+  reload();
+}
+
+/** อ่านค่าที่เลือกในแผงตัวกรองเข้ามาเก็บไว้ แล้วโหลดใหม่ */
+function readFilters() {
+  for (var i = 0; i < FILTER_FIELDS.length; i++) {
+    var key = FILTER_FIELDS[i].key;
+    state.query[key] = selectedValues(document.getElementById('f-' + key));
+  }
+  state.query.overdue = document.getElementById('f-overdue').checked;
+  state.query.reopened = document.getElementById('f-reopened').checked;
+  state.query.from = document.getElementById('f-from').value;
+  state.query.to = document.getElementById('f-to').value;
+  state.query.page = 1;
+  reload();
+}
+
+/**
+ * ค่าที่ถูกเลือกไว้ในรายการเลือกหลายค่า
+ * @param {Element} box ช่อง select
+ * @return {string[]}
+ */
+function selectedValues(box) {
+  var out = [];
+  if (!box) return out;
+  for (var i = 0; i < box.options.length; i++) {
+    if (box.options[i].selected) out.push(box.options[i].value);
+  }
+  return out;
+}
+
+/** กดปุ่มเปลี่ยนหน้าในรายการ */
+function changePage(event) {
+  var step = event.target && event.target.getAttribute
+    ? event.target.getAttribute('data-step') : '';
+  if (!step) return;
+
+  state.query.page = Math.max(1, state.query.page + Number(step));
+  reload();
+}
+
+/**
+ * กดแถวไหน ไปหน้ารายละเอียดใบงานนั้น (SPEC 17.1)
+ * เป็นการกดของผู้ใช้จริง จึงเปลี่ยนหน้าได้ตามกติกาของกรอบ (SPEC 17.3)
+ * @param {Event} event การกดในตารางรายการ
+ */
+function openRow(event) {
+  var node = event.target;
+  while (node && node !== document && !node.getAttribute('data-wo')) node = node.parentNode;
+  if (!node || node === document) return;
+
+  var url = NAV.base + '?page=wo&id=' + encodeURIComponent(node.getAttribute('data-wo'));
+  goToUrl(url);
+}
+
+/** ขอรายการใหม่ตามเงื่อนไขปัจจุบัน */
+function reload() {
+  setBusy(true);
+  callApi('api_listWorkOrders', [state.query])
+    .then(apply)
+    .catch(function (error) { showActionError(error, reload); })
+    .then(function () { setBusy(false); });
+}
+
+/**
+ * รับข้อมูลชุดใหม่มาแสดง ใช้ร่วมกันทั้งรอบแรกและรอบที่โหลดใหม่
+ * @param {Object} data ผลจาก api_listWorkOrders
+ */
+function apply(data) {
+  state.data = data;
+
+  /*
+    ถือเงื่อนไขชุดที่เซิร์ฟเวอร์ใช้จริง แทนชุดที่หน้านี้เดาไว้เอง
+
+    **จำเป็น เพราะเงื่อนไขเดินทางมาได้สองทาง** — จากหน้านี้เอง กับจาก query string
+    ตอนที่ผู้ใช้กดไทล์บนแดชบอร์ดเข้ามา ซึ่งหน้านี้ไม่เคยเห็น · ถ้าไม่รับกลับมา
+    รอบแรกจะแสดงผลที่กรองถูกต้อง แต่พอกดหน้าถัดไปหรือกดค้นหา ตัวกรองจะหายไปเงียบ ๆ
+    แล้วผู้ใช้จะได้รายการทั้งหมดโดยไม่มีอะไรบอกว่าเกิดอะไรขึ้น
+  */
+  if (data.query) state.query = data.query;
+  state.query.page = data.page;
+
+  document.getElementById('q').value = state.query.text || '';
+  renderFilters(data.filters);
+  renderSummary(data);
+  renderRows(data);
+  renderPager(data);
+}
+
+/**
+ * วาดแผงตัวกรองจากค่าที่มีอยู่จริงในระบบ (SPEC 17.1)
+ * @param {Object} filters รายการค่าที่ไม่ซ้ำ ที่เซิร์ฟเวอร์ส่งมา
+ */
+function renderFilters(filters) {
+  var html = '<div class="filter-grid">';
+
+  for (var i = 0; i < FILTER_FIELDS.length; i++) {
+    var field = FILTER_FIELDS[i];
+    var values = (filters && filters[field.key]) || [];
+    var chosen = state.query[field.key] || [];
+
+    html += '<div><label for="f-' + field.key + '">' + escapeHtml(field.label) +
+      '</label><select id="f-' + field.key + '" multiple size="4">';
+
+    for (var v = 0; v < values.length; v++) {
+      var shown = field.labelTable ? labelOf(field.labelTable, values[v]) : values[v];
+      html += '<option value="' + escapeHtml(values[v]) + '"' +
+        (chosen.indexOf(values[v]) !== -1 ? ' selected' : '') + '>' +
+        escapeHtml(shown) + '</option>';
+    }
+    html += '</select></div>';
+  }
+
+  html += '<div><label for="f-from">วันที่แจ้ง ตั้งแต่</label>' +
+    '<input type="date" id="f-from" value="' + escapeHtml(state.query.from || '') + '"></div>' +
+    '<div><label for="f-to">ถึง</label>' +
+    '<input type="date" id="f-to" value="' + escapeHtml(state.query.to || '') + '"></div>';
+
+  /*
+    เลยกำหนด — เป็นธงจริง/เท็จ ไม่ใช่รายการค่า จึงเป็นช่องติ๊ก ไม่ใช่กล่องเลือก
+
+    ติ๊กแล้วรายการจะเรียงใบที่เลยนานที่สุดขึ้นก่อน ซึ่งต่างจากลำดับปกติ · ต้องบอกไว้
+    ไม่งั้นผู้ใช้จะคิดว่าลำดับเพี้ยน · ใบที่ไม่ได้กำหนดขอบเขตวันจะไม่ติดตัวกรองนี้
+  */
+  html += '<div class="filter-flag"><label for="f-overdue">' +
+    '<input type="checkbox" id="f-overdue"' + (state.query.overdue ? ' checked' : '') + '> ' +
+    'เฉพาะใบที่เลยกำหนด</label>' +
+    '<span class="hint">เรียงใบที่เลยนานที่สุดขึ้นก่อน · ใบที่ไม่ได้กำหนดขอบเขตวัน ' +
+    'และใบที่ปิดหรือยกเลิกแล้ว จะไม่อยู่ในผลลัพธ์</span></div>';
+
+  /*
+    เคยเปิดซ้ำ — ธงจริง/เท็จเหมือนกัน เพราะคำถามคือ "ใบไหนเคยถูกเปิดซ้ำบ้าง"
+    ไม่ใช่ "ใบไหนเปิดซ้ำสามครั้งพอดี"
+  */
+  html += '<div class="filter-flag"><label for="f-reopened">' +
+    '<input type="checkbox" id="f-reopened"' + (state.query.reopened ? ' checked' : '') + '> ' +
+    'เฉพาะใบที่เคยเปิดซ้ำ</label>' +
+    '<span class="hint">ใบที่ปิดไปแล้วถูกเปิดขึ้นมาทำต่อ · ' +
+    'ใบที่เปิดซ้ำบ่อย มักแปลว่ามีอะไรสักอย่างที่ยังแก้ไม่จบ</span></div>';
+
+  html += '</div><div class="hint">เลือกได้หลายค่าในแต่ละช่อง ' +
+    '(กดค้าง Ctrl หรือ Command แล้วเลือก) · ค้นสถานที่ ลูกค้า หรือโครงการ ได้จากช่องค้นหาด้านบน</div>';
+
+  document.getElementById('filters').innerHTML = html;
+}
+
+/**
+ * บรรทัดสรุปว่ากำลังดูอะไรอยู่
+ * @param {Object} data ผลจากเซิร์ฟเวอร์
+ */
+function renderSummary(data) {
+  var box = document.getElementById('summary');
+  if (!data.total) { box.textContent = ''; return; }
+
+  var first = (data.page - 1) * data.pageSize + 1;
+  var last = Math.min(data.page * data.pageSize, data.total);
+  // ลำดับต้องบอกให้ตรงกับที่เรียงจริง ไม่งั้นผู้ใช้ที่ติ๊ก "เลยกำหนด" จะคิดว่าลำดับเพี้ยน
+  box.textContent = 'แสดงรายการที่ ' + first + '–' + last + ' จาก ' + data.total +
+    ' ใบ · ' + (state.query.overdue ? 'เรียงใบที่เลยกำหนดนานที่สุดขึ้นก่อน' : 'เรียงจากใบใหม่ไปเก่า');
+}
+
+/**
+ * วาดตารางรายการใบงาน
+ * @param {Object} data ผลจากเซิร์ฟเวอร์
+ */
+function renderRows(data) {
+  var box = document.getElementById('list');
+  var rows = data.rows || [];
+
+  if (!rows.length) {
+    // สองสถานะนี้ต้องพูดคนละอย่าง ไม่งั้นคนที่ค้นไม่เจอจะเข้าใจว่าระบบไม่มีข้อมูลเลย (SPEC 17.3)
+    box.innerHTML = (data.emptyReason === 'NO_DATA')
+      ? emptyHtml('ยังไม่มีใบสั่งงานในระบบ',
+          'ใบงานจะขึ้นที่นี่ทันทีที่ธุรการหรือฝ่ายขายเปิดใบแรก')
+      : emptyHtml('ไม่พบใบงานที่ตรงกับที่ค้น',
+          'ลองใช้คำที่สั้นลง หรือกดปุ่ม "ล้างทั้งหมด" เพื่อดูใบงานทั้งหมดอีกครั้ง');
+    return;
+  }
+
+  /*
+   * คอลัมน์ที่ใส่คลาส col-extra จะถูกซ่อนบนแท็บเล็ตและมือถือ (SPEC 17.4)
+   * เหลือเฉพาะสิ่งที่ต้องใช้ตัดสินใจจริง: เลขที่ใบงาน ลูกค้า สถานที่ สถานะ และวันที่
+   * ห้ามแก้ด้วยการเลื่อนแนวนอน เพราะผู้ใช้จะไม่รู้ว่ามีคอลัมน์ซ่อนอยู่ทางขวา
+   */
+  var html = '<div class="table-wrap"><table class="wo-list"><thead><tr>' +
+    '<th>เลขที่ใบงาน</th><th>ลูกค้า</th><th class="col-extra">โครงการ</th><th>สถานที่</th>' +
+    '<th class="col-extra">แผนก</th><th>สถานะรวม</th>' +
+    '<th class="col-extra">สถานะรายแผนก</th><th class="col-extra">การชำระเงิน</th>' +
+    '<th>วันที่แจ้ง</th><th>กำหนดเวลา</th>' +
+    '</tr></thead><tbody>';
+
+  for (var i = 0; i < rows.length; i++) html += rowHtml(rows[i]);
+  box.innerHTML = html + '</tbody></table></div>';
+}
+
+/**
+ * หนึ่งแถวในตาราง — ทั้งแถวกดเข้าไปดูรายละเอียดได้ (SPEC 17.1)
+ * @param {Object} row ข้อมูลหนึ่งใบงาน
+ * @return {string} HTML
+ */
+function rowHtml(row) {
+  var detailUrl = NAV.base + '?page=wo&id=' + encodeURIComponent(row.woId);
+
+  return '<tr data-wo="' + escapeHtml(row.woId) + '">' +
+    '<td data-label="เลขที่ใบงาน" class="wo-no"><a href="' + escapeHtml(detailUrl) + '">' +
+      escapeHtml(row.woId) + '</a>' + reopenTag(row.reopened) + '</td>' +
+    '<td data-label="ลูกค้า">' + escapeHtml(row.customer || '-') + '</td>' +
+    '<td data-label="โครงการ" class="col-extra">' + escapeHtml(row.project || '-') + '</td>' +
+    '<td data-label="สถานที่">' + escapeHtml(row.location || '-') + '</td>' +
+    '<td data-label="แผนก" class="col-extra">' + escapeHtml(labelOf('assignment', row.dept)) + '</td>' +
+    '<td data-label="สถานะรวม">' + statusPill('woStatus', row.status) + '</td>' +
+    '<td data-label="สถานะรายแผนก" class="col-extra">' + taskText(row.tasks) + '</td>' +
+    '<td data-label="การชำระเงิน" class="col-extra">' + statusPill('payment', row.payment) + '</td>' +
+    '<td data-label="วันที่แจ้ง">' + escapeHtml(row.created || '-') + '</td>' +
+    '<td data-label="กำหนดเวลา">' + dueText(row.due) + '</td>' +
+    '</tr>';
+}
+
+/**
+ * ป้ายขอบเขตวันการทำงาน (SPEC 9.2)
+ *
+ * **ใบที่ไม่ได้กำหนดขอบเขตวัน ต้องไม่แสดงอะไรเลย ไม่ใช่แสดงว่าเกินกำหนด**
+ * ใบส่วนใหญ่ไม่ได้กำหนด ถ้าขึ้นป้ายให้ทุกใบ ป้ายจะกลายเป็นสิ่งที่ตาข้ามไปเอง
+ * แล้วใบที่เตือนถูกจริงก็จะถูกข้ามไปด้วย
+ *
+ * ทุกคำที่แสดงถูกตัดสินและจัดรูปมาจากฝั่งเซิร์ฟเวอร์แล้ว (กฎข้อ 19 · 20)
+ * หน้านี้ไม่คำนวณวันเองแม้แต่ครั้งเดียว เพราะเบราว์เซอร์ของผู้ใช้อาจตั้งเขตเวลาอะไรก็ได้
+ *
+ * @param {Object} due ก้อนจาก dueInfoOf_ ฝั่งเซิร์ฟเวอร์
+ * @return {string} HTML
+ */
+function dueText(due) {
+  if (!due || !due.has) return '<span class="muted">-</span>';
+
+  var tone = (due.state === 'OVER') ? 'stop'
+    : (due.state === 'TODAY') ? 'warn' : 'muted';
+
+  return '<span class="due-tag ' + tone + '" title="ครบกำหนด ' + escapeHtml(due.dueText) + '">' +
+    escapeHtml(due.label) + '</span>';
+}
+
+/**
+ * ป้ายจำนวนครั้งที่เปิดซ้ำ — แสดงเฉพาะเมื่อมากกว่าศูนย์
+ *
+ * ใบส่วนใหญ่ไม่เคยถูกเปิดซ้ำ ถ้าแสดง "เปิดซ้ำ 0 ครั้ง" ทุกแถว ป้ายจะกลายเป็น
+ * เสียงรบกวนที่ทำให้ใบที่เปิดซ้ำจริงกลืนหายไปกับใบปกติ ซึ่งตรงข้ามกับที่ป้ายมีไว้
+ *
+ * @param {number} count จำนวนครั้ง
+ * @return {string} HTML
+ */
+function reopenTag(count) {
+  var times = Number(count || 0);
+  if (times < 1) return '';
+
+  return ' <span class="due-tag warn" title="ใบนี้ถูกเปิดขึ้นมาทำต่อหลังปิดไปแล้ว">' +
+    'เปิดซ้ำ ' + times + '</span>';
+}
+
+/**
+ * สถานะรายแผนกของใบงานหนึ่งใบ — งานร่วมมีได้หลายแผนกในใบเดียว
+ * @param {Object[]} tasks [{dept, status}]
+ * @return {string} HTML
+ */
+function taskText(tasks) {
+  var list = tasks || [];
+  if (!list.length) return '<span class="muted">ยังไม่ได้ส่งให้แผนกใด</span>';
+
+  var parts = [];
+  for (var i = 0; i < list.length; i++) {
+    parts.push(escapeHtml(labelOf('assignment', list[i].dept)) + ' · ' +
+      escapeHtml(labelOf('taskStatus', list[i].status)));
+  }
+  return parts.join('<br>');
+}
+
+/**
+ * ปุ่มเปลี่ยนหน้า
+ * @param {Object} data ผลจากเซิร์ฟเวอร์
+ */
+function renderPager(data) {
+  var box = document.getElementById('pager');
+  if (!data.total || data.pageCount < 2) { box.innerHTML = ''; return; }
+
+  box.innerHTML =
+    '<button type="button" class="ghost small" data-step="-1"' +
+      (data.page <= 1 ? ' disabled' : '') + '>หน้าก่อนหน้า</button>' +
+    '<span class="page-now">หน้า ' + data.page + ' จาก ' + data.pageCount + '</span>' +
+    '<button type="button" class="ghost small" data-step="1"' +
+      (data.page >= data.pageCount ? ' disabled' : '') + '>หน้าถัดไป</button>';
+}
+
+</script>
+</body>
+</html>

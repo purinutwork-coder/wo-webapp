@@ -1,0 +1,522 @@
+<!DOCTYPE html>
+<html lang="th">
+<head>
+  <base target="_top">
+  <meta charset="utf-8">
+  <?!= include('ui_Style') ?>
+</head>
+<body>
+<div id="pageData"
+  data-wo-id="<?= woId ?>" data-dept="<?= dept ?>" data-view="<?= view ?>" data-route="<?= route ?>"
+  data-base-url="<?= baseUrl ?>" data-home-url="<?= homeUrl ?>"
+  data-bootstrap="<?= bootstrapJson ?>" hidden></div>
+
+<div class="app" id="app">
+  <aside class="side" id="side">
+    <a class="side-head" id="brandLink" href="#">
+      <span class="side-mark" aria-hidden="true">
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+          stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M3 11l9-7 9 7"/><path d="M5 10v10h14V10"/><path d="M10 20v-6h4v6"/>
+        </svg>
+      </span>
+      <span class="side-title">ระบบใบสั่งงาน<small>กลับหน้าติดตามใบงาน</small></span>
+    </a>
+    <nav class="side-nav" id="navBar" aria-label="เมนูหลัก"></nav>
+    <div class="side-foot" id="navFoot"></div>
+  </aside>
+  <button type="button" class="scrim" id="scrim" aria-label="ปิดเมนู" hidden></button>
+
+  <div class="main-col">
+    <header class="topbar">
+      <button type="button" class="icon-btn btn-menu" id="btnMenu" aria-label="เปิดเมนู">
+        <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+          stroke-width="1.8" stroke-linecap="round"><path d="M4 7h16"/><path d="M4 12h16"/><path d="M4 17h16"/></svg>
+      </button>
+      <button type="button" class="icon-btn btn-collapse" id="btnCollapse" aria-label="พับหรือกางแถบเมนู">
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+          stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M4 5h16"/><path d="M4 12h10"/><path d="M4 19h16"/><path d="M19 9l3 3-3 3"/></svg>
+      </button>
+      <h1 id="pageTitle">อนุมัติใบสั่งงาน</h1>
+      <span class="who" id="whoami">กำลังตรวจสอบผู้ใช้…</span>
+    </header>
+
+    <main>
+  <div id="message" class="msg"></div>
+
+  <div class="actions" style="margin-bottom:12px">
+    <button type="button" id="btnRefresh" class="ghost small">โหลดรายการใหม่</button>
+  </div>
+
+  <div id="list"><div class="loading">กำลังโหลดรายการ…</div></div>
+    </main>
+  </div>
+</div>
+
+<?!= include('ui_Script') ?>
+<?!= include('ui_Nav') ?>
+<?!= include('ui_Auth') ?>
+<script>
+/*
+  หน้าอนุมัติของสาย Service / Project (SPEC 17.2)
+
+  รายการที่เห็นถูกกรองมาจากฝั่ง Server ตามสายอนุมัติของผู้ใช้แล้ว (SPEC 3)
+  ปุ่มที่แสดงในหน้านี้เป็นแค่ความสะดวก การตรวจสิทธิ์จริงอยู่ใน 09_Api ทุกครั้งที่กด
+*/
+
+/*
+  คีย์ที่หน้านี้ต้องใช้จากก้อนข้อมูลที่เซิร์ฟเวอร์ฝังมา (SPEC 17.3)
+  ประกาศไว้ตรงนี้เพื่อให้เทสต์ฝั่งเซิร์ฟเวอร์อ่านไปตรวจได้ว่าส่งมาครบจริง
+  ซึ่งเป็นรอยต่อที่เทสต์ไม่ได้เดินผ่าน เพราะไม่ได้รันจาวาสคริปต์ในหน้าเว็บ
+*/
+var PAGE_NEEDS = ['rows', 'assignmentOptions', 'truncated'];
+
+var state = { rows: [], assignmentOptions: {}, user: null, route: 'SP',
+  truncated: false, scanLimit: 0 };
+
+document.addEventListener('DOMContentLoaded', function () {
+  // หน้าเดียวใช้ได้ทั้งสองสาย สายที่ขอมาอยู่ใน data-route ที่เซิร์ฟเวอร์ฝากมากับหน้า
+  state.route = pageData('route') || 'SP';
+  initNav(state.route === 'LAB' ? 'labapprove' : 'approve');
+  // บอกไว้ว่าถ้าต้องล็อกอินกลางคัน แล้วล็อกอินเสร็จ ให้กลับมาทำอะไรต่อ (SPEC 17.3)
+  bootPage(loadPage, loadList);
+});
+
+/** เปิดหน้า — ตรวจสิทธิ์ ผูกปุ่ม แล้ววาดรายการรอบแรก */
+function loadPage() {
+  // ทุกกล่องที่ขึ้นว่ากำลังโหลด ต้องจบลงด้วยอะไรสักอย่างเสมอ (SPEC 17.3)
+  var doneLoading = guardLoading('list');
+
+  document.getElementById('pageTitle').textContent =
+    state.route === 'LAB' ? 'อนุมัติใบสั่งงาน (Lab)' : 'อนุมัติใบสั่งงาน (Service / Project)';
+
+  // ตรวจสิทธิ์ให้ผ่านก่อน แล้วค่อยขอรายการ (SPEC 17.3)
+  startPage('list', PAGE_NEEDS).then(function (started) {
+    if (!started.allowed) { doneLoading(); return; }
+
+    document.getElementById('btnRefresh').addEventListener('click', loadList);
+
+    // ข้อมูลรอบแรกมากับคำขอเดียวกันแล้ว ไม่ต้องยิงถามซ้ำ (SPEC 17.3)
+    apply(started.boot);
+    doneLoading();
+  });
+}
+
+/**
+ * รับรายการที่รออนุมัติมาแสดง ใช้ร่วมกันทั้งข้อมูลที่ฝังมากับหน้าและที่โหลดใหม่
+ * @param {Object} data ผลจาก api_listPendingApprovals
+ */
+function apply(data) {
+  if (data.labels) setLabels(data.labels);
+  state.user = NAV.user;      // ตัวตนมีแหล่งเดียว ใช้ตัวเดียวกับแถบเมนู
+  state.rows = data.rows || [];
+  state.assignmentOptions = data.assignmentOptions || {};
+  state.truncated = data.truncated === true;
+  state.scanLimit = Number(data.scanLimit || 0);
+  render();
+}
+
+/** โหลดรายการใบงานที่รออนุมัติของสายที่ผู้ใช้มีสิทธิ์ */
+function loadList() {
+  clearMessage();
+  document.getElementById('list').innerHTML = '<div class="loading">กำลังโหลดรายการ…</div>';
+
+  // ส่งสายที่ขอไปด้วย เซิร์ฟเวอร์จะกรองให้ ใบงานสายอื่นจึงไม่มีทางหลุดมาถึงหน้านี้
+  callApi('api_listPendingApprovals', [state.route])
+    .then(apply)
+    .catch(function (error) { showPageError('list', error.message); });
+}
+
+/** วาดรายการทั้งหมด */
+function render() {
+  var box = document.getElementById('list');
+
+  if (!isApprover()) {
+    box.innerHTML = emptyHtml('บัญชีนี้ไม่ได้เป็นผู้อนุมัติ',
+      'ถ้าคิดว่าผิดพลาด กรุณาติดต่อผู้ดูแลระบบให้เพิ่มสิทธิ์ให้');
+    return;
+  }
+
+  // รายการว่างเป็นสถานะปกติ ต้องบอกด้วยว่าปกติจะมีใบงานเมื่อไร (SPEC 17.3)
+  if (!state.rows.length) {
+    box.innerHTML = (state.route === 'LAB')
+      ? emptyHtml('ตอนนี้ไม่มีใบงานสายแล็บรออนุมัติ',
+          'ใบงานจะมาที่นี่เมื่อผู้แจ้งเลือกสายแล็บแล้วกดส่งขออนุมัติ')
+      : emptyHtml('ตอนนี้ไม่มีใบงานรออนุมัติ',
+          'ใบงานจะมาที่นี่เมื่อผู้แจ้งกดส่งขออนุมัติ รวมถึงใบที่ยังไม่ระบุแผนกด้วย');
+    return;
+  }
+
+  var html = '';
+
+  /*
+   * รายการถูกตัด ต้องบอกก่อนรายการ ไม่ใช่บอกท้ายสุดที่ไม่มีใครเลื่อนไปถึง (กฎข้อ 32)
+   *
+   * หน้านี้ยังไม่มีการแบ่งหน้า (SPEC 23) · วันที่ใบค้างเกินพันใบ ใบที่เกินมาจะหาย
+   * จากหน้าจอโดยไม่มีอะไรบอก แล้วจะมีใบงานที่ไม่เคยถูกใครเห็นเลย
+   */
+  if (state.truncated) {
+    html += '<div class="note-box stop"><b>รายการนี้ไม่ครบ</b><br>' +
+      'แสดงได้ ' + escapeHtml(state.scanLimit) + ' ใบแรกเท่านั้น และยังมีใบที่รออนุมัติมากกว่านี้ ' +
+      'ซึ่งไม่ได้อยู่บนหน้าจอนี้ · แจ้งผู้ดูแลระบบให้ใส่การแบ่งหน้าให้หน้านี้</div>';
+  }
+
+  for (var i = 0; i < state.rows.length; i++) html += renderItem(state.rows[i], i);
+  box.innerHTML = html;
+
+  for (var r = 0; r < state.rows.length; r++) bindItem(r);
+}
+
+/**
+ * ผู้ใช้คนนี้เป็นผู้อนุมัติของสายใดสายหนึ่งหรือไม่
+ * @return {boolean}
+ */
+function isApprover() {
+  if (!state.user) return false;
+  var roles = state.user.roles || [];
+  return roles.indexOf('APPROVER_SP') !== -1 || roles.indexOf('APPROVER_LAB') !== -1;
+}
+
+/**
+ * วาดใบงานหนึ่งใบพร้อมปุ่มดำเนินการ
+ * @param {Object} wo แถวใบงาน
+ * @param {number} index ลำดับในรายการ
+ * @return {string} HTML
+ */
+function renderItem(wo, index) {
+  // เลือกได้เฉพาะแผนกในสายเดียวกับใบงาน เพราะระบบไม่มีการส่งต่อข้ามสาย (SPEC 3.1)
+  var allowed = state.assignmentOptions[wo['Route'] === 'LAB' ? 'LAB' : 'SP'] || [];
+  var options = '<option value="">— ยังไม่ได้เลือกแผนกที่จะส่งงาน —</option>';
+  for (var i = 0; i < allowed.length; i++) {
+    options += '<option value="' + escapeHtml(allowed[i]) + '">' +
+      escapeHtml(assignmentLabel(allowed[i])) + '</option>';
+  }
+
+  return '' +
+    '<article class="wo-item" data-index="' + index + '">' +
+      '<h3>' + escapeHtml(wo['WO_ID']) + ' <span class="pill">' +
+        escapeHtml(wo['Route'] === 'LAB' ? 'สายแล็บ' : 'สายบริการและโครงการ') + '</span></h3>' +
+      '<dl>' +
+        '<dt>ลูกค้า</dt><dd>' + escapeHtml(wo['Customer_Name']) + ' (' + escapeHtml(wo['Customer_Code']) + ')</dd>' +
+        '<dt>โครงการ</dt><dd>' + escapeHtml(wo['Project'] || '-') + '</dd>' +
+        '<dt>สถานที่</dt><dd>' + escapeHtml(wo['Location']) + ' <span class="pill">' + escapeHtml(wo['PJ_ID']) + '</span></dd>' +
+        '<dt>สิ่งที่ต้องการ</dt><dd>' + escapeHtml(wo['Request_Types'] || '-') + '</dd>' +
+        '<dt>ผู้ติดต่อ</dt><dd>' + escapeHtml(wo['Contact'] || '-') + ' · ' + escapeHtml(wo['Phone'] || '-') + '</dd>' +
+        '<dt>แผนกที่ระบุมา</dt><dd>' + escapeHtml(assignmentLabel(wo['Assignment_Type'])) + '</dd>' +
+        '<dt>ลักษณะงาน</dt><dd>' + escapeHtml(wo['Job_Description'] || '-') + '</dd>' +
+        '<dt>กำหนดเข้างาน</dt><dd>' + escapeHtml(formatDate(wo['Start_Date'])) + '</dd>' +
+        '<dt>กำหนดออกงาน</dt><dd>' + escapeHtml(formatDate(wo['End_Date'])) + '</dd>' +
+        '<dt>ผู้แจ้งงาน</dt><dd>' + escapeHtml(wo['Created_By_Name'] || wo['Created_By'] || '-') + ' · ' + escapeHtml(formatDate(wo['Created_Date'])) + '</dd>' +
+        (Number(wo['Return_Count'] || 0) > 0
+          ? '<dt>เคยตีกลับ</dt><dd>' + escapeHtml(wo['Return_Count']) + ' ครั้ง · เหตุผลล่าสุด ' +
+            escapeHtml(wo['Return_Reason'] || 'ไม่ได้ระบุ') + '</dd>'
+          : '') +
+      '</dl>' +
+
+      /*
+       * สาย Lab เป็นงานของแผนกเดียวเสมอ ไม่มีงานร่วม (SPEC 7.3)
+       * จึงไม่ต้องให้เลือกแผนก — เก็บค่าไว้ในช่องซ่อนเพื่อให้เส้นทางการกดปุ่มเหมือนกันทั้งสองสาย
+       */
+      (state.route === 'LAB'
+        ? '<input type="hidden" class="assign" value="LAB">'
+        : '<label>ส่งงานให้แผนกไหน <span class="req">*</span> (ต้องเลือกก่อนจึงจะกดอนุมัติได้)</label>' +
+          '<select class="assign">' + options + '</select>') +
+
+      '<label>เหตุผล (ต้องกรอกเมื่อจะตีกลับหรือยกเลิก)</label>' +
+      '<textarea class="reason" placeholder="เขียนให้ผู้แจ้งเข้าใจว่าต้องแก้อะไร เหตุผลนี้จะถูกเก็บไว้ในประวัติ"></textarea>' +
+
+      /*
+       * เอกสารต้องอยู่ "ก่อน" ช่องเลือกแผนกและช่องเหตุผล เพราะเป็นสิ่งที่ต้องอ่าน
+       * ก่อนตัดสินใจ ไม่ใช่สิ่งที่ดูทีหลังเมื่อกดผิดไปแล้ว
+       */
+      '<div class="actions">' +
+        '<button type="button" class="ghost small act-docs">ดูเอกสารของใบงานนี้</button>' +
+      '</div>' +
+      '<div class="doc-panel" hidden></div>' +
+
+      '<div class="actions">' +
+        '<button type="button" class="act-accept" disabled>อนุมัติ</button>' +
+        '<button type="button" class="act-return neutral" disabled>ตีกลับ</button>' +
+        '<button type="button" class="act-cancel danger" disabled>ยกเลิกใบงาน</button>' +
+      '</div>' +
+    '</article>';
+}
+
+/**
+ * ผูกเหตุการณ์ของใบงานหนึ่งใบ — ปุ่มจะเปิดใช้งานได้ก็ต่อเมื่อกรอกข้อมูลที่บังคับครบ
+ * @param {number} index ลำดับในรายการ
+ */
+function bindItem(index) {
+  var card = document.querySelector('.wo-item[data-index="' + index + '"]');
+  var wo = state.rows[index];
+  var assign = card.querySelector('.assign');
+  var reason = card.querySelector('.reason');
+
+  var buttons = {
+    accept: card.querySelector('.act-accept'),
+    ret: card.querySelector('.act-return'),
+    cancel: card.querySelector('.act-cancel')
+  };
+
+  bindDocuments(card, wo);
+
+  // ตั้งค่าเริ่มต้นของแผนกตามที่ผู้แจ้งระบุมา ถ้าไม่ใช่ "ไม่ระบุ"
+  if (wo['Assignment_Type'] && wo['Assignment_Type'] !== 'UNSPECIFIED') {
+    assign.value = wo['Assignment_Type'];
+  }
+
+  /** เปิดหรือปิดปุ่มตามความครบถ้วนของข้อมูลที่บังคับ */
+  function refreshButtons() {
+    var hasReason = reason.value.trim().length > 0;
+    buttons.accept.disabled = !assign.value;
+    buttons.ret.disabled = !hasReason;
+    buttons.cancel.disabled = !hasReason;
+  }
+
+  if (assign.tagName === 'SELECT') assign.addEventListener('change', refreshButtons);
+  reason.addEventListener('input', refreshButtons);
+  refreshButtons();
+
+  buttons.accept.addEventListener('click', function () {
+    run(card, 'api_approveWorkOrder',
+      [wo['WO_ID'], assign.value, { expectedUpdatedDate: toIso(wo['Updated_Date']) }],
+      'อนุมัติใบงาน ' + wo['WO_ID'] + ' แล้ว ระบบส่งงานให้แผนกที่เลือกเรียบร้อย');
+  });
+  buttons.ret.addEventListener('click', function () {
+    run(card, 'api_returnWorkOrder', [wo['WO_ID'], reason.value.trim(), toIso(wo['Updated_Date'])],
+      'ตีกลับใบงาน ' + wo['WO_ID'] + ' ให้ผู้แจ้งแก้ไขแล้ว ' +
+      'ถ้าเป็นเพราะเลือกสายงานผิด ผู้แจ้งจะแก้สายในใบเดิมแล้วส่งมาใหม่');
+  });
+  buttons.cancel.addEventListener('click', function () {
+    run(card, 'api_cancelWorkOrder', [wo['WO_ID'], reason.value.trim(), toIso(wo['Updated_Date'])],
+      'ยกเลิกใบงาน ' + wo['WO_ID'] + ' แล้ว ใบงานนี้จะไม่ถูกส่งให้แผนกใด');
+  });
+}
+
+/* ---------------------------------------------------------------------------
+ * เอกสารของใบงาน (SPEC 17.2)
+ *
+ * ผู้อนุมัติตัดสินใจโดยไม่เห็นเอกสารไม่ได้ · แต่ก็ดึงไฟล์ของทุกใบมาพร้อมกันไม่ได้
+ * เพราะหน้านี้ยังไม่มีการแบ่งหน้า จำนวนใบจึงโตได้ไม่จำกัด และตัวกรองที่ยาวตาม
+ * จำนวนข้อมูลคือสิ่งที่กฎข้อ 29 ห้ามไว้ · จึงโหลดทีละใบตอนกดเปิด ซึ่งถูกกำหนด
+ * ขอบเขตด้วยตัวมันเองเสมอ และไม่เพิ่มคำขอตอนเปิดหน้าเลยแม้แต่คำขอเดียว
+ *
+ * ทั้งแผงอ่านอย่างเดียว ไม่มีปุ่มแนบและไม่มีปุ่มลบ — ผู้อนุมัติไม่ต้องแก้เอกสาร
+ * --------------------------------------------------------------------------- */
+
+/**
+ * ผูกปุ่มเปิดดูเอกสารของใบงานหนึ่งใบ
+ * @param {Element} card การ์ดของใบงาน
+ * @param {Object} wo แถวใบงาน
+ */
+function bindDocuments(card, wo) {
+  var button = card.querySelector('.act-docs');
+  var panel = card.querySelector('.doc-panel');
+  if (!button || !panel) return;
+
+  button.addEventListener('click', function () {
+    if (!panel.hidden) {
+      panel.hidden = true;
+      button.textContent = 'ดูเอกสารของใบงานนี้';
+      return;
+    }
+    panel.hidden = false;
+    button.textContent = 'ซ่อนเอกสาร';
+
+    // ทุกกล่องที่ขึ้นว่ากำลังโหลด ต้องจบลงด้วยอะไรสักอย่างเสมอ (SPEC 17.3)
+    panel.innerHTML = '<div class="loading">กำลังโหลดเอกสารของใบงานนี้…</div>';
+    loadDocuments(panel, wo);
+  });
+}
+
+/**
+ * โหลดเอกสารของใบงาน · ถ้ายังไม่มีใบสั่งงาน ให้ระบบออกให้ก่อนแล้วค่อยอ่าน
+ *
+ * นี่คือตาข่ายรองของลำดับใหม่ (SPEC 16.1) — ใบที่ผู้ใช้ปิดแท็บระหว่างอัปโหลด
+ * จะไม่มีเอกสารค้างอยู่ตลอดไป เพราะใบงานใหม่ทุกใบต้องผ่านหน้านี้เสมอ
+ * และนี่คือจุดที่การไม่มีเอกสารสร้างความเสียหายมากที่สุด
+ *
+ * @param {Element} panel กล่องของแผง
+ * @param {Object} wo แถวใบงาน
+ * @return {Promise}
+ */
+function loadDocuments(panel, wo) {
+  var first = String(wo['Report_URL'] || '')
+    ? Promise.resolve()
+    : callApi('api_ensureWoReport', [wo['WO_ID']]).catch(function () {
+        // ออกไม่สำเร็จก็ยังต้องแสดงไฟล์แนบให้ดู — บอกไว้ในแผงว่ายังไม่มีเอกสาร
+      });
+
+  return first
+    .then(function () { return callApi('api_listWoAttachments', [wo['WO_ID']]); })
+    .then(function (data) {
+      renderDocuments(panel, data);
+      loadThumbnails(panel);
+    })
+    .catch(function (error) {
+      panel.innerHTML = '<div class="note-box stop">เปิดเอกสารไม่สำเร็จ<br>' +
+        escapeHtml(error.message) + '</div>';
+    });
+}
+
+/**
+ * วาดแผงเอกสาร — ลิงก์ใบสั่งงาน แล้วตามด้วยไฟล์แนบแยกตามหัวข้อ
+ * @param {Element} panel กล่องของแผง
+ * @param {Object} data ผลจาก api_listWoAttachments
+ */
+function renderDocuments(panel, data) {
+  var html = '<div class="doc-head">';
+
+  /*
+   * ใบสั่งงานเดินทางผ่านเซิร์ฟเวอร์ ไม่ใช่ลิงก์ Drive (กฎข้อ 34)
+   * ลิงก์ Drive เปิดได้เฉพาะบัญชีเจ้าของระบบ ผู้อนุมัติกดแล้วเจอหน้าปฏิเสธสิทธิ์
+   *
+   * ลิงก์โฟลเดอร์ถูกเอาออกไปเลย ไม่ได้เปลี่ยนเป็นไบต์ — โฟลเดอร์ทั้งโฟลเดอร์
+   * ส่งผ่านเซิร์ฟเวอร์ไม่ได้ และการแสดงลิงก์ที่กดแล้วเจอหน้าปฏิเสธสิทธิ์
+   * แย่กว่าการไม่แสดงอะไรเลย
+   */
+  html += data.reportUrl
+    ? docButtonHtml({ woId: data.woId, kind: DOC_KIND.REPORT, ref: '', label: 'ใบสั่งงาน (PDF)' })
+    : '<span class="req">ยังไม่มีใบสั่งงานของใบนี้ — ระบบลองออกให้แล้วแต่ยังไม่สำเร็จ</span>';
+  html += '</div>';
+
+  if (!data.groups.length) {
+    // รายการว่างเป็นสถานะปกติ ต้องบอกด้วยว่าปกติจะมีข้อมูลเมื่อไร (SPEC 17.3)
+    html += emptyHtml('ใบงานนี้ไม่มีไฟล์แนบ',
+      'ไฟล์จะขึ้นที่นี่เมื่อผู้แจ้งงานแนบเอกสารมาพร้อมกับการเปิดใบงาน');
+    panel.innerHTML = html;
+    return;
+  }
+
+  for (var g = 0; g < data.groups.length; g++) {
+    var group = data.groups[g];
+    html += '<div class="doc-group"><h4>' + escapeHtml(group.name) +
+      (group.required ? ' <span class="pill">บังคับ</span>' : '') +
+      ' <span class="muted">' + group.files.length + ' ไฟล์</span></h4><div class="doc-files">';
+
+    for (var f = 0; f < group.files.length; f++) {
+      html += docFileHtml(group.files[f]);
+    }
+    html += '</div></div>';
+  }
+
+  panel.innerHTML = html;
+
+  /*
+   * กดที่ภาพย่อเพื่อดูภาพเต็ม — ขอไบต์ของไฟล์จริงมาแสดงในหน้าเดียวกัน
+   * ไม่ใช่เปิดลิงก์ Drive เพราะลิงก์นั้นเปิดได้เฉพาะบัญชีเจ้าของระบบ
+   */
+  bindDocButtons(panel);
+
+  var shots = panel.querySelectorAll('.doc-shot');
+  for (var s = 0; s < shots.length; s++) {
+    shots[s].addEventListener('click', function () {
+      openFullImage(this.getAttribute('data-file'), this.getAttribute('data-name'));
+    });
+  }
+}
+
+/**
+ * ไฟล์หนึ่งไฟล์ในแผงเอกสาร — รูปได้ที่ว่างสำหรับภาพย่อ เอกสารได้แค่ลิงก์
+ * @param {Object} file ไฟล์จาก api_listWoAttachments
+ * @return {string} HTML
+ */
+function docFileHtml(file) {
+  if (file.isImage) {
+    return '<figure class="doc-shot" data-file="' + escapeHtml(file.fileId) + '" ' +
+      'data-name="' + escapeHtml(file.originalName || file.savedName) + '" ' +
+      'title="กดเพื่อดูภาพเต็ม">' +
+      '<div class="doc-thumb" data-thumb="' + escapeHtml(file.fileId) + '">กำลังโหลดรูป…</div>' +
+      '<figcaption>' + escapeHtml(file.originalName || file.savedName) + '</figcaption>' +
+      '</figure>';
+  }
+
+  /*
+   * เอกสารที่ไม่ใช่รูปต้องดาวน์โหลด · วัดแล้วว่า Chrome บนคอมไม่แสดง PDF ในกรอบ
+   * ของ Apps Script และแท็บใหม่ถูกบล็อกทั้งคอมและมือถือ (SPEC 16)
+   */
+  return '<div class="doc-file">' +
+    docButtonHtml({ woId: file.woId, kind: DOC_KIND.FILE, ref: file.fileId,
+      label: file.originalName || file.savedName }) +
+    ' <span class="muted">' + escapeHtml(fileSizeLabel(file.size)) + '</span></div>';
+}
+
+/**
+ * ขอภาพย่อของรูปทุกใบในแผง ทีละใบตามลำดับ
+ *
+ * ทีละใบ ไม่ใช่ยิงพร้อมกัน ด้วยเหตุผลเดียวกับการอัปโหลด — ช่องทางนี้ข้ามสองต่อ
+ * และการยิงพร้อมกันสิบก้อนจะทำให้ทุกก้อนช้าลงพร้อมกัน
+ *
+ * @param {Element} panel กล่องของแผง
+ * @return {Promise}
+ */
+function loadThumbnails(panel) {
+  var boxes = Array.prototype.slice.call(panel.querySelectorAll('.doc-thumb'));
+  var chain = Promise.resolve();
+
+  boxes.forEach(function (box) {
+    chain = chain.then(function () {
+      return callApi('api_fileImage', [box.getAttribute('data-thumb')])
+        .then(function (data) {
+          box.innerHTML = data.found
+            ? '<img src="' + escapeHtml(data.dataUrl) + '" alt="">'
+            : 'เปิดรูปนี้ไม่ได้';
+        })
+        .catch(function () { box.textContent = 'โหลดรูปไม่สำเร็จ'; });
+    });
+  });
+
+  return chain;
+}
+
+/**
+ * เปิดภาพเต็มทับหน้าจอ — ปิดด้วยการกดที่ใดก็ได้
+ * @param {string} fileId เลขที่ไฟล์ในทะเบียน
+ * @param {string} name ชื่อไฟล์ที่จะแสดงใต้ภาพ
+ */
+function openFullImage(fileId, name) {
+  var shade = document.createElement('div');
+  shade.className = 'shot-full';
+  shade.innerHTML = '<div class="loading">กำลังโหลดภาพเต็ม…</div>';
+  shade.addEventListener('click', function () { shade.remove(); });
+  document.body.appendChild(shade);
+
+  callApi('api_fileImage', [fileId, 'full'])
+    .then(function (data) {
+      shade.innerHTML = data.found
+        ? ('<img src="' + escapeHtml(data.dataUrl) + '" alt="">' +
+           '<div class="shot-name">' + escapeHtml(name) + ' · กดที่ใดก็ได้เพื่อปิด</div>')
+        : '<div class="note-box stop">เปิดภาพนี้ไม่ได้ · กดที่ใดก็ได้เพื่อปิด</div>';
+    })
+    .catch(function (error) {
+      shade.innerHTML = '<div class="note-box stop">' + escapeHtml(error.message) +
+        '<br>กดที่ใดก็ได้เพื่อปิด</div>';
+    });
+}
+
+/**
+ * เรียก API หนึ่งรายการ โดยปิดปุ่มทั้งใบระหว่างรอ แล้วโหลดรายการใหม่เมื่อเสร็จ
+ * @param {Element} card การ์ดของใบงานนั้น
+ * @param {string} api ชื่อฟังก์ชันใน 09_Api.gs
+ * @param {Array} args อาร์กิวเมนต์
+ * @param {string} okMessage ข้อความเมื่อสำเร็จ
+ */
+function run(card, api, args, okMessage) {
+  clearMessage();
+  setBusy(true, card);
+
+  callApi(api, args)
+    .then(function () {
+      setBusy(false, card);
+      showMessage(okMessage, 'ok');
+      loadList();   // โหลดใหม่เพื่อให้ Updated_Date และรายการตรงกับของจริงเสมอ
+    })
+    .catch(function (error) {
+      showMessage(error.message, 'error');
+      setBusy(false, card);
+    });
+}
+</script>
+</body>
+</html>

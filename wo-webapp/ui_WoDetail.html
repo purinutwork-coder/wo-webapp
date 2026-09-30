@@ -1,0 +1,430 @@
+<!DOCTYPE html>
+<html lang="th">
+<head>
+  <base target="_top">
+  <meta charset="utf-8">
+  <?!= include('ui_Style') ?>
+</head>
+<body>
+<div id="pageData"
+  data-wo-id="<?= woId ?>" data-dept="<?= dept ?>" data-view="<?= view ?>" data-route="<?= route ?>"
+  data-base-url="<?= baseUrl ?>" data-home-url="<?= homeUrl ?>"
+  data-bootstrap="<?= bootstrapJson ?>" hidden></div>
+
+<div class="app" id="app">
+  <aside class="side" id="side">
+    <a class="side-head" id="brandLink" href="#">
+      <span class="side-mark" aria-hidden="true">
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+          stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M3 11l9-7 9 7"/><path d="M5 10v10h14V10"/><path d="M10 20v-6h4v6"/>
+        </svg>
+      </span>
+      <span class="side-title">ระบบใบสั่งงาน<small>กลับหน้าติดตามใบงาน</small></span>
+    </a>
+    <nav class="side-nav" id="navBar" aria-label="เมนูหลัก"></nav>
+    <div class="side-foot" id="navFoot"></div>
+  </aside>
+  <button type="button" class="scrim" id="scrim" aria-label="ปิดเมนู" hidden></button>
+
+  <div class="main-col">
+    <header class="topbar">
+      <button type="button" class="icon-btn btn-menu" id="btnMenu" aria-label="เปิดเมนู">
+        <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+          stroke-width="1.8" stroke-linecap="round"><path d="M4 7h16"/><path d="M4 12h16"/><path d="M4 17h16"/></svg>
+      </button>
+      <button type="button" class="icon-btn btn-collapse" id="btnCollapse" aria-label="พับหรือกางแถบเมนู">
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+          stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M4 5h16"/><path d="M4 12h10"/><path d="M4 19h16"/><path d="M19 9l3 3-3 3"/></svg>
+      </button>
+      <h1 id="pageTitle">รายละเอียดใบสั่งงาน</h1>
+      <span class="who" id="whoami">กำลังตรวจสอบผู้ใช้…</span>
+    </header>
+
+    <main>
+  <div id="message" class="msg"></div>
+  <div id="detail"><div class="loading">กำลังโหลดรายละเอียดใบงาน…</div></div>
+    </main>
+  </div>
+</div>
+
+<?!= include('ui_Script') ?>
+<?!= include('ui_Nav') ?>
+<?!= include('ui_Auth') ?>
+<script>
+/*
+  หน้ารายละเอียดใบสั่งงาน (SPEC 17.2)
+
+  เปิดด้วย ?page=wo&id=WO-2609-0001 · ทุก Role เปิดดูได้ตาม SPEC หัวข้อ 2
+  ที่ว่าทุกคนดูใบงานได้ทุกใบทุกแผนก สิ่งที่คุมคือสิทธิ์แก้ไขและเปลี่ยนสถานะ
+
+  หน้านี้ "อ่านอย่างเดียว" ทั้งหน้า ไม่มีปุ่มที่เปลี่ยนข้อมูลแม้แต่ปุ่มเดียว
+  เป็นทั้งหน้าที่คนทั่วไปเปิดดู และเป็นปลายทางของปุ่มในข้อความแจ้งเตือน Telegram
+  ผู้ที่ยังไม่ได้ล็อกอินกดลิงก์มาจะเจอแผงเข้าสู่ระบบวาดทับ แล้วกลับมาที่ใบนี้ทันที
+*/
+
+/* คีย์ที่หน้านี้ต้องใช้จากก้อนข้อมูลที่เซิร์ฟเวอร์ส่งมา (SPEC 17.3) */
+var PAGE_NEEDS = ['detail'];
+
+var state = { detail: null };
+
+document.addEventListener('DOMContentLoaded', function () {
+  initNav('wo');
+  // บอกไว้ว่าถ้าต้องล็อกอินกลางคัน แล้วล็อกอินเสร็จ ให้กลับมาที่ใบนี้ ไม่ใช่เด้งไปหน้าแรก
+  bootPage(loadPage, loadPage);
+});
+
+/** เปิดหน้า — ขอข้อมูลทั้งหมดในคำขอเดียว แล้ววาด */
+function loadPage() {
+  // ทุกกล่องที่ขึ้นว่ากำลังโหลด ต้องจบลงด้วยอะไรสักอย่างเสมอ (SPEC 17.3)
+  var doneLoading = guardLoading('detail');
+
+  startPage('detail', PAGE_NEEDS).then(function (started) {
+    if (!started.allowed) { doneLoading(); return; }
+    state.detail = started.boot.detail || {};
+    render();
+    doneLoading();
+  });
+}
+
+/** วาดทั้งหน้า */
+function render() {
+  var box = document.getElementById('detail');
+  var detail = state.detail || {};
+
+  /*
+   * ใบที่ไม่มีอยู่จริง ต้องบอกให้ชัดพร้อมทางออก ไม่ใช่จอว่างหรือข้อความดิบ (SPEC 17.3)
+   * เกิดได้จริงเมื่อมีคนส่งลิงก์เก่าต่อกันในแชท หรือพิมพ์เลขที่ผิดมาเอง
+   */
+  if (!detail.found) {
+    box.innerHTML = emptyHtml(escapeHtml(detail.reason || 'ไม่พบใบงานนี้'),
+      'ตรวจเลขที่ใบงานอีกครั้ง หรือกลับไปเลือกจากรายการที่หน้าแรก') +
+      '<div class="actions"><a class="btn-link" href="' + escapeHtml(NAV.home) + '">' +
+      'กลับหน้าแรก</a></div>';
+    return;
+  }
+
+  var wo = detail.workOrder;
+  document.getElementById('pageTitle').textContent = 'ใบสั่งงาน ' + wo.woId;
+  document.title = 'ใบสั่งงาน ' + wo.woId;
+
+  box.innerHTML =
+    headerHtml(wo) +
+    cardHtml('ข้อมูลลูกค้า', rowsHtml([
+      ['ชื่อลูกค้า', wo.customerName], ['รหัสลูกค้า', wo.customerCode],
+      ['พนักงานขาย', wo.salesPerson], ['วันที่เริ่มติดต่อ', wo.display.startContactDate],
+      ['ชื่อผู้ติดต่อ', wo.contact], ['โทรศัพท์', wo.phone]
+    ])) +
+    cardHtml('สถานที่และโครงการ', rowsHtml([
+      ['โครงการ', wo.project], ['สถานที่', wo.location], ['รหัสสถานที่', wo.pjId]
+    ])) +
+    cardHtml('รายละเอียดของงาน', rowsHtml([
+      ['สายงาน', assignmentLabel(wo.assignmentType)],
+      ['สิ่งที่ต้องการ', wo.requestTypes],
+      ['ลักษณะงานที่ทำ หรืออาการ', wo.jobDescription],
+      ['รายละเอียดของสินค้า', wo.productDetail],
+      ['ขอบเขตของงาน ตำแหน่ง สถานที่', wo.workScope],
+      ['เอกสารอ้างอิง', wo.referenceDoc]
+    ])) +
+    scheduleHtml(wo, detail.tasks) +
+    cardHtml('ผู้แจ้งงานและการอนุมัติ', rowsHtml([
+      ['ผู้แจ้งงาน', wo.createdBy], ['วันที่แจ้ง', wo.display.createdDate],
+      ['ผู้อนุมัติ', wo.approvedBy], ['วันที่อนุมัติ', wo.display.approvedDate],
+      ['จำนวนครั้งที่ถูกตีกลับ', wo.returnCount ? String(wo.returnCount) : ''],
+      /*
+        ประวัติการเปิดงานซ้ำ — แสดงเฉพาะใบที่เคยถูกเปิดซ้ำจริง (SPEC 20.6)
+
+        ใบส่วนใหญ่ไม่เคยถูกเปิดซ้ำ ถ้าขึ้นว่า "เปิดซ้ำ 0 ครั้ง" ทุกใบ จะกลายเป็น
+        บรรทัดที่ไม่มีความหมายสามบรรทัด แล้วใบที่เปิดซ้ำจริงก็จะกลืนไปกับใบปกติ ·
+        rowsHtml ข้ามแถวที่ค่าว่างอยู่แล้ว จึงส่งค่าว่างไปเมื่อไม่มีอะไรจะบอก
+      */
+      ['จำนวนครั้งที่เปิดงานใหม่', wo.reopenCount ? String(wo.reopenCount) : ''],
+      ['ผู้เปิดงานใหม่ล่าสุด', wo.reopenCount ? wo.reopenedBy : ''],
+      ['วันที่เปิดงานใหม่ล่าสุด', wo.reopenCount ? wo.display.reopenedDate : ''],
+      ['เหตุผลการเปิดงานใหม่ล่าสุด', wo.reopenCount ? wo.reopenReason : '']
+    ])) +
+    cardHtml('หมายเหตุ', rowsHtml([['หมายเหตุ', wo.remark]])) +
+    tasksHtml(detail.tasks) +
+    timelineHtml(detail.timeline) +
+    reasonsHtml(detail.reasons) +
+    filesHtml(detail.files) +
+    reportHtml(detail.report, wo.woId) +
+    paymentHtml(detail.payment);
+
+  // ปุ่มดาวน์โหลดทุกปุ่มในหน้าถูกผูกทีเดียวหลังวาดเสร็จ ไม่ต้องให้แต่ละการ์ดไล่ผูกเอง
+  bindDocButtons(box);
+}
+
+/**
+ * แถบหัวบอกสถานะรวมของใบงาน
+ * @param {Object} wo ข้อมูลใบงาน
+ * @return {string} HTML
+ */
+function headerHtml(wo) {
+  return '<div class="note-box info">' +
+    '<b>' + escapeHtml(wo.woId) + '</b> · สถานะ ' + statusPill('woStatus', wo.status) +
+    ' · แก้ไขล่าสุด ' + escapeHtml(wo.display.updatedDate) +
+    '</div>';
+}
+
+/**
+ * การ์ดหนึ่งใบ
+ * @param {string} title หัวข้อ
+ * @param {string} body เนื้อใน (HTML ที่ปลอดภัยแล้ว)
+ * @return {string} HTML
+ */
+function cardHtml(title, body) {
+  return '<section class="card"><h2>' + escapeHtml(title) + '</h2>' + body + '</section>';
+}
+
+/**
+ * ตารางชื่อช่องกับค่า — ช่องที่ไม่มีข้อมูลแสดงขีด ไม่ปล่อยว่าง
+ * เหตุผลเดียวกับใบสั่งงาน PDF: ช่องว่างแยกไม่ออกระหว่าง "ไม่มีข้อมูล" กับ "ระบบไม่ได้แสดง"
+ * @param {Array[]} pairs [[ชื่อช่อง, ค่า], ...]
+ * @return {string} HTML
+ */
+function rowsHtml(pairs) {
+  var html = '<div class="detail-grid">';
+  for (var i = 0; i < pairs.length; i++) {
+    var value = pairs[i][1];
+    html += '<div class="detail-label">' + escapeHtml(pairs[i][0]) + '</div>' +
+      '<div class="detail-value">' +
+      (value === '' || value === null || value === undefined ? '—' : escapeHtml(value)) +
+      '</div>';
+  }
+  return html + '</div>';
+}
+
+/**
+ * การ์ดกำหนดการ — วันครบกำหนดกับวันที่ช่างนัดเข้างาน **อยู่ในสายตาพร้อมกัน**
+ *
+ * คำถามที่คนถามจริงเมื่อเห็นว่าใบงานเลยกำหนด คือ "แล้วช่างนัดไว้วันไหน"
+ * ถ้าสองค่านี้อยู่คนละการ์ดที่ต้องเลื่อนจอไปมา ก็ต้องจำค่าหนึ่งไว้ในหัวแล้วไปดูอีกค่า
+ * ซึ่งคนจะเลิกทำตั้งแต่ใบที่สอง · การ์ดเดียวจึงเป็นคำตอบ ไม่ใช่สองการ์ดที่วางติดกัน
+ *
+ * @param {Object} wo ข้อมูลใบงาน
+ * @param {Object[]} tasks งานของแผนก
+ * @return {string} HTML
+ */
+function scheduleHtml(wo, tasks) {
+  var pairs = [
+    ['กำหนดเข้างาน (ตกลงกับลูกค้า)', wo.display.startDate],
+    ['กำหนดออกงาน (ตกลงกับลูกค้า)', wo.display.endDate]
+  ];
+
+  /*
+   * ขอบเขตวันการทำงานแสดงเฉพาะใบที่กรอกไว้ (SPEC 9.2)
+   * ใบที่ไม่ได้กรอกต้องไม่มีบรรทัดนี้เลย ไม่ใช่มีบรรทัดที่ขึ้นขีด ซึ่งจะชวนให้เข้าใจว่า
+   * ระบบคำนวณไม่ได้ ทั้งที่ความจริงคือไม่มีใครตั้งขอบเขตไว้ตั้งแต่แรก
+   */
+  var html = '';
+  if (wo.due && wo.due.has) {
+    pairs.push(['ขอบเขตวันการทำงาน', wo.durationDays + ' วัน']);
+    pairs.push(['วันครบกำหนด', wo.due.dueText]);
+  }
+
+  // วันที่ช่างนัดเข้างานจริง ของทุกแผนกในใบนี้ — ต่างจากกำหนดที่ตกลงกับลูกค้าได้
+  var list = tasks || [];
+  for (var i = 0; i < list.length; i++) {
+    pairs.push([assignmentLabel(list[i].department) + ' นัดเข้างาน',
+      list[i].visitStart || 'ยังไม่ได้กำหนด']);
+    if (list[i].visitEnd) {
+      pairs.push([assignmentLabel(list[i].department) + ' นัดออกงาน', list[i].visitEnd]);
+    }
+  }
+
+  html = rowsHtml(pairs);
+
+  if (wo.due && wo.due.has && wo.due.counting) {
+    var tone = (wo.due.state === 'OVER') ? 'stop' : (wo.due.state === 'TODAY') ? 'warn' : 'info';
+    html += '<div class="note-box ' + tone + '"><b>' + escapeHtml(wo.due.label) + '</b>' +
+      (wo.due.state === 'OVER'
+        ? '<br>เลยกำหนดแล้วยังทำงานต่อได้ตามปกติ ข้อมูลนี้มีไว้ให้ตามงาน ไม่ได้กั้นอะไร ' +
+          'ถ้ายังไม่มีแผนกไหนนัดเข้างาน ให้ติดต่อแผนกที่รับงานใบนี้'
+        : '') +
+      '</div>';
+  }
+
+  return cardHtml('กำหนดการ', html);
+}
+
+/**
+ * งานของแต่ละแผนก พร้อมความคืบหน้าของขั้นตอนหรืองวดงาน
+ * @param {Object[]} tasks งานของแผนก
+ * @return {string} HTML
+ */
+function tasksHtml(tasks) {
+  var list = tasks || [];
+  if (!list.length) {
+    return cardHtml('งานของแผนก',
+      emptyHtml('ยังไม่มีงานของแผนก', 'งานของแผนกจะเกิดขึ้นเมื่อผู้อนุมัติกดอนุมัติใบงานนี้'));
+  }
+
+  var html = '';
+  for (var i = 0; i < list.length; i++) {
+    var task = list[i];
+    html += '<div class="task-block">' +
+      '<div class="task-head"><b>' + escapeHtml(assignmentLabel(task.department)) + '</b>' +
+      ' · ' + statusPill('taskStatus', task.status) +
+      ' · ความคืบหน้า ' + escapeHtml(task.progress.done + '/' + task.progress.total) +
+      '</div>' +
+      rowsHtml([
+        ['เลขที่งานของแผนก', task.taskId],
+        ['นัดเข้างาน', task.visitStart], ['นัดออกงาน', task.visitEnd],
+        ['ผู้รับงาน', task.acceptedBy], ['วันที่รับงาน', task.display.acceptedDate],
+        ['ผู้ปิดงาน', task.completedBy], ['วันที่ปิดงาน', task.display.completedDate],
+        ['เหตุผลที่ตีกลับ', task.returnReason], ['เหตุผลที่ยกเลิก', task.cancelReason]
+      ]);
+
+    if (task.steps.length) {
+      html += '<table class="file-list"><tr><th>ขั้นตอน / งวด</th><th>สถานะ</th>' +
+        '<th>กำหนด</th><th>ผู้ปิด</th><th>เมื่อ</th></tr>';
+      for (var s = 0; s < task.steps.length; s++) {
+        var step = task.steps[s];
+        html += '<tr><td>' + escapeHtml(step.stepNo + '. ' + step.name) + '</td>' +
+          '<td>' + escapeHtml(step.status) + '</td>' +
+          '<td>' + escapeHtml(step.dueDate || '—') + '</td>' +
+          '<td>' + escapeHtml(step.completedBy || '—') + '</td>' +
+          '<td>' + escapeHtml(step.completedDate || '—') + '</td></tr>';
+      }
+      html += '</table>';
+    }
+    html += '</div>';
+  }
+  return cardHtml('งานของแผนก', html);
+}
+
+/**
+ * เส้นเวลา ใครทำอะไรเมื่อไร
+ * @param {Object[]} timeline รายการเหตุการณ์
+ * @return {string} HTML
+ */
+function timelineHtml(timeline) {
+  var list = timeline || [];
+  if (!list.length) {
+    return cardHtml('เส้นเวลา',
+      emptyHtml('ยังไม่มีเหตุการณ์', 'เหตุการณ์จะขึ้นที่นี่เมื่อมีคนทำรายการกับใบงานนี้'));
+  }
+
+  var html = '<ol class="timeline">';
+  for (var i = 0; i < list.length; i++) {
+    var item = list[i];
+    html += '<li><b>' + escapeHtml(item.label) + '</b> · ' + escapeHtml(item.at) +
+      '<br><span class="muted">โดย ' + escapeHtml(item.user || '—') +
+      (item.remark ? (' · ' + escapeHtml(item.remark)) : '') + '</span></li>';
+  }
+  return cardHtml('เส้นเวลา', html + '</ol>');
+}
+
+/**
+ * เหตุผลการตีกลับและการยกเลิกทุกครั้งที่เคยเกิด ไม่ใช่แค่ครั้งล่าสุด
+ * @param {Object[]} reasons ประวัติเหตุผล
+ * @return {string} HTML
+ */
+function reasonsHtml(reasons) {
+  var list = reasons || [];
+  if (!list.length) {
+    return cardHtml('ประวัติการตีกลับและยกเลิก',
+      emptyHtml('ใบงานนี้ไม่เคยถูกตีกลับหรือยกเลิก',
+        'ถ้ามีการตีกลับหรือยกเลิกเมื่อไร เหตุผลทุกครั้งจะถูกเก็บไว้ที่นี่'));
+  }
+
+  var html = '';
+  for (var i = 0; i < list.length; i++) {
+    html += '<div class="note-box warn"><b>' + escapeHtml(list[i].label) + '</b> · ' +
+      escapeHtml(list[i].at) + ' · โดย ' + escapeHtml(list[i].user || '—') +
+      '<br>' + escapeHtml(list[i].remark) + '</div>';
+  }
+  return cardHtml('ประวัติการตีกลับและยกเลิก', html);
+}
+
+/**
+ * ไฟล์แนบที่ยังใช้งานอยู่
+ * @param {Object[]} files รายการไฟล์
+ * @return {string} HTML
+ */
+function filesHtml(files) {
+  var list = files || [];
+  if (!list.length) {
+    return cardHtml('ไฟล์แนบ',
+      emptyHtml('ยังไม่มีไฟล์แนบในใบงานนี้',
+        'ไฟล์จะขึ้นที่นี่เมื่อมีคนแนบเข้ามาจากหน้าสร้างหรือแก้ไขใบงาน'));
+  }
+
+  /*
+   * ดาวน์โหลดผ่านเซิร์ฟเวอร์ ไม่ใช่ลิงก์ Drive (กฎข้อ 34)
+   *
+   * หน้านี้เป็นหน้าเดียวที่ทุก Role เปิดได้ ลิงก์ที่กดแล้วเจอหน้าปฏิเสธสิทธิ์
+   * จึงเป็นอาการที่ทุกคนในระบบเจอ · ปุ่มนี้เป็นการ "อ่าน" ไม่ใช่การเปลี่ยนข้อมูล
+   * หน้านี้จึงยังอ่านอย่างเดียวตามที่ถูกคุมไว้
+   */
+  var html = '<div class="table-wrap"><table class="file-list">' +
+    '<tr><th>ชื่อไฟล์</th><th>ผู้แนบ</th><th>เมื่อ</th><th></th></tr>';
+  for (var i = 0; i < list.length; i++) {
+    html += '<tr><td>' + escapeHtml(list[i].savedName) + '</td>' +
+      '<td>' + escapeHtml(list[i].uploadedBy || '—') + '</td>' +
+      '<td>' + escapeHtml(list[i].display.uploadedDate) + '</td>' +
+      '<td>' + docButtonHtml({ woId: list[i].woId, kind: DOC_KIND.FILE,
+        ref: list[i].fileId, label: 'เปิด' }) + '</td></tr>';
+  }
+  return cardHtml('ไฟล์แนบ', html + '</table></div>');
+}
+
+/**
+ * ใบสั่งงาน PDF ฉบับปัจจุบันและฉบับเก่า
+ * @param {Object} report {currentUrl, archive}
+ * @param {string} woId เลขที่ใบงาน — ปลายทางที่คืนไบต์ต้องได้รับมาเสมอ
+ * @return {string} HTML
+ */
+function reportHtml(report, woId) {
+  var data = report || {};
+  var html = '<div class="hint">';
+
+  /*
+   * ลิงก์โฟลเดอร์ถูกเอาออกไปเลย ไม่ได้เปลี่ยนเป็นไบต์ — โฟลเดอร์ทั้งโฟลเดอร์
+   * ส่งผ่านเซิร์ฟเวอร์ไม่ได้ และการแสดงลิงก์ที่กดแล้วเจอหน้าปฏิเสธสิทธิ์
+   * แย่กว่าการไม่แสดงอะไรเลย (SPEC 16)
+   */
+  html += data.currentUrl
+    ? docButtonHtml({ woId: woId, kind: DOC_KIND.REPORT, ref: '',
+        label: 'ใบสั่งงานฉบับปัจจุบัน (PDF)' })
+    : 'ยังไม่มีใบสั่งงาน PDF ของใบนี้';
+  html += '</div>';
+
+  var archive = data.archive || [];
+  if (!archive.length) {
+    html += '<div class="hint">ยังไม่มีฉบับเก่าเก็บไว้ · ฉบับเก่าจะถูกเก็บอัตโนมัติทุกครั้งที่ออกใหม่</div>';
+  } else {
+    /*
+     * ฉบับเก่าไม่มีแถวใน File_Index จึงอ้างด้วย **ลำดับที่เซิร์ฟเวอร์เป็นคนจัดให้**
+     * ไม่ใช่ชื่อไฟล์หรือรหัสไฟล์ ซึ่งเชื่อจากเบราว์เซอร์ไม่ได้ (กฎข้อ 34)
+     */
+    html += '<ul class="plain-list">';
+    for (var i = 0; i < archive.length; i++) {
+      html += '<li>' + docButtonHtml({ woId: woId, kind: DOC_KIND.ARCHIVE,
+        ref: archive[i].at, label: archive[i].name }) + '</li>';
+    }
+    html += '</ul>';
+  }
+  return cardHtml('ใบสั่งงาน (PDF)', html);
+}
+
+/**
+ * ข้อมูลการชำระเงิน
+ * @param {Object} payment ข้อมูลการชำระ
+ * @return {string} HTML
+ */
+function paymentHtml(payment) {
+  var data = payment || {};
+  return cardHtml('การชำระเงิน', rowsHtml([
+    ['ต้องชำระก่อนเริ่มงาน', data.required ? 'ใช่' : 'ไม่'],
+    ['สถานะการชำระ', data.status],
+    ['วันที่รับชำระ', data.date],
+    ['ผู้บันทึก', data.by],
+    ['หมายเหตุ', data.remark]
+  ]));
+}
+</script>
+</body>
+</html>
