@@ -1,0 +1,22 @@
+# Worker สำหรับ "กองที่ 0" — พิสูจน์ของที่ยังไม่รู้ ยังไม่ได้ย้ายอะไรทั้งสิ้น
+#
+# ชื่อต้องไม่ซ้ำกับ cnr-rfq ซึ่งเป็นของคนอื่นในบัญชีเดียวกันและมีคนกำลังทำงานอยู่
+name = "wo-webapp"
+
+main = "src/index.js"
+compatibility_date = "2026-09-29"
+
+# เปิด node:crypto เพื่อวัดต้นทุนการตรวจรหัสผ่านด้วยวิธีที่เร็วที่สุดที่ Worker ทำได้
+# ไม่ได้ใช้เพื่อย้ายโค้ด ใช้เพื่อวัดว่าเพดาน CPU พอหรือไม่
+compatibility_flags = ["nodejs_compat"]
+
+account_id = "3a084cb9168b73c0547ed2f403c13c14"
+
+# ห้ามใส่กุญแจในไฟล์นี้เด็ดขาด ไฟล์นี้ขึ้น git
+# กุญแจเข้าทาง `wrangler secret put SUPABASE_KEY` ซึ่งเก็บไว้ฝั่ง Cloudflare อย่างเดียว
+[vars]
+SUPABASE_TABLE = "department_task"
+
+# ข้อ 3 — ออก PDF ภาษาไทย · แผนฟรีให้ 10 นาที/วัน 3 เบราว์เซอร์พร้อมกัน
+[browser]
+binding = "BROWSER"

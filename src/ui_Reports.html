@@ -1,0 +1,801 @@
+<script>
+/*
+  แผงงานรายขั้นตอนของแผนก — ใช้ร่วมกันทั้งหน้างานแผนก (Service / Project) และหน้างานแล็บ
+  (SPEC 7.1, 7.2, 7.3, 14.1, 16, 17.2 · ภาคผนวก ก)
+
+  ลำดับการใช้งานที่ตั้งใจไว้
+    1. เลือกขั้นตอน (หรืองวด) ที่กำลังทำ
+    2. เลือกเอกสารทีละรายการแล้วแนบไฟล์ · เพิ่มรูปหน้างานได้หลายรูป
+    3. กด "บันทึกขั้นตอนนี้" ครั้งเดียว ทุกอย่างที่ค้างอยู่จึงถูกส่งขึ้นระบบ
+    4. ขั้นตอนถัดไปปลดล็อกเมื่อขั้นก่อนหน้าเสร็จแล้ว
+
+  สองข้อที่ต้องรักษาไว้
+    - **ห้ามบันทึกทีละการกด** การติ๊กแล้วบันทึกทันทีทำให้หน้าจอโหลดใหม่ตลอดเวลา
+      และของที่เลือกค้างไว้หายไปกลางทาง · ที่นี่เก็บไว้ในรายการรอบันทึกก่อน
+      แล้วส่งทีเดียวตอนกดบันทึก
+    - **ห้ามให้หน้าเว็บตัดสินว่าขั้นไหนทำได้** เซิร์ฟเวอร์ส่ง locked และ lockReason มาให้แล้ว
+      (taskReportView) ซึ่งคิดจากกติกาเดียวกับด่านจริงที่ updateTaskStep
+
+  เขียนไว้ที่เดียวเพราะสองหน้านั้นทำเรื่องนี้เหมือนกันทุกอย่าง ต่างกันแค่ "ที่ที่แนบ"
+  ซึ่งเซิร์ฟเวอร์คำนวณมาให้แล้วในรูปของ slots — ขั้นตอนของ Service งวดของ Project
+  หรือตัวงานเองเมื่อไม่มีขั้นย่อย (Lab และ Project ที่ยังไม่มีงวด)
+*/
+
+/**
+ * ช่องกำหนดวันเวลาที่แผนกจะเข้างาน (SPEC 13 · 17.3)
+ *
+ * **เป็นคนละเรื่องกับกำหนดการของใบงาน** ข้างบนคือสิ่งที่ตกลงกับลูกค้า ตรงนี้คือวันที่
+ * ช่างจะไปจริง · เก็บแยกกันเพื่อให้ตอบได้ว่า "ใบนี้เลยกำหนดแล้ว ช่างนัดไว้วันไหน"
+ *
+ * **ไม่บังคับกรอก** ช่างที่อยู่หน้างานแล้วต้องทำงานต่อได้ทันที · กรอกทีหลังได้ตลอด
+ * และแก้ได้เรื่อย ๆ เพราะแผนงานเลื่อนได้จริง
+ *
+ * ตอนเปิดครั้งแรกเติมค่าจากกำหนดการของใบงานให้ ถ้าตรงกันอยู่แล้วก็กดบันทึกผ่านได้เลย
+ *
+ * @param {Object} row ข้อมูลงานหนึ่งใบ
+ * @return {string} HTML
+ */
+function visitHtml(row) {
+  if (row.status === 'PENDING_ACCEPT') {
+    return '<div class="hint">กดรับงานก่อน จึงจะกำหนดวันเวลาเข้างานได้</div>';
+  }
+  if (row.status === 'COMPLETED' || row.status === 'CANCELLED' || row.blocked.returned) {
+    // งานที่จบหรือถูกพักแล้ว แสดงค่าที่บันทึกไว้อย่างเดียว ไม่ให้แก้
+    return row.visit.isSet
+      ? '<div class="hint">เข้างาน ' + escapeHtml(row.visit.startText) +
+        (row.visit.endText ? ' · ออกงาน ' + escapeHtml(row.visit.endText) : '') + '</div>'
+      : '';
+  }
+
+  var start = row.visit.start || row.visit.suggest.start || '';
+  var end = row.visit.end || row.visit.suggest.end || '';
+
+  return '<div class="visit-box">' +
+    '<b>วันเวลาที่แผนกเข้างาน</b>' +
+    (row.visit.isSet ? '' : '<span class="hint"> · ยังไม่ได้กำหนด</span>') +
+    '<div class="visit-row">' +
+      '<label>เข้างาน<input type="datetime-local" class="visit-start" value="' +
+        escapeHtml(start) + '"></label>' +
+      '<label>ออกงาน<input type="datetime-local" class="visit-end" value="' +
+        escapeHtml(end) + '"></label>' +
+      '<button type="button" class="small act-visit">บันทึกวันเข้างาน</button>' +
+    '</div>' +
+    '<div class="hint">' +
+      (row.visit.isSet
+        ? 'แก้ไขได้ตลอด แผนงานเลื่อนได้'
+        : 'เติมค่าจากกำหนดการของใบงานไว้ให้แล้ว ถ้าตรงกันก็กดบันทึกได้เลย') +
+      ' · งานที่กำหนดวันไว้จะขึ้นในเมนู "งานวันนี้" ของวันนั้น</div>' +
+    '</div>';
+}
+
+/**
+ * ผูกปุ่มบันทึกวันเวลาเข้างานของการ์ดหนึ่ง
+ *
+ * อยู่ที่นี่เพราะหน้างานแผนกกับหน้างานแล็บทำเรื่องนี้เหมือนกันทุกตัวอักษร
+ * ถ้าเขียนแยกสองที่ วันหนึ่งจะแก้ที่เดียวแล้วอีกหน้าค้างอยู่กับพฤติกรรมเก่า
+ *
+ * @param {Element} card การ์ดของงาน
+ * @param {Object} row ข้อมูลงานหนึ่งใบ
+ * @param {function(Element, string, Array, string)} run ตัวเรียกฝั่งเซิร์ฟเวอร์ของหน้านั้น
+ */
+function bindVisitBox(card, row, run) {
+  var button = card.querySelector('.act-visit');
+  if (!button) return;
+
+  button.addEventListener('click', function () {
+    var start = card.querySelector('.visit-start').value || '';
+    var end = card.querySelector('.visit-end').value || '';
+    run(card, 'api_setTaskVisit', [row.taskId, start, end],
+      start ? 'บันทึกวันเวลาเข้างานแล้ว' : 'ล้างวันเวลาเข้างานแล้ว');
+  });
+}
+
+/**
+ * ใส่แผงงานรายขั้นตอนเข้าไปในการ์ดของงานหนึ่ง
+ * @param {Element} card การ์ดของงาน
+ * @param {string} taskId เลขที่งานของแผนก
+ * @param {function(Object)} [onData] เรียกทุกครั้งที่ได้ข้อมูลใหม่ ให้การ์ดอัปเดตตัวเองได้
+ * @param {function(Object):boolean} [beforeSave] ถามการ์ดก่อนบันทึก · คืน false = ไม่บันทึก
+ *        รับ {completing} บอกว่าการกดครั้งนี้กำลังปิดขั้นตอนหรือแค่แนบไฟล์
+ *        มีไว้ให้การ์ดถามยืนยันเรื่องที่ตัวแผงไม่รู้ เช่นยังไม่ได้กำหนดวันเข้างาน
+ *        **ห้ามใช้เป็นด่าน** ด่านจริงทุกด่านอยู่ฝั่งเซิร์ฟเวอร์เสมอ (กฎข้อ 7)
+ */
+function attachReportPanel(card, taskId, onData, beforeSave) {
+  var button = card.querySelector('.act-reports');
+  var panel = card.querySelector('.report-panel');
+  if (!button || !panel) return;
+
+  button.addEventListener('click', function () {
+    if (!panel.hidden) { panel.hidden = true; return; }
+
+    panel.hidden = false;
+    // ทุกกล่องที่ขึ้นว่ากำลังโหลด ต้องจบลงด้วยอะไรสักอย่างเสมอ (SPEC 17.3)
+    panel.innerHTML = '<div class="loading">กำลังโหลดขั้นตอนงานและเอกสาร…</div>';
+    panel.reportState = { open: -1, pending: {}, doneWanted: {},
+      onData: onData || null, beforeSave: beforeSave || null };
+    loadReportPanel(panel, taskId);
+  });
+}
+
+/**
+ * ขอข้อมูลของงานนี้มาวาดใหม่ทั้งแผง
+ * @param {Element} panel กล่องของแผง
+ * @param {string} taskId เลขที่งานของแผนก
+ * @return {Promise}
+ */
+function loadReportPanel(panel, taskId) {
+  return callApi('api_listTaskReports', [taskId])
+    .then(function (data) {
+      renderReportPanel(panel, data);
+      if (panel.reportState.onData) panel.reportState.onData(data);
+    })
+    .catch(function (error) {
+      panel.innerHTML = '<div class="note-box stop">เปิดขั้นตอนงานไม่สำเร็จ<br>' +
+        escapeHtml(error.message) + '</div>';
+    });
+}
+
+/**
+ * วาดทั้งแผง — สรุปเอกสารที่ขาด รายการขั้นตอน และพื้นที่ทำงานของขั้นที่เลือกอยู่
+ * @param {Element} panel กล่องของแผง
+ * @param {Object} data ผลจาก api_listTaskReports
+ */
+function renderReportPanel(panel, data) {
+  var state = panel.reportState;
+  state.data = data;
+
+  // ครั้งแรกให้เปิดขั้นที่ควรทำต่อ ไม่ใช่ขั้นแรกเสมอ — คนเปิดหน้ามาเพื่อทำขั้นถัดไป
+  if (state.open < 0 || state.open >= data.slots.length) state.open = currentSlotIndex(data);
+
+  var html = '<div class="panel-msg"></div>' + missingHtml(data);
+
+  if (data.canAddPeriod) {
+    html += '<div class="reason-row">' +
+      '<input type="text" class="period-name" placeholder="ชื่องวด เช่น งวดที่ 1 ติดตั้ง (เว้นว่างได้)">' +
+      '<button type="button" class="ghost small act-add-period">เพิ่มงวดงาน</button>' +
+      '</div>';
+  }
+
+  html += stepPickerHtml(data, state.open) + '<div class="slot-work"></div>';
+
+  panel.innerHTML = html;
+  renderSlotWork(panel);
+  bindStepPicker(panel);
+}
+
+/**
+ * ขั้นที่ควรทำต่อ — ขั้นแรกที่ยังไม่เสร็จและยังไม่ถูกล็อก
+ * @param {Object} data ข้อมูลทั้งแผง
+ * @return {number} ลำดับของช่อง
+ */
+function currentSlotIndex(data) {
+  for (var i = 0; i < data.slots.length; i++) {
+    if (!data.slots[i].done && !data.slots[i].locked) return i;
+  }
+  return data.slots.length ? (data.slots.length - 1) : 0;
+}
+
+/**
+ * สรุปเอกสารที่บังคับและยังขาด — ต้องเด่นที่สุดในแผง
+ * @param {Object} data ข้อมูลทั้งแผง
+ * @return {string} HTML
+ */
+function missingHtml(data) {
+  if (!data.missing.length) {
+    return '<div class="note-box info">เอกสารที่บังคับของแผนกครบแล้ว ปิดงานได้เมื่อทำทุกขั้นตอนเสร็จ</div>';
+  }
+
+  var names = '';
+  for (var m = 0; m < data.missing.length; m++) {
+    names += '<li>' + escapeHtml(data.missing[m].name) +
+      ' <span class="muted">(' + escapeHtml(data.missing[m].formNo) + ')</span></li>';
+  }
+  return '<div class="note-box stop"><b>ยังขาดเอกสารที่บังคับ ' + data.missing.length +
+    ' รายการ</b><ul class="sib-list">' + names + '</ul>' +
+    'แนบได้ที่ขั้นตอนหรืองวดใดก็ได้ของงานนี้ · ปิดงานไม่ได้จนกว่าจะครบ</div>';
+}
+
+/**
+ * รายการขั้นตอนให้เลือก — ขั้นที่เสร็จแล้ว ขั้นที่กำลังทำ และขั้นที่ยังล็อกอยู่
+ * @param {Object} data ข้อมูลทั้งแผง
+ * @param {number} open ลำดับของช่องที่เปิดอยู่
+ * @return {string} HTML
+ */
+function stepPickerHtml(data, open) {
+  var html = '<div class="hint">เลือกขั้นตอนที่จะทำ แล้วแนบเอกสารและรูปของขั้นนั้น</div>' +
+    '<ul class="step-list">';
+
+  for (var i = 0; i < data.slots.length; i++) {
+    var slot = data.slots[i];
+    var mark = slot.done ? '✓' : (slot.locked ? '🔒' : '●');
+    var counts = [];
+    if (slot.files.length) counts.push('เอกสาร ' + slot.files.length);
+    if (slot.photos.length) counts.push('รูป ' + slot.photos.length);
+
+    html += '<li class="step-row' + (slot.done ? ' done' : '') +
+      (slot.locked && !slot.done ? ' locked' : '') + (i === open ? ' picked' : '') + '"' +
+      ' data-slot="' + i + '" role="button" tabindex="0">' +
+      '<span class="step-mark">' + mark + '</span>' +
+      '<span class="step-name">' + escapeHtml(slot.label) + '</span>' +
+      '<span class="step-when">' + escapeHtml(counts.join(' · ')) + '</span>' +
+      '</li>';
+  }
+  return html + '</ul>';
+}
+
+/**
+ * วาดพื้นที่ทำงานของขั้นที่เลือกอยู่ — ส่วนเดียวที่วาดใหม่เวลาสลับขั้นหรือเพิ่มของเข้าคิว
+ * @param {Element} panel กล่องของแผง
+ */
+function renderSlotWork(panel) {
+  var state = panel.reportState;
+  var data = state.data;
+  var box = panel.querySelector('.slot-work');
+  if (!box || !data.slots.length) return;
+
+  var slot = data.slots[state.open];
+  var key = slotKey(slot);
+  var queue = state.pending[key] || [];
+  var wantDone = (typeof state.doneWanted[key] === 'boolean') ? state.doneWanted[key] : slot.done;
+
+  var html = '<div class="slot-box"><div class="slot-head"><b>' + escapeHtml(slot.label) + '</b>' +
+    (slot.done ? ' <span class="pill">ทำเสร็จแล้ว</span>' : '') + '</div>';
+
+  if (slot.locked) {
+    // ปุ่มเทาเฉย ๆ ไม่พอ ต้องบอกว่าติดอะไรและต้องไปทำอะไรก่อน (SPEC 17.3)
+    html += '<div class="note-box warn">' + escapeHtml(slot.lockReason) + '</div>';
+  }
+
+  html += attachedHtml(slot, !slot.locked, data.woId);
+
+  if (!slot.locked) {
+    html += pickReportHtml(data) + pickPhotoHtml(data) + queueHtml(queue);
+
+    if (slot.stepId) {
+      html += '<div class="checks" style="margin-top:10px"><label>' +
+        '<input type="checkbox" class="slot-done"' + (wantDone ? ' checked' : '') + '>' +
+        'ขั้นตอนนี้ทำเสร็จแล้ว</label></div>';
+    }
+
+    html += '<div class="actions" style="margin-top:8px">' +
+      '<button type="button" class="act-save-slot">บันทึกขั้นตอนนี้</button>' +
+      (canRemovePeriod(data, slot)
+        ? '<button type="button" class="ghost small act-remove-period" data-step-id="' +
+          escapeHtml(slot.stepId) + '">ลบงวดนี้</button>'
+        : '') +
+      '</div>' +
+      '<div class="hint">' + escapeHtml(saveHintOf(queue, wantDone !== slot.done)) + '</div>';
+  }
+
+  box.innerHTML = html + '</div>';
+  bindDocButtons(box);
+  bindSlotWork(panel, slot, key);
+}
+
+/**
+ * คีย์ของช่องหนึ่งช่อง ใช้เก็บของที่ค้างอยู่ — งานที่ไม่มีขั้นย่อยใช้คีย์ว่าง
+ * @param {Object} slot ช่องที่แนบ
+ * @return {string}
+ */
+function slotKey(slot) {
+  return String(slot.stepId || '-');
+}
+
+/**
+ * ลบงวดนี้ได้ไหม — งวดที่ยังไม่เสร็จและยังไม่มีไฟล์เท่านั้น (ด่านจริงอยู่ที่ removeTaskPeriod)
+ * @param {Object} data ข้อมูลทั้งแผง
+ * @param {Object} slot ช่องที่เปิดอยู่
+ * @return {boolean}
+ */
+function canRemovePeriod(data, slot) {
+  return data.canAddPeriod && slot.type === 'PERIOD' && !slot.done &&
+    !slot.files.length && !slot.photos.length;
+}
+
+/**
+ * ข้อความบอกว่ากดบันทึกแล้วจะเกิดอะไรขึ้น
+ * @param {Object[]} queue รายการที่รอบันทึก
+ * @param {boolean} statusChanged สถานะของขั้นตอนถูกเปลี่ยนไว้หรือยัง
+ * @return {string}
+ */
+function saveHintOf(queue, statusChanged) {
+  var files = 0;
+  for (var i = 0; i < queue.length; i++) files += queue[i].files.length;
+
+  if (!files && !statusChanged) return 'ยังไม่มีอะไรรอบันทึก — เลือกเอกสารหรือรูปเพิ่มก่อน';
+  var parts = [];
+  if (files) parts.push('ไฟล์ ' + files + ' ไฟล์');
+  if (statusChanged) parts.push('สถานะของขั้นตอนนี้');
+  return 'กดบันทึกแล้วจะส่ง ' + parts.join(' และ ') + ' ขึ้นระบบ';
+}
+
+/**
+ * ไฟล์ที่แนบไว้แล้วในขั้นนี้ แยกเอกสารกับรูป
+ * @param {Object} slot ช่องที่เปิดอยู่
+ * @param {boolean} canRemove ลบได้ไหม
+ * @param {string} woId เลขที่ใบงาน — ปลายทางที่คืนไบต์ต้องได้รับมาคู่กับเลขที่ไฟล์เสมอ
+ * @return {string} HTML
+ */
+function attachedHtml(slot, canRemove, woId) {
+  var html = '';
+
+  if (!slot.files.length && !slot.photos.length) {
+    // สถานะว่างเป็นเรื่องปกติ ต้องบอกด้วยถ้อยคำที่เข้าใจได้ ไม่ใช่ปล่อยว่าง (SPEC 17.3)
+    return '<div class="empty">ยังไม่มีเอกสารในขั้นตอนนี้ · เลือกเอกสารหรือรูปด้านล่างแล้วกดบันทึก</div>';
+  }
+
+  if (slot.files.length) {
+    html += '<div class="hint">เอกสารที่แนบแล้ว</div><ul class="sib-list">' +
+      fileLinesHtml(slot.files, canRemove, woId) + '</ul>';
+  }
+  if (slot.photos.length) {
+    html += '<div class="hint">รูปหน้างานที่แนบแล้ว</div><ul class="sib-list">' +
+      fileLinesHtml(slot.photos, canRemove, woId) + '</ul>';
+  }
+  return html;
+}
+
+/**
+ * บรรทัดของไฟล์ที่แนบแล้ว
+ * @param {Object[]} files รายการไฟล์
+ * @param {boolean} canRemove ลบได้ไหม
+ * @return {string} HTML
+ */
+function fileLinesHtml(files, canRemove, woId) {
+  var html = '';
+  for (var f = 0; f < files.length; f++) {
+    var file = files[f];
+    /*
+     * ดาวน์โหลดผ่านเซิร์ฟเวอร์ ไม่ใช่ลิงก์ Drive (กฎข้อ 34)
+     *
+     * จุดนี้คือจุดที่ช่างเจอทุกวัน — เอกสารที่แผนกแนบเองแล้วกดเปิดดูซ้ำไม่ได้
+     * เพราะไฟล์อยู่ใน Drive ของบัญชีเจ้าของระบบและไม่ได้ถูกแชร์ (SPEC 16)
+     */
+    html += '<li>' +
+      docButtonHtml({ woId: woId, kind: DOC_KIND.FILE, ref: file.fileId, label: file.name }) +
+      ' <span class="muted">' +
+      escapeHtml(file.uploadedBy) + ' · ' + escapeHtml(file.uploadedDate) + '</span>' +
+      (canRemove
+        ? ' <button type="button" class="ghost small act-remove-file" data-file-id="' +
+          escapeHtml(file.fileId) + '">ลบไฟล์</button>'
+        : '') +
+      '</li>';
+  }
+  return html;
+}
+
+/**
+ * ช่องเลือกเอกสารทีละรายการ พร้อมช่องค้นหา
+ * @param {Object} data ข้อมูลทั้งแผง
+ * @return {string} HTML
+ */
+function pickReportHtml(data) {
+  return '<div class="pick-box"><div class="hint">เพิ่มเอกสาร — เลือกทีละรายการ</div>' +
+    '<div class="row">' +
+    '<input type="search" class="report-search" placeholder="ค้นหาชื่อเอกสารหรือเลขฟอร์ม">' +
+    '<select class="report-pick">' + reportOptionsHtml(data.options, '') + '</select>' +
+    '</div>' +
+    '<div class="row">' +
+    '<input type="file" class="report-files" multiple>' +
+    '<button type="button" class="ghost act-queue-report">เพิ่มเอกสารนี้เข้ารายการ</button>' +
+    '</div></div>';
+}
+
+/**
+ * ช่องเพิ่มรูปหน้างาน — เลือกได้หลายรูปในครั้งเดียว (SPEC 7.1, 7.2)
+ * @param {Object} data ข้อมูลทั้งแผง
+ * @return {string} HTML
+ */
+function pickPhotoHtml(data) {
+  /*
+   * แยกเป็นสองช่องโดยตั้งใจ
+   *   ถ่ายรูป        ใส่ capture ไว้ มือถือจะเปิดกล้องหลังให้ทันที ช่างถ่ายแล้วแนบจบในขั้นตอนเดียว
+   *   เลือกจากเครื่อง ไม่ใส่ capture จึงเปิดคลังภาพได้ตามปกติ
+   *
+   * ถ้าใส่ capture ไว้ช่องเดียวแล้วใช้ช่องนั้นทำทุกอย่าง มือถือส่วนใหญ่จะเปิดได้แต่กล้อง
+   * รูปที่ถ่ายไว้ก่อนหน้าหรือรูปที่ได้รับมาทางแชทจะแนบไม่ได้เลย
+   */
+  return '<div class="pick-box"><div class="hint">เพิ่ม' + escapeHtml(data.photoTopicName) +
+    'หน้างาน — เลือกได้หลายรูปพร้อมกัน ระบบย่อขนาดให้เองก่อนส่ง</div>' +
+    '<div class="row">' +
+    '<label class="file-pick">ถ่ายรูปจากกล้อง' +
+    '<input type="file" class="photo-files" accept="image/*" capture="environment" multiple></label>' +
+    '<label class="file-pick">เลือกรูปจากเครื่อง' +
+    '<input type="file" class="photo-files" accept="image/*" multiple></label>' +
+    '</div>' +
+    '<div class="row"><button type="button" class="ghost act-queue-photo">เพิ่มรูปเข้ารายการ</button></div>' +
+    '</div>';
+}
+
+/**
+ * รายการที่รอบันทึก — ยังไม่ถูกส่งขึ้นระบบจนกว่าจะกดบันทึก
+ * @param {Object[]} queue รายการที่รอบันทึก
+ * @return {string} HTML
+ */
+function queueHtml(queue) {
+  if (!queue.length) return '';
+
+  var html = '<div class="note-box info"><b>รอบันทึก ' + queue.length + ' รายการ</b>' +
+    '<ul class="sib-list">';
+  for (var i = 0; i < queue.length; i++) {
+    /*
+     * บอกชื่อและขนาดของทุกไฟล์ ไม่ใช่แค่จำนวน · ผู้ใช้ที่เลือกรูปมาสิบใบ
+     * ต้องเห็นว่าเลือกใบไหนไปบ้างก่อนกดส่ง ไม่ใช่เห็นแค่เลข 10
+     */
+    var names = [];
+    var bytes = 0;
+    for (var f = 0; f < queue[i].files.length; f++) {
+      names.push(escapeHtml(queue[i].files[f].name) + ' <span class="muted">(' +
+        escapeHtml(fileSizeLabel(queue[i].files[f].size)) + ')</span>');
+      bytes += queue[i].files[f].size;
+    }
+    html += '<li>' + escapeHtml(queue[i].label) + ' <span class="muted">' +
+      queue[i].files.length + ' ไฟล์ · รวม ' + escapeHtml(fileSizeLabel(bytes)) + '</span> ' +
+      '<button type="button" class="ghost small act-unqueue" data-queue="' + i + '">เอาออก</button>' +
+      '<div class="muted">' + names.join(' · ') + '</div>' +
+      '</li>';
+  }
+  return html + '</ul>ยังไม่ได้ส่งขึ้นระบบ กดบันทึกขั้นตอนนี้เพื่อส่งทั้งหมดในครั้งเดียว</div>';
+}
+
+/**
+ * ตัวเลือกเอกสาร กรองด้วยคำค้น — 41 รายการยาวเกินกว่าจะเลื่อนหา (SPEC 17.2)
+ * @param {Object[]} options รายการเอกสารของแผนกนั้น
+ * @param {string} keyword คำค้น
+ * @return {string} HTML ของ option
+ */
+function reportOptionsHtml(options, keyword) {
+  var text = String(keyword || '').trim().toLowerCase();
+  var html = '';
+  var shown = 0;
+
+  for (var i = 0; i < options.length; i++) {
+    var item = options[i];
+    var hay = (item.name + ' ' + item.formNo + ' ' + item.code).toLowerCase();
+    if (text && hay.indexOf(text) === -1) continue;
+
+    shown++;
+    // รายการที่บังคับต้องเห็นชัดตั้งแต่ในรายการเลือก ไม่ใช่รู้ตอนโดนปฏิเสธ
+    html += '<option value="' + escapeHtml(item.code) + '">' +
+      (item.required ? '★ บังคับ · ' : '') +
+      escapeHtml(item.name) + ' (' + escapeHtml(item.formNo) + ')</option>';
+  }
+
+  if (!shown) html = '<option value="">ไม่พบเอกสารที่ตรงกับคำค้น</option>';
+  return html;
+}
+
+/**
+ * ผูกการเลือกขั้นตอนและปุ่มระดับแผง
+ * @param {Element} panel กล่องของแผง
+ */
+function bindStepPicker(panel) {
+  var state = panel.reportState;
+  var rows = panel.querySelectorAll('.step-row');
+
+  for (var i = 0; i < rows.length; i++) {
+    (function (row) {
+      var index = Number(row.getAttribute('data-slot'));
+      var open = function () {
+        if (state.open === index) return;
+        state.open = index;
+        // สลับขั้นตอนไม่ต้องคุยกับเซิร์ฟเวอร์ — ข้อมูลทั้งงานมาครบตั้งแต่ตอนเปิดแผงแล้ว
+        var picked = panel.querySelectorAll('.step-row');
+        for (var p = 0; p < picked.length; p++) picked[p].classList.remove('picked');
+        row.classList.add('picked');
+        renderSlotWork(panel);
+      };
+      row.addEventListener('click', open);
+      row.addEventListener('keydown', function (event) {
+        if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); open(); }
+      });
+    })(rows[i]);
+  }
+
+  var addButton = panel.querySelector('.act-add-period');
+  if (addButton) {
+    addButton.addEventListener('click', function () {
+      var name = panel.querySelector('.period-name');
+      runReportAction(panel, 'api_addTaskPeriod',
+        [state.data.taskId, name ? name.value.trim() : ''], 'เพิ่มงวดงานแล้ว');
+    });
+  }
+}
+
+/**
+ * ผูกปุ่มทั้งหมดในพื้นที่ทำงานของขั้นที่เปิดอยู่
+ * @param {Element} panel กล่องของแผง
+ * @param {Object} slot ช่องที่เปิดอยู่
+ * @param {string} key คีย์ของช่องนั้น
+ */
+function bindSlotWork(panel, slot, key) {
+  var state = panel.reportState;
+  var box = panel.querySelector('.slot-work');
+  if (!box) return;
+
+  var search = box.querySelector('.report-search');
+  var pick = box.querySelector('.report-pick');
+  if (search && pick) {
+    search.addEventListener('input', function () {
+      pick.innerHTML = reportOptionsHtml(state.data.options, search.value);
+    });
+  }
+
+  bindIn(box, '.act-queue-report', function () {
+    var picker = box.querySelector('.report-files');
+    if (!pick || !pick.value) {
+      panelMessage(panel, 'ยังไม่ได้เลือกว่าจะแนบเข้าเอกสารรายการไหน', 'warn');
+      return;
+    }
+    if (!picker || !picker.files.length) {
+      panelMessage(panel, 'ยังไม่ได้เลือกไฟล์ของเอกสารรายการนี้', 'warn');
+      return;
+    }
+    var sorted = splitAcceptedFiles(picker.files);
+    var refused = rejectedFilesMessage(sorted.rejected);
+    if (refused) { panelMessage(panel, refused, 'warn'); return; }
+
+    queueAdd(panel, key, {
+      label: pick.options[pick.selectedIndex].text,
+      files: sorted.ok,
+      context: {
+        woId: state.data.woId, scope: state.data.scope, taskId: state.data.taskId,
+        stepId: slot.stepId, reportCode: pick.value
+      }
+    });
+  });
+
+  bindIn(box, '.act-queue-photo', function () {
+    // รวมรูปจากทั้งช่องถ่ายรูปและช่องเลือกจากเครื่อง ผู้ใช้จึงผสมสองทางในครั้งเดียวได้
+    var pickers = box.querySelectorAll('.photo-files');
+    var picked = [];
+    for (var i = 0; i < pickers.length; i++) picked = picked.concat(listOf(pickers[i].files));
+
+    if (!picked.length) {
+      panelMessage(panel, 'ยังไม่ได้เลือกรูปที่จะเพิ่ม', 'warn');
+      return;
+    }
+    var chosen = splitAcceptedFiles(picked);
+    var noGood = rejectedFilesMessage(chosen.rejected);
+    if (noGood) { panelMessage(panel, noGood, 'warn'); return; }
+
+    queueAdd(panel, key, {
+      label: state.data.photoTopicName + 'หน้างาน',
+      files: chosen.ok,
+      context: {
+        woId: state.data.woId, scope: state.data.scope, taskId: state.data.taskId,
+        stepId: slot.stepId, topicId: state.data.photoTopicId
+      }
+    });
+  });
+
+  var unqueue = box.querySelectorAll('.act-unqueue');
+  for (var u = 0; u < unqueue.length; u++) {
+    (function (button) {
+      button.addEventListener('click', function () {
+        state.pending[key].splice(Number(button.getAttribute('data-queue')), 1);
+        renderSlotWork(panel);
+      });
+    })(unqueue[u]);
+  }
+
+  var done = box.querySelector('.slot-done');
+  if (done) {
+    done.addEventListener('change', function () {
+      // ติ๊กแล้วยังไม่บันทึก — เก็บความตั้งใจไว้ก่อน แล้วส่งพร้อมไฟล์ตอนกดบันทึกครั้งเดียว
+      state.doneWanted[key] = done.checked;
+      renderSlotWork(panel);
+    });
+  }
+
+  bindIn(box, '.act-save-slot', function () { saveSlot(panel, slot, key); });
+
+  bindIn(box, '.act-remove-period', function () {
+    if (!confirm('ลบงวดนี้ใช่หรือไม่')) return;
+    runReportAction(panel, 'api_removeTaskPeriod', [slot.stepId], 'ลบงวดงานแล้ว');
+  });
+
+  var removeFiles = box.querySelectorAll('.act-remove-file');
+  for (var r = 0; r < removeFiles.length; r++) {
+    (function (button) {
+      button.addEventListener('click', function () {
+        if (!confirm('ลบไฟล์นี้ใช่หรือไม่')) return;
+        runReportAction(panel, 'api_removeFile',
+          [button.getAttribute('data-file-id')], 'ลบไฟล์แล้ว');
+      });
+    })(removeFiles[r]);
+  }
+}
+
+/**
+ * ผูกปุ่มถ้ามีอยู่จริงในกล่องนั้น
+ * @param {Element} box กล่อง
+ * @param {string} selector ตัวเลือกปุ่ม
+ * @param {function()} handler สิ่งที่ทำเมื่อกด
+ */
+function bindIn(box, selector, handler) {
+  var button = box.querySelector(selector);
+  if (button) button.addEventListener('click', handler);
+}
+
+/**
+ * แปลง FileList เป็นอาร์เรย์ธรรมดา เพราะ FileList ผูกกับช่องเลือกไฟล์
+ * ถ้าเก็บตัว FileList ไว้ตรง ๆ พอผู้ใช้เลือกไฟล์ชุดใหม่ ของที่เข้าคิวไว้จะเปลี่ยนตามไปด้วย
+ * @param {FileList} files ไฟล์ที่ผู้ใช้เลือก
+ * @return {File[]}
+ */
+function listOf(files) {
+  var out = [];
+  for (var i = 0; i < files.length; i++) out.push(files[i]);
+  return out;
+}
+
+/**
+ * เพิ่มของเข้ารายการรอบันทึก แล้วล้างช่องเลือกไฟล์เพื่อไม่ให้เผลอเพิ่มซ้ำ
+ * @param {Element} panel กล่องของแผง
+ * @param {string} key คีย์ของช่อง
+ * @param {Object} item รายการที่รอบันทึก
+ */
+function queueAdd(panel, key, item) {
+  var state = panel.reportState;
+  if (!state.pending[key]) state.pending[key] = [];
+  state.pending[key].push(item);
+
+  panelMessage(panel, 'เพิ่ม "' + item.label + '" เข้ารายการแล้ว ยังไม่ได้บันทึก', 'ok');
+  renderSlotWork(panel);
+}
+
+/**
+ * บันทึกขั้นตอนนี้ครั้งเดียว — ส่งไฟล์ที่ค้างอยู่ทั้งหมด แล้วค่อยบันทึกสถานะของขั้นตอน
+ *
+ * ลำดับนี้สำคัญ: ไฟล์ต้องขึ้นก่อน เพราะด่านเอกสารที่บังคับตอนปิดงานนับจากไฟล์ที่แนบแล้ว
+ * และถ้ามีไฟล์ใดพลาด จะไม่ปิดขั้นตอนให้ เพื่อไม่ให้ขั้นที่ยังไม่ครบถูกปิดไปเงียบ ๆ
+ *
+ * @param {Element} panel กล่องของแผง
+ * @param {Object} slot ช่องที่เปิดอยู่
+ * @param {string} key คีย์ของช่องนั้น
+ */
+function saveSlot(panel, slot, key) {
+  var state = panel.reportState;
+  var queue = state.pending[key] || [];
+  var wantDone = (typeof state.doneWanted[key] === 'boolean') ? state.doneWanted[key] : slot.done;
+  var statusChanged = (wantDone !== slot.done) && !!slot.stepId;
+
+  var items = [];
+  for (var q = 0; q < queue.length; q++) {
+    for (var f = 0; f < queue[q].files.length; f++) {
+      items.push({ file: queue[q].files[f], context: queue[q].context });
+    }
+  }
+
+  if (!items.length && !statusChanged) {
+    panelMessage(panel, 'ยังไม่มีอะไรรอบันทึกในขั้นตอนนี้', 'warn');
+    return;
+  }
+
+  /*
+   * ให้การ์ดถามยืนยันเรื่องที่แผงนี้ไม่รู้ได้ก่อน เช่นยังไม่ได้กำหนดวันเข้างาน
+   * ตอบว่าไม่เอา = ไม่บันทึกอะไรเลย และของที่ค้างอยู่ยังอยู่ครบ กดใหม่ได้ทันที
+   */
+  if (state.beforeSave && state.beforeSave({ completing: wantDone && statusChanged }) === false) {
+    return;
+  }
+
+  panelMessage(panel, 'กำลังบันทึก…', 'warn');
+  setBusy(true, panel);
+
+  // สาเหตุของไฟล์ที่พลาดมากับ onFail เท่านั้น ตัวรายการที่คืนกลับมาไม่ได้พกมาด้วย
+  var firstError = '';
+
+  uploadFilesOneByOne(items, {
+    onProgress: function (at, total, name) {
+      panelMessage(panel, 'กำลังส่งไฟล์ ' + at + ' จาก ' + total + ' · ' + name, 'warn');
+    },
+    onFail: function (item, error) {
+      if (!firstError) firstError = error.message;
+    }
+  }).then(function (result) {
+    if (result.failed.length) {
+      /*
+       * ไฟล์ที่พลาดยังอยู่ในรายการรอบันทึก ผู้ใช้จึงกดบันทึกซ้ำได้เฉพาะของที่เหลือ
+       * ไม่ต้องเลือกไฟล์ใหม่ทั้งชุด · และไม่ปิดขั้นตอนให้ เพราะยังไม่ครบตามที่ตั้งใจ
+       */
+      keepFailed(state, key, result.failed);
+      setBusy(false, panel);
+      panelMessage(panel, 'ส่งไฟล์ไม่สำเร็จ ' + result.failed.length + ' ไฟล์ — ' +
+        (firstError || 'ติดต่อระบบไม่สำเร็จ') +
+        ' · ของที่เหลือยังอยู่ในรายการ กดบันทึกอีกครั้งได้', 'error');
+      renderSlotWork(panel);
+      return null;
+    }
+
+    delete state.pending[key];
+    if (!statusChanged) return finishSave(panel, 'บันทึกขั้นตอนนี้เรียบร้อย');
+
+    return callApi('api_updateTaskStep',
+      [slot.stepId, { 'Status': wantDone ? 'COMPLETED' : 'PENDING' }])
+      .then(function () {
+        delete state.doneWanted[key];
+        return finishSave(panel, wantDone
+          ? 'บันทึกเรียบร้อย ' + slot.label + 'เสร็จแล้ว ทำขั้นตอนถัดไปได้เลย'
+          : 'บันทึกเรียบร้อย เปิด' + slot.label + 'กลับมาแก้ไขแล้ว');
+      })
+      .catch(function (error) {
+        // ไฟล์ขึ้นไปแล้วแต่สถานะไม่ผ่าน ต้องบอกให้ชัดว่าอะไรสำเร็จและอะไรไม่สำเร็จ
+        state.doneWanted[key] = slot.done;
+        setBusy(false, panel);
+        panelMessage(panel, 'ไฟล์บันทึกแล้ว แต่เปลี่ยนสถานะของขั้นตอนไม่สำเร็จ: ' +
+          error.message, 'error');
+        return loadReportPanel(panel, state.data.taskId);
+      });
+  });
+}
+
+/**
+ * เก็บเฉพาะไฟล์ที่ส่งไม่สำเร็จไว้ในรายการรอบันทึก
+ * @param {Object} state สถานะของแผง
+ * @param {string} key คีย์ของช่อง
+ * @param {Object[]} failed รายการที่พลาด
+ */
+function keepFailed(state, key, failed) {
+  var kept = [];
+  for (var i = 0; i < failed.length; i++) {
+    kept.push({ label: failed[i].file.name, files: [failed[i].file], context: failed[i].context });
+  }
+  state.pending[key] = kept;
+}
+
+/**
+ * ปิดท้ายการบันทึก — โหลดข้อมูลของงานนี้ใหม่รอบเดียว ไม่โหลดทั้งหน้า
+ * @param {Element} panel กล่องของแผง
+ * @param {string} message ข้อความเมื่อสำเร็จ
+ * @return {Promise}
+ */
+function finishSave(panel, message) {
+  return loadReportPanel(panel, panel.reportState.data.taskId).then(function () {
+    setBusy(false, panel);
+    panelMessage(panel, message, 'ok');
+  });
+}
+
+/**
+ * เรียกฟังก์ชันฝั่งเซิร์ฟเวอร์หนึ่งรายการ แล้ววาดแผงใหม่
+ * @param {Element} panel กล่องของแผง
+ * @param {string} name ชื่อรายการใน 09_Api
+ * @param {Array} args อาร์กิวเมนต์
+ * @param {string} okMessage ข้อความเมื่อสำเร็จ
+ */
+function runReportAction(panel, name, args, okMessage) {
+  var taskId = panel.reportState.data.taskId;
+  setBusy(true, panel);
+
+  callApi(name, args)
+    .then(function () {
+      return loadReportPanel(panel, taskId).then(function () {
+        setBusy(false, panel);
+        panelMessage(panel, okMessage, 'ok');
+      });
+    })
+    .catch(function (error) {
+      setBusy(false, panel);
+      panelMessage(panel, error.message, 'error');
+    });
+}
+
+/**
+ * ข้อความของแผงนี้ — อยู่ในแผง ไม่ใช่บนสุดของหน้า
+ *
+ * เพราะแถบข้อความของหน้าอยู่เหนือรายการงานทั้งหมด คนที่เลื่อนลงมาทำงานใบที่สิบ
+ * จะไม่เห็นเลยว่าระบบตอบอะไรกลับมา แล้วดูเหมือนว่ากดแล้วไม่มีอะไรเกิดขึ้น
+ *
+ * @param {Element} panel กล่องของแผง
+ * @param {string} text ข้อความภาษาไทย
+ * @param {string} kind 'ok' | 'warn' | 'error'
+ */
+function panelMessage(panel, text, kind) {
+  var box = panel.querySelector('.panel-msg');
+  if (!box) return;
+  box.textContent = text;
+  box.className = 'panel-msg ' + (kind || 'error');
+}
+</script>

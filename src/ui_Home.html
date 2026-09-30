@@ -1,0 +1,255 @@
+<!DOCTYPE html>
+<html lang="th">
+<head>
+  <base target="_top">
+  <meta charset="utf-8">
+  <?!= include('ui_Style') ?>
+</head>
+<body>
+<div id="pageData"
+  data-wo-id="<?= woId ?>" data-dept="<?= dept ?>" data-view="<?= view ?>" data-route="<?= route ?>"
+  data-base-url="<?= baseUrl ?>" data-home-url="<?= homeUrl ?>"
+  data-bootstrap="<?= bootstrapJson ?>" hidden></div>
+
+<div class="app" id="app">
+  <aside class="side" id="side">
+    <a class="side-head" id="brandLink" href="#">
+      <span class="side-mark" aria-hidden="true">
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+          stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M3 11l9-7 9 7"/><path d="M5 10v10h14V10"/><path d="M10 20v-6h4v6"/>
+        </svg>
+      </span>
+      <span class="side-title">ระบบใบสั่งงาน<small>กลับหน้าแรก</small></span>
+    </a>
+    <nav class="side-nav" id="navBar" aria-label="เมนูหลัก"></nav>
+    <div class="side-foot" id="navFoot"></div>
+  </aside>
+  <button type="button" class="scrim" id="scrim" aria-label="ปิดเมนู" hidden></button>
+
+  <div class="main-col">
+    <header class="topbar">
+      <button type="button" class="icon-btn btn-menu" id="btnMenu" aria-label="เปิดเมนู">
+        <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+          stroke-width="1.8" stroke-linecap="round"><path d="M4 7h16"/><path d="M4 12h16"/><path d="M4 17h16"/></svg>
+      </button>
+      <button type="button" class="icon-btn btn-collapse" id="btnCollapse" aria-label="พับหรือกางแถบเมนู">
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+          stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M4 5h16"/><path d="M4 12h10"/><path d="M4 19h16"/><path d="M19 9l3 3-3 3"/></svg>
+      </button>
+      <h1 id="pageTitle">หน้าแรก</h1>
+      <span class="who" id="whoami">กำลังตรวจสอบผู้ใช้…</span>
+    </header>
+
+    <main>
+  <div id="message" class="msg"></div>
+
+  <section class="card">
+    <div class="result-line" id="asOf"></div>
+    <div id="cards"><div class="loading">กำลังโหลดยอดงาน…</div></div>
+    <div id="allLink" class="pager"></div>
+  </section>
+    </main>
+  </div>
+</div>
+
+<?!= include('ui_Script') ?>
+<?!= include('ui_Nav') ?>
+<?!= include('ui_Auth') ?>
+<script>
+/*
+  หน้าแรก — แดชบอร์ดยอดงาน (SPEC 17.3 · 23)
+
+  **หน้านี้ไม่อ่านใบงานสักใบ** ยอดทุกตัวมาจาก RPC ตัวเดียวที่นับด้วย count() บน index
+  ของ Postgres · เวลาที่ใช้จึงเท่าเดิมไม่ว่าจะมีใบงานร้อยใบหรือแสนใบ
+
+  วิธีเดิมคือดึงใบงานทั้งหมดมาสร้างดัชนีแล้วแคชไว้ ซึ่งโตตามจำนวนใบงานและจะชน
+  เพดานแคชที่ราวสี่เดือนครึ่ง แล้วหน้าแรกจะกลับไปอ่านทั้งตารางทุกครั้งแบบเงียบ ๆ
+  รายการใบงานย้ายไปอยู่เมนู "ใบงานทั้งหมด" ซึ่งค้นและแบ่งหน้าที่ฐานข้อมูล
+
+  **ทุกตัวเลขบนหน้านี้กดเข้าไปต่อได้** ไปยังรายการที่กรองไว้ตรงกับตัวเลขนั้นเป๊ะ
+  ตัวเลขที่ดูได้แต่ทำอะไรต่อไม่ได้ ไม่ควรอยู่บนหน้าจอตั้งแต่แรก
+*/
+
+/*
+  คีย์ที่หน้านี้ต้องใช้จากก้อนข้อมูลที่เซิร์ฟเวอร์ฝังมา (SPEC 17.4)
+  ประกาศไว้ตรงนี้เพื่อให้เทสต์ฝั่งเซิร์ฟเวอร์อ่านไปตรวจได้ว่าส่งมาครบจริง
+*/
+var PAGE_NEEDS = ['user', 'menu', 'labels', 'cards', 'cardGroups', 'total'];
+
+document.addEventListener('DOMContentLoaded', function () {
+  initNav('home');
+  // บอกไว้ว่าถ้าต้องล็อกอินกลางคัน แล้วล็อกอินเสร็จ ให้กลับมาทำอะไรต่อ (SPEC 17.4)
+  bootPage(loadDashboard, reload);
+});
+
+/** เปิดหน้า — ยอดทั้งชุดมาพร้อมเมนูในคำขอเดียว (SPEC 17.4) */
+function loadDashboard() {
+  // ทุกกล่องที่ขึ้นว่ากำลังโหลด ต้องจบลงด้วยอะไรสักอย่างเสมอ (SPEC 17.4)
+  var doneCards = guardLoading('cards');
+
+  // ไม่มีด่าน guardPage เพราะทุกคนที่ล็อกอินได้ต้องเข้าหน้าแรกได้เสมอ
+  // ไม่งั้นจะไม่มีทางไปไหนต่อเลย
+  startPage('cards', PAGE_NEEDS).then(function (started) {
+    if (!started.allowed) { doneCards(); return; }
+
+    document.getElementById('cards').addEventListener('click', openCard);
+    apply(started.boot);
+    doneCards();
+  });
+}
+
+/** ขอยอดใหม่ */
+function reload() {
+  setBusy(true);
+  callApi('api_getDashboard', [])
+    .then(apply)
+    .catch(function (error) { showActionError(error, reload); })
+    .then(function () { setBusy(false); });
+}
+
+/**
+ * รับยอดชุดใหม่มาแสดง
+ * @param {Object} data ผลจาก api_getDashboard
+ */
+function apply(data) {
+  renderAsOf(data);
+  renderCards(data);
+  renderAllLink(data);
+}
+
+/**
+ * บรรทัดบอกว่ายอดนี้เป็นของเมื่อไร
+ *
+ * ต้องบอก เพราะยอดถูกแคชไว้ได้ถึงหนึ่งนาที · ผู้ใช้ที่เพิ่งกดอนุมัติแล้วกลับมาเห็น
+ * ตัวเลขเดิม ต้องรู้ได้ว่านี่คือตัวเลขของเมื่อกี้ ไม่ใช่ว่าการกดของตัวเองไม่มีผล
+ *
+ * @param {Object} data ยอดทั้งชุด
+ */
+function renderAsOf(data) {
+  var box = document.getElementById('asOf');
+  box.textContent = data.asOf
+    ? ('ยอด ณ ' + data.asOf + ' · ใบงานทั้งหมดในระบบ ' + (data.total || 0) + ' ใบ')
+    : ('ใบงานทั้งหมดในระบบ ' + (data.total || 0) + ' ใบ');
+}
+
+/**
+ * วาดการ์ดยอดงาน
+ *
+ * **ยอดที่เป็นศูนย์ยังต้องแสดง ไม่ใช่ซ่อน** · การเห็นว่า "ถูกตีกลับ 0" คือข้อมูล
+ * ที่มีค่า ไม่ใช่ที่ว่างเปล่า · และถ้าซ่อนการ์ดที่เป็นศูนย์ หน้าจะเปลี่ยนรูปร่างไปมา
+ * ทุกวันจนผู้ใช้จำตำแหน่งไม่ได้ แล้วต้องอ่านใหม่ทั้งหน้าทุกครั้งที่เปิด
+ *
+ * @param {Object} data ยอดทั้งชุด
+ */
+function renderCards(data) {
+  var box = document.getElementById('cards');
+  var cards = data.cards || [];
+
+  if (data.isEmpty) {
+    // "ยังไม่มีใบงานเลย" กับ "มีใบงานแต่ไม่มีอะไรค้าง" ต้องพูดคนละอย่าง (SPEC 17.4)
+    box.innerHTML = emptyHtml('ยังไม่มีใบสั่งงานในระบบ',
+      'ยอดทั้งหมดจะขึ้นที่นี่ทันทีที่ธุรการหรือฝ่ายขายเปิดใบแรก');
+    return;
+  }
+
+  if (!cards.length) {
+    box.innerHTML = emptyHtml('ยังไม่มียอดที่เกี่ยวกับสิทธิ์ของคุณ',
+      'ดูใบงานทั้งหมดได้จากเมนู "ใบงานทั้งหมด" ทางซ้าย');
+    return;
+  }
+
+  /*
+   * วาดเป็นกลุ่มตามที่เซิร์ฟเวอร์จัดมา ไม่ใช่เรียงต่อกันเป็นพรืด
+   *
+   * การจัดกลุ่มอยู่ฝั่งเซิร์ฟเวอร์ที่เดียว (DASHBOARD_GROUPS) หน้าเว็บแค่วาดตาม ·
+   * ถ้าหน้าเว็บจัดเอง วันหนึ่งจะเพิ่มการ์ดที่เซิร์ฟเวอร์แล้วมันไปโผล่ผิดกลุ่ม
+   * หรือหายไปเลยโดยไม่มีอะไรฟ้อง
+   */
+  var groups = data.cardGroups || [];
+  var html = '';
+
+  for (var g = 0; g < groups.length; g++) {
+    var group = groups[g];
+    html += '<section class="dash-group">' +
+      '<h3 class="dash-head">' + escapeHtml(group.label) + '</h3>' +
+      '<div class="stat-grid">';
+
+    for (var i = 0; i < group.cards.length; i++) {
+      var card = group.cards[i];
+      /*
+       * สีเตือนเฉพาะกลุ่มที่ควรเตือนจริง และเฉพาะใบที่มีของค้างอยู่จริง
+       * การ์ดที่เป็นศูนย์ในกลุ่มเดียวกันต้องไม่แดง เพราะศูนย์คือข่าวดี
+       */
+      var tone = (group.warn && card.count) ? ' is-warn' : '';
+      html += '<button type="button" class="stat-card' + (card.count ? '' : ' is-zero') + tone +
+        '" data-key="' + escapeHtml(card.key) + '">' +
+        '<span class="stat-count">' + card.count + '</span>' +
+        '<span class="stat-label">' + escapeHtml(card.label) + '</span>' +
+        '<span class="stat-go" aria-hidden="true">ดูรายการ ›</span>' +
+        '</button>';
+    }
+    html += '</div></section>';
+  }
+
+  document.getElementById('cards').innerHTML = html;
+  window.DASH_CARDS = cards;
+}
+
+/** ลิงก์ไปรายการใบงานทั้งหมดแบบไม่กรองอะไรเลย */
+function renderAllLink(data) {
+  document.getElementById('allLink').innerHTML =
+    '<a class="ghost small" href="' + escapeHtml(NAV.base + '?page=wolist') + '">' +
+    'ดูใบงานทั้งหมด (' + (data.total || 0) + ' ใบ)</a>';
+}
+
+/**
+ * กดการ์ดไหน ไปรายการที่กรองไว้ตรงกับการ์ดนั้น
+ *
+ * เป็นการกดของผู้ใช้จริง จึงเปลี่ยนหน้าได้ตามกติกาของกรอบ (SPEC 17.4)
+ * เงื่อนไขเดินทางไปทาง query string ไม่ใช่เก็บไว้ในหน่วยความจำ เพื่อให้ผู้ใช้
+ * บุ๊กมาร์กหรือส่งต่อลิงก์ของรายการที่กรองแล้วให้คนอื่นได้
+ *
+ * @param {Event} event การกดในแผงการ์ด
+ */
+function openCard(event) {
+  var node = event.target;
+  while (node && node !== document && !node.getAttribute('data-key')) node = node.parentNode;
+  if (!node || node === document) return;
+
+  var cards = window.DASH_CARDS || [];
+  var wanted = node.getAttribute('data-key');
+  for (var i = 0; i < cards.length; i++) {
+    if (cards[i].key === wanted) { goToUrl(NAV.base + '?page=wolist&' + queryString(cards[i].query)); return; }
+  }
+}
+
+/**
+ * แปลงเงื่อนไขของการ์ดเป็น query string ของหน้ารายการ
+ *
+ * ชื่อพารามิเตอร์ต้องตรงกับที่ webWoListQuery_() ใน 10_Web.gs อ่าน
+ * ถ้าสองฝั่งหลุดจากกัน การ์ดจะพาไปหน้ารายการที่ไม่ได้กรองอะไรเลย
+ * ซึ่งดูเหมือนทำงานปกติทุกประการ นั่นคือเหตุที่ต้องมีเทสต์ยืนยันคู่ชื่อนี้
+ *
+ * @param {Object} query เงื่อนไขของการ์ด
+ * @return {string}
+ */
+function queryString(query) {
+  var map = { statuses: 'status', taskStatuses: 'taskStatus', departments: 'dept',
+    taskDepartments: 'taskDept', routes: 'route', payments: 'payment' };
+  var parts = [];
+
+  for (var key in map) {
+    if (!Object.prototype.hasOwnProperty.call(map, key)) continue;
+    var values = (query && query[key]) || [];
+    if (values.length) parts.push(map[key] + '=' + encodeURIComponent(values.join(',')));
+  }
+  // ธงที่ไม่ใช่รายการค่า ต้องเดินทางไปด้วย ไม่งั้นการ์ดจะพาไปรายการที่กว้างกว่าตัวเลขบนการ์ด
+  if (query && query.paymentRequired) parts.push('mustPay=1');
+  if (query && query.overdue) parts.push('overdue=1');
+  return parts.join('&');
+}
+</script>
+</body>
+</html>

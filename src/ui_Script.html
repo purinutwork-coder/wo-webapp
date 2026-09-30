@@ -1,0 +1,1380 @@
+<script>
+/*
+  ui_Script.html — ฟังก์ชันฝั่งหน้าเว็บที่ใช้ร่วมกันทุกหน้า
+
+  หน้าเว็บคุยกับระบบผ่าน 09_Api.gs เท่านั้น ไม่มีการแตะชีตจากที่นี่
+  และการตรวจสิทธิ์ทั้งหมดอยู่ฝั่ง Server — การซ่อนปุ่มในหน้าจอไม่ใช่การป้องกัน
+*/
+
+/* ===========================================================================
+   โทเคนที่ใช้บอกว่าเราคือใคร
+
+   Apps Script ไม่มี session ให้ใช้ ระบบจึงออกโทเคนเองตอนล็อกอิน แล้วเบราว์เซอร์
+   เก็บไว้และแนบมากับทุกคำขอ
+
+   เก็บใน localStorage ไม่ใช่ใน URL เด็ดขาด เพราะ URL ติดไปกับประวัติเบราว์เซอร์
+   บันทึกของเซิร์ฟเวอร์ และหัวข้อ Referer ที่ส่งต่อไปยังเว็บอื่นที่หน้านั้นเผลอลิงก์ถึง
+   =========================================================================== */
+
+/** ชื่อช่องใน localStorage ที่เก็บโทเคน */
+var TOKEN_KEY = 'wo.token';
+
+/**
+ * โทเคนที่เก็บไว้ในเครื่องนี้
+ * @return {string} ค่าว่างเมื่อยังไม่เคยล็อกอิน
+ */
+function savedToken() {
+  try {
+    return localStorage.getItem(TOKEN_KEY) || '';
+  } catch (e) {
+    return '';   // เบราว์เซอร์ที่ปิด localStorage ไว้ จะใช้งานไม่ได้แต่ต้องไม่พังทั้งหน้า
+  }
+}
+
+/**
+ * เก็บหรือลบโทเคน
+ * @param {string} token โทเคนใหม่ · ค่าว่าง = ลบทิ้ง
+ */
+function saveToken(token) {
+  try {
+    if (token) localStorage.setItem(TOKEN_KEY, token);
+    else localStorage.removeItem(TOKEN_KEY);
+  } catch (e) {
+    // เก็บไม่ได้ก็ยังใช้งานต่อได้ในหน้านี้ แต่เปิดหน้าใหม่จะต้องล็อกอินอีกครั้ง
+  }
+}
+
+/**
+ * เปลี่ยนหน้าไปที่อยู่อื่น — ใช้ได้เฉพาะตอนที่ผู้ใช้กดปุ่มหรือลิงก์จริงเท่านั้น (SPEC 17.3)
+ *
+ * หน้าเว็บของ Apps Script อยู่ในกรอบ (iframe) ที่เปลี่ยนหน้าต่างชั้นนอกได้
+ * "เฉพาะตอนที่ผู้ใช้กดจริง" เท่านั้น การสั่งเปลี่ยนหน้าเองตอนเปิดหน้า ตอนโทเคนหมดอายุ
+ * หรือหลังได้คำตอบจากเซิร์ฟเวอร์ จะถูกเบราว์เซอร์บล็อกเงียบ ๆ แล้วผู้ใช้ค้างอยู่กับที่
+ * ข้อความจริงที่เบราว์เซอร์ฟ้องคือ
+ *
+ *     Unsafe attempt to initiate navigation for frame ... sandboxed with
+ *     'allow-top-navigation-by-user-activation' flag, but has no user activation
+ *
+ * สถานะที่ต้องเปลี่ยนเอง เช่นยังไม่ได้ล็อกอินหรือโทเคนหมดอายุ จึงไม่ใช้ทางนี้เลย
+ * แต่ใช้ requireLogin() ที่วาดแผงเข้าสู่ระบบทับหน้าเดิมแทน
+ *
+ * และถ้าจะเรียกจากปุ่มจริง ที่อยู่ต้องเป็นค่าที่เซิร์ฟเวอร์ส่งมาให้ (data-base-url /
+ * data-home-url) ห้ามประกอบเอาเองจาก location ปัจจุบัน เพราะ location ของกรอบชั้นใน
+ * ไม่ใช่ที่อยู่ของเว็บแอป · มีเทสต์สแกนคุมทั้งสองข้อนี้ไว้
+ *
+ * @param {string} url ที่อยู่ที่เซิร์ฟเวอร์ส่งมาให้
+ */
+function goToUrl(url) {
+  if (!url) return;
+  window.open(url, '_top');
+}
+
+/* ===========================================================================
+   หน้าที่กำลังเปิดอยู่ และวิธีทำงานต่อหลังผู้ใช้ล็อกอินสำเร็จกลางคัน (SPEC 17.3)
+
+   เพราะเราไม่พาผู้ใช้ออกจากหน้าอีกแล้ว หน้าจึงต้องบอกไว้ว่า "ถ้าล็อกอินเสร็จแล้ว
+   ให้ทำอะไรต่อ" สามแบบตามสถานการณ์
+     ยังไม่เคยได้ข้อมูลเลย    เริ่มหน้าใหม่ทั้งหน้า (ปุ่มยังไม่ถูกผูก จึงไม่เกิดการผูกซ้ำ)
+     ได้ข้อมูลไปแล้ว         โหลดข้อมูลใหม่ ถ้าหน้านั้นบอกวิธีไว้
+     กำลังกรอกฟอร์มค้างอยู่   ไม่ต้องทำอะไรเลย การโหลดใหม่จะล้างสิ่งที่ผู้ใช้พิมพ์ไปแล้ว
+   =========================================================================== */
+
+/** สถานะของหน้าที่เปิดอยู่ ตั้งค่าโดย bootPage() และ startPage() */
+var PAGE_STATE_ = { boot: null, refresh: null, loaded: false };
+
+/**
+ * เริ่มหน้าหนึ่งหน้า และบอกไว้ว่าจะกลับมาทำต่ออย่างไรถ้าต้องล็อกอินกลางคัน
+ *
+ * **ฟังก์ชันที่ส่งเข้ามาต้องไม่รับอาร์กิวเมนต์** และถ้ารับ ตัวนี้จะโวยทันที
+ *
+ * bootPage เรียก boot() เปล่า ๆ เสมอ · คนที่เขียน bootPage(function (boot) {...})
+ * จะได้ undefined แล้วตายที่บรรทัดแรกโดยไม่มีอะไรบนหน้าจอ และเทสต์ฝั่งเซิร์ฟเวอร์
+ * มองไม่เห็นเลย (กฎข้อ 33) · เกิดขึ้นมาแล้วจริงกับหน้า filecheck ซึ่งพิมพ์เพดาน
+ * ขนาดไฟล์ออกมาเป็นช่องว่าง แล้วคนอ่านเชื่อว่าไม่มีเพดาน
+ *
+ * ตัวที่ส่งข้อมูลเริ่มต้นให้หน้าคือ startPage(containerId, needs) ซึ่งคืน Promise ·
+ * ใครต้องการข้อมูลตอนเปิดหน้า ต้องเรียกตัวนั้น ไม่ใช่รอให้ตัวนี้ส่งมาให้
+ *
+ * @param {function()} boot สิ่งที่ทำตอนเปิดหน้า — ต้องเรียกซ้ำได้เมื่อรอบแรกยังไม่ได้ข้อมูล
+ * @param {function()} [refresh] วิธีโหลดข้อมูลใหม่เมื่อหน้าแสดงข้อมูลไปแล้ว
+ *        หน้าที่มีฟอร์มให้กรอกห้ามใส่ค่านี้ เพราะจะล้างสิ่งที่ผู้ใช้พิมพ์ค้างไว้
+ */
+function bootPage(boot, refresh) {
+  if (typeof boot !== 'function') {
+    throw new Error('bootPage ต้องได้รับฟังก์ชัน');
+  }
+  if (boot.length > 0) {
+    /*
+     * โวยดังกว่าปล่อยผ่าน — ข้อผิดพลาดที่เห็นตอนเปิดหน้าครั้งแรกถูกแก้ได้
+     * ส่วนหน้าที่ตายเงียบถูกส่งขึ้นของจริงแล้วรอให้ผู้ใช้เป็นคนเจอ
+     */
+    throw new Error('bootPage เรียกฟังก์ชันที่รับไปโดยไม่ส่งอาร์กิวเมนต์ใด ๆ · ' +
+      'ฟังก์ชันนี้ประกาศพารามิเตอร์ไว้ ซึ่งจะได้ undefined เสมอ · ' +
+      'ถ้าต้องการข้อมูลเริ่มต้นของหน้า ให้เรียก startPage(containerId, needs) แทน');
+  }
+  if (refresh && refresh.length > 0) {
+    // กับดักเดียวกัน — resumeAfterLogin() เรียก refresh() เปล่า ๆ เหมือนกัน
+    throw new Error('bootPage เรียก refresh โดยไม่ส่งอาร์กิวเมนต์ใด ๆ · ' +
+      'ถ้าต้องส่งค่า ให้ห่อด้วยฟังก์ชันที่ไม่รับอาร์กิวเมนต์ เช่น function () { loadList(state.page); }');
+  }
+  PAGE_STATE_.boot = boot || null;
+  PAGE_STATE_.refresh = refresh || null;
+  PAGE_STATE_.loaded = false;
+  boot();
+}
+
+/** ทำงานต่อหลังผู้ใช้ล็อกอินสำเร็จ โดยอยู่ที่หน้าเดิม */
+function resumeAfterLogin() {
+  if (!PAGE_STATE_.loaded && PAGE_STATE_.boot) { PAGE_STATE_.boot(); return; }
+  if (PAGE_STATE_.refresh) { PAGE_STATE_.refresh(); return; }
+
+  // หน้าที่มีของค้างอยู่ในฟอร์ม — ห้ามโหลดทับ ต้องบอกให้ผู้ใช้กดสิ่งที่ค้างอยู่เอง
+  showMessage('เข้าสู่ระบบอีกครั้งแล้ว ข้อมูลที่กรอกไว้ยังอยู่ครบ กรุณากดปุ่มเดิมอีกครั้ง', 'ok');
+}
+
+/**
+ * ห่อ google.script.run ให้เป็น Promise
+ *
+ * google.script.run ไม่ใช่ Promise และไม่ throw ให้จับได้ ต้องส่ง callback เข้าไปสองทาง
+ * ถ้าไม่ห่อ โค้ดจะซ้อนกันเป็นชั้น ๆ และ error จะเงียบหายไปเฉย ๆ
+ *
+ * ฟังก์ชันใน 09_Api คืน {ok:true,data} หรือ {ok:false,message} เสมอ
+ * ที่นี่จึงแปลง ok:false เป็นการ reject พร้อมข้อความภาษาไทย เพื่อให้ผู้เรียกใช้ try/catch ได้ทางเดียว
+ *
+ * @param {string} name ชื่อฟังก์ชันใน 09_Api.gs
+ * @param {Array} [args] อาร์กิวเมนต์
+ * @return {Promise<*>} ค่า data เมื่อสำเร็จ
+ */
+function callApi(name, args) {
+  return new Promise(function (resolve, reject) {
+    var runner = google.script.run
+      .withSuccessHandler(function (result) {
+        if (!result || typeof result.ok === 'undefined') {
+          reject(new Error('ระบบตอบกลับมาในรูปแบบที่ไม่รู้จักจากฟังก์ชัน ' + name));
+          return;
+        }
+        if (!result.ok) {
+          /*
+           * โทเคนใช้ไม่ได้แล้ว — หมดอายุ ถูกปิด หรือยังไม่เคยล็อกอิน
+           *
+           * วาดแผงเข้าสู่ระบบทับหน้าเดิม ไม่พาไปไหน (SPEC 17.3)
+           * การสั่งเปลี่ยนหน้าเองตรงนี้จะถูกเบราว์เซอร์บล็อกเสมอ เพราะไม่ได้เกิดจากการกด
+           *
+           * คำขอนี้ยังนับว่าไม่สำเร็จ และห้ามยิงซ้ำให้เองหลังล็อกอินเสร็จ
+           * เพราะคำขอที่เขียนข้อมูลอาจไปถึงแล้ว การยิงซ้ำจะได้ข้อมูลสองชุด
+           */
+          if (result.needLogin) {
+            requireLogin(result.message);
+            var needLogin = new Error(result.message);
+            needLogin.needLogin = true;
+            reject(needLogin);
+            return;
+          }
+
+          var failure = new Error(result.message || 'ทำรายการไม่สำเร็จ');
+          // เซิร์ฟเวอร์บอกมาว่ากดลองใหม่ได้ไหม และบันทึกไปแล้วหรือยัง
+          // สองอย่างนี้หน้าเว็บเดาเองไม่ได้ เพราะมันรู้แค่ว่าไม่มีคำตอบกลับมา
+          failure.canRetry = result.canRetry === true;
+          failure.notSaved = result.notSaved === true;
+          reject(failure);
+          return;
+        }
+        resolve(result.data);
+      })
+      .withFailureHandler(function (error) {
+        // เกิดเมื่อสคริปต์ล้มก่อนถึง apiRun_ เช่นหมดเวลาหรือสิทธิ์เข้าถึงไฟล์ไม่พอ
+        var failure = new Error((error && error.message)
+          ? error.message : 'ติดต่อระบบไม่สำเร็จ กรุณาลองใหม่');
+        failure.canRetry = true;
+        reject(failure);
+      });
+    /*
+     * เรียกผ่านรายการเดียว (api_call) ไม่ใช่เรียกชื่อฟังก์ชันตรง ๆ
+     * เพื่อให้ฝั่งเซิร์ฟเวอร์มีจุดเดียวที่ตรวจโทเคนก่อนถึงตัวรายการเสมอ
+     *
+     * โทเคนไปกับพารามิเตอร์ ไม่ใช่ไปกับ URL — ข้อนี้ห้ามเปลี่ยนเด็ดขาด
+     */
+    runner.api_call(name, args || [], savedToken());
+  });
+}
+
+/**
+ * แสดงข้อความบนแถบข้อความของหน้า — ห้ามปล่อยให้ error เงียบ
+ * @param {string} text ข้อความภาษาไทย
+ * @param {string} [kind] 'error' | 'ok' | 'warn'
+ * @param {function()} [onRetry] ถ้ามี จะขึ้นปุ่ม "ลองอีกครั้ง" ให้ผู้ใช้กดเอง
+ */
+function showMessage(text, kind, onRetry) {
+  var box = document.getElementById('message');
+  if (!box) return;
+
+  box.textContent = text;
+  // แก้เฉพาะคลาสสถานะ ไม่เขียนทับทั้งชุด เพราะบางหน้าใส่คลาสจัดวางของตัวเองไว้ด้วย
+  // (เช่นหน้าเข้าสู่ระบบที่จองที่ของข้อความไว้ตลอด เพื่อไม่ให้ของอื่นขยับตอนมีข้อความ)
+  setMessageKind_(box, kind || 'error');
+
+  /*
+   * ปุ่มลองอีกครั้งมีไว้สำหรับคำขอที่ "เขียนข้อมูล" แล้วติดต่อระบบไม่สำเร็จ (SPEC 21)
+   *
+   * คำขอแบบนั้นระบบลองใหม่ให้เองไม่ได้ เพราะคำขอแรกอาจไปถึงและทำงานสำเร็จแล้ว
+   * เพียงแต่คำตอบกลับมาไม่ทัน การยิงซ้ำเองจะได้ใบงานสองใบหรือไฟล์แนบสองไฟล์
+   * จึงต้องให้ผู้ใช้เป็นคนตัดสินใจ และต้องบอกชัดว่ายังไม่ได้บันทึก
+   */
+  if (onRetry) {
+    var button = document.createElement('button');
+    button.type = 'button';
+    button.className = 'small';
+    button.style.marginInlineStart = '12px';
+    button.textContent = 'ลองอีกครั้ง';
+    button.addEventListener('click', function () { clearMessage(); onRetry(); });
+    box.appendChild(button);
+  }
+
+  box.scrollIntoView({ block: 'nearest' });
+}
+
+/**
+ * แสดงข้อผิดพลาดของการกดปุ่ม พร้อมปุ่มลองอีกครั้งเมื่อระบบบอกว่าลองได้
+ * @param {Error} error ข้อผิดพลาดจาก callApi
+ * @param {function()} retry สิ่งที่จะทำเมื่อผู้ใช้กดลองอีกครั้ง
+ */
+function showActionError(error, retry) {
+  showMessage(error.message, 'error', (error && error.canRetry) ? retry : null);
+}
+
+/** ซ่อนแถบข้อความ */
+function clearMessage() {
+  var box = document.getElementById('message');
+  if (!box) return;
+  box.textContent = '';
+  setMessageKind_(box, '');
+}
+
+/**
+ * ตั้งคลาสสถานะของแถบข้อความ โดยไม่แตะคลาสอื่นที่หน้านั้นใส่ไว้
+ * @param {Element} box กล่องข้อความ
+ * @param {string} kind 'error' | 'ok' | 'warn' · ค่าว่าง = ซ่อน
+ */
+function setMessageKind_(box, kind) {
+  var states = ['show', 'error', 'ok', 'warn'];
+  for (var i = 0; i < states.length; i++) box.classList.remove(states[i]);
+  if (!kind) return;
+  box.classList.add('show');
+  box.classList.add(kind);
+}
+
+/**
+ * ปิดหรือเปิดปุ่มทั้งกลุ่มระหว่างรอผลจากเซิร์ฟเวอร์ กันผู้ใช้กดซ้ำจนเกิดรายการซ้อน
+ * @param {boolean} busy true = กำลังทำงานอยู่
+ * @param {Element} [scope] ขอบเขตที่ต้องการปิด (ไม่ระบุ = ทั้งหน้า)
+ */
+function setBusy(busy, scope) {
+  var root = scope || document;
+  var buttons = root.querySelectorAll('button');
+  for (var i = 0; i < buttons.length; i++) {
+    if (busy) {
+      if (buttons[i].disabled) buttons[i].setAttribute('data-was-disabled', '1');
+      buttons[i].disabled = true;
+    } else {
+      buttons[i].disabled = buttons[i].getAttribute('data-was-disabled') === '1';
+      buttons[i].removeAttribute('data-was-disabled');
+    }
+  }
+  document.body.style.cursor = busy ? 'progress' : '';
+}
+
+/**
+ * แปลงข้อความให้ปลอดภัยก่อนใส่ลงใน innerHTML
+ * @param {*} value ค่าที่จะแสดง
+ * @return {string}
+ */
+function escapeHtml(value) {
+  if (value === null || value === undefined) return '';
+  return String(value)
+    .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+}
+
+/**
+ * แสดงวันที่ให้คนอ่าน — จุดเดียวของฝั่งหน้าเว็บ (กฎข้อ 20)
+ *
+ * คืน dd-MM-yyyy เมื่อเป็นวันที่ล้วน และ dd-MM-yyyy HH:mm เมื่อมีเวลา
+ * ตรงกับ formatForDisplay_() ฝั่งเซิร์ฟเวอร์ เพื่อให้ทุกหน้าจออ่านเหมือนกันหมด
+ *
+ * ห้ามเอาผลลัพธ์ของฟังก์ชันนี้ไปใส่ใน input type="date" หรือ datetime-local
+ * สองช่องนั้นต้องใช้ toDateInput() / toDateTimeInput() ที่คืนรูปแบบของเบราว์เซอร์
+ *
+ * ค่าที่เป็นข้อความเวลาท้องถิ่นอยู่แล้ว (เวลานัดหมายตามกฎข้อ 18) จะถูกอ่านตรง ๆ
+ * ไม่ส่งผ่าน new Date() เพราะเขตเวลาของเบราว์เซอร์จะเลื่อนค่าให้
+ *
+ * @param {*} value ค่าจากเซิร์ฟเวอร์ (ข้อความ ISO, ข้อความเวลาท้องถิ่น หรือ Date)
+ * @return {string} '-' เมื่อไม่มีค่า
+ */
+function formatDate(value) {
+  if (!value) return '-';
+
+  var text = String(value);
+  var local = text.match(/^(\d{4})-(\d{2})-(\d{2})(?:[T ](\d{2}):(\d{2}))?$/);
+  if (local) {
+    var day = local[3] + '-' + local[2] + '-' + local[1];
+    return local[4] ? (day + ' ' + local[4] + ':' + local[5]) : day;
+  }
+
+  var date = (value instanceof Date) ? value : new Date(text);
+  if (isNaN(date.getTime())) return text;
+
+  var pad = function (n) { return n < 10 ? '0' + n : String(n); };
+  return pad(date.getDate()) + '-' + pad(date.getMonth() + 1) + '-' + date.getFullYear() +
+    ' ' + pad(date.getHours()) + ':' + pad(date.getMinutes());
+}
+
+/*
+ * สองฟังก์ชันข้างล่างนี้แปลงค่าให้ "ช่องกรอก" ไม่ใช่ให้คนอ่าน
+ * ต้องคืนรูปแบบที่เบราว์เซอร์กำหนดเท่านั้น (yyyy-MM-dd และ yyyy-MM-ddTHH:mm)
+ * ห้ามเปลี่ยนตามรูปแบบที่ใช้แสดงผลในกฎข้อ 20 เด็ดขาด ใส่ผิดแล้วช่องจะว่างเปล่าเงียบ ๆ
+ */
+
+/**
+ * แปลงค่าวันที่จากเซิร์ฟเวอร์ให้ใส่ในช่องเลือกวันที่ได้
+ *
+ * ตัด 10 ตัวแรกได้เฉพาะเมื่อค่าที่ได้เป็น "เวลาท้องถิ่น" อยู่แล้ว เช่น 2026-09-12T00:00
+ * ถ้าเป็น ISO แบบ UTC ที่ลงท้ายด้วย Z ห้ามตัด เพราะเที่ยงคืนตามเวลาไทยคือ 17:00 ของ
+ * "เมื่อวาน" ในเวลา UTC การตัดสตริงจึงทำให้วันที่เลื่อนไป 1 วันเต็ม (กฎข้อ 19)
+ *
+ * @param {*} value ค่าวันที่
+ * @return {string} รูปแบบ YYYY-MM-DD
+ */
+function toDateInput(value) {
+  if (!value) return '';
+  var text = String(value);
+  var isUtc = /Z$/.test(text) || /[+-]\d{2}:?\d{2}$/.test(text);
+  if (!isUtc && /^\d{4}-\d{2}-\d{2}/.test(text)) return text.substring(0, 10);
+  var date = new Date(text);
+  if (isNaN(date.getTime())) return '';
+  var pad = function (n) { return n < 10 ? '0' + n : String(n); };
+  return date.getFullYear() + '-' + pad(date.getMonth() + 1) + '-' + pad(date.getDate());
+}
+
+/**
+ * แปลงเวลานัดหมายให้ใส่ในช่อง input type="datetime-local" ได้
+ *
+ * ค่าที่เซิร์ฟเวอร์ส่งมาเป็นข้อความเวลาท้องถิ่น YYYY-MM-DDTHH:mm อยู่แล้ว (กฎข้อ 18)
+ * จึงตัดมาใช้ตรง ๆ ห้ามเอาไปผ่าน new Date() เพราะจะโดนแปลงโซนเวลาแล้วเลื่อนชั่วโมง
+ *
+ * ห้ามเปลี่ยนรูปแบบที่คืนไปเป็น dd-MM-yyyy ตามรูปแบบที่ใช้แสดงผล (กฎข้อ 20)
+ * เบราว์เซอร์รับเฉพาะ yyyy-MM-ddTHH:mm ถ้าใส่รูปแบบอื่นช่องจะว่างเปล่าโดยไม่มี error
+ *
+ * @param {*} value ค่าเวลานัดหมายจากเซิร์ฟเวอร์
+ * @return {string} รูปแบบ YYYY-MM-DDTHH:mm
+ */
+function toDateTimeInput(value) {
+  if (!value) return '';
+  var text = String(value);
+  var match = text.match(/^(\d{4}-\d{2}-\d{2})[T ](\d{2}:\d{2})/);
+  if (match) return match[1] + 'T' + match[2];
+  if (/^\d{4}-\d{2}-\d{2}$/.test(text)) return text + 'T00:00';
+  return '';
+}
+
+/**
+ * แปลงค่าวันที่เป็นข้อความ ISO ก่อนส่งกลับไปหาเซิร์ฟเวอร์
+ *
+ * google.script.run รับพารามิเตอร์ได้เฉพาะค่าพื้นฐานและ object/array ที่ประกอบจากค่าพื้นฐาน
+ * ส่ง Date ตรง ๆ กลับไปไม่ได้ · ฝั่ง Server แปลงข้อความ ISO กลับเป็น Date ให้เอง
+ * และ ISO เก็บเศษมิลลิวินาทีไว้ครบ การตรวจ Optimistic Lock จึงยังเทียบได้ตรง (SPEC C-3)
+ *
+ * @param {*} value ค่าวันที่ที่ได้มาจากเซิร์ฟเวอร์
+ * @return {string} ข้อความ ISO หรือค่าว่างเมื่อไม่มีวันที่
+ */
+function toIso(value) {
+  if (!value) return '';
+  var date = (value instanceof Date) ? value : new Date(value);
+  return isNaN(date.getTime()) ? '' : date.toISOString();
+}
+
+
+/*
+  ตารางแปลภาษาไทยมาจาก 00_Config ผ่านชั้น API ที่เดียว (SPEC 17.3)
+  หน้าเว็บไม่มีคำแปลชุดของตัวเอง จะได้ไม่หลุดจากกันเมื่อมีการเพิ่มสถานะใหม่
+*/
+var LABELS = { woStatus: {}, taskStatus: {}, assignment: {}, role: {}, field: {} };
+
+/**
+ * เก็บตารางแปลที่เซิร์ฟเวอร์ส่งมา เรียกครั้งเดียวตอนโหลดหน้า
+ * @param {Object} labels ตารางแปลจาก api_getBootstrap หรือ api_listPendingApprovals
+ */
+function setLabels(labels) {
+  if (labels) LABELS = labels;
+}
+
+/**
+ * แปลค่าเป็นภาษาไทยจากตารางที่ระบุ ถ้าไม่มีในตารางให้คืนค่าเดิม
+ * @param {string} table ชื่อตารางใน LABELS
+ * @param {*} value ค่าที่ต้องการแปล
+ * @return {string}
+ */
+function labelOf(table, value) {
+  if (value === null || value === undefined || value === '') return '-';
+  var map = LABELS[table] || {};
+  return map[value] || String(value);
+}
+
+/*
+  มุมมองงานของแผนก — นิยามมาจาก TASK_VIEWS ฝั่งเซิร์ฟเวอร์ที่เดียว (SPEC 17.3)
+
+  หน้าเว็บไม่มีรายการสถานะของตัวเองเลยแม้แต่ที่เดียว เพราะถ้ามีสองชุด วันหนึ่ง
+  ตัวเลขบนเมนูย่อยจะไม่ตรงกับจำนวนรายการที่เห็นจริงในหน้า แล้วไม่มีใครรู้ว่าฝั่งไหนผิด
+*/
+var TASK_VIEWS_ = [];
+var DEFAULT_VIEW = 'active';
+
+/**
+ * รับนิยามของมุมมองจากเซิร์ฟเวอร์ เรียกครั้งเดียวตอนเปิดหน้า
+ * @param {Object[]} views [{key, label, statuses}]
+ * @param {string} fallback มุมมองตั้งต้นเมื่อไม่ได้ระบุมา
+ */
+function setTaskViews(views, fallback) {
+  if (views && views.length) TASK_VIEWS_ = views;
+  if (fallback) DEFAULT_VIEW = fallback;
+}
+
+/**
+ * สถานะทั้งหมดที่อยู่ในมุมมองหนึ่ง
+ * @param {string} key คีย์ของมุมมอง
+ * @return {string[]}
+ */
+function viewStatuses(key) {
+  for (var i = 0; i < TASK_VIEWS_.length; i++) {
+    if (TASK_VIEWS_[i].key === key) return TASK_VIEWS_[i].statuses;
+  }
+  return [];
+}
+
+/**
+ * ชื่อไทยของมุมมองหนึ่ง
+ * @param {string} key คีย์ของมุมมอง
+ * @return {string}
+ */
+function viewLabel(key) {
+  for (var i = 0; i < TASK_VIEWS_.length; i++) {
+    if (TASK_VIEWS_[i].key === key) return TASK_VIEWS_[i].label;
+  }
+  return '';
+}
+
+/**
+ * มุมมองนี้คัดด้วยวันที่นัด ไม่ใช่ด้วยสถานะ หรือไม่
+ *
+ * อ่านจากนิยามที่เซิร์ฟเวอร์ส่งมา ไม่เทียบชื่อคีย์เอง · ถ้าหน้าเว็บเทียบกับคำว่า
+ * 'today' ตรง ๆ วันที่เปลี่ยนชื่อคีย์ฝั่งเซิร์ฟเวอร์ หน้านี้จะเงียบ ๆ ทำผิดต่อไป
+ *
+ * @param {string} key คีย์ของมุมมอง
+ * @return {boolean}
+ */
+function isDateView(key) {
+  for (var i = 0; i < TASK_VIEWS_.length; i++) {
+    if (TASK_VIEWS_[i].key === key) return !!TASK_VIEWS_[i].byDate;
+  }
+  return false;
+}
+
+/**
+ * นับจำนวนงานแยกตามมุมมอง จากรายการที่หน้านี้ถืออยู่
+ *
+ * ใช้ให้ตัวเลขบนเมนูขยับทันทีหลังผู้ใช้ทำรายการ โดยไม่ต้องขอข้อมูลใหม่ทั้งก้อน
+ * และนับจากข้อมูลชุดเดียวกับที่วาดรายการ ตัวเลขกับรายการจึงตรงกันเสมอ
+ *
+ * @param {Object[]} rows งานของแผนกทุกสถานะ
+ * @return {Object} {pending, active, done}
+ */
+/**
+ * ปุ่มเปลี่ยนหน้าของรายการงานแผนก — ใช้ร่วมกันทั้งหน้า SV/PE และ Lab
+ *
+ * สองหน้านี้ต้องแบ่งหน้าเหมือนกันทุกประการ ถ้าเขียนแยกกันสองที่ วันหนึ่งจะมีที่หนึ่ง
+ * ที่ได้แก้และอีกที่หนึ่งที่ลืม แล้วผู้ใช้สองแผนกจะเห็นหน้าคนละแบบ
+ *
+ * @param {Object} state สถานะของหน้า {page, pageCount, total}
+ */
+function renderTaskPager(state) {
+  var box = document.getElementById('pager');
+  if (!box) return;
+
+  if (!state.total || state.pageCount < 2) { box.innerHTML = ''; return; }
+
+  box.innerHTML =
+    '<button type="button" class="ghost small" data-step="-1"' +
+      (state.page <= 1 ? ' disabled' : '') + '>หน้าก่อนหน้า</button>' +
+    '<span class="page-now">หน้า ' + state.page + ' จาก ' + state.pageCount +
+      ' · ทั้งหมด ' + state.total + ' รายการ</span>' +
+    '<button type="button" class="ghost small" data-step="1"' +
+      (state.page >= state.pageCount ? ' disabled' : '') + '>หน้าถัดไป</button>';
+}
+
+/**
+ * กดปุ่มเปลี่ยนหน้า — คืนหน้าใหม่ที่ต้องไป หรือ 0 เมื่อไม่ได้กดปุ่ม
+ * @param {Event} event เหตุการณ์คลิก
+ * @param {Object} state สถานะของหน้า
+ * @return {number}
+ */
+function taskPagerTarget(event, state) {
+  var step = event.target && event.target.getAttribute
+    ? event.target.getAttribute('data-step') : '';
+  if (!step) return 0;
+  return Math.max(1, Number(state.page || 1) + Number(step));
+}
+
+function countByView(rows) {
+  var counts = {};
+  for (var v = 0; v < TASK_VIEWS_.length; v++) counts[TASK_VIEWS_[v].key] = 0;
+
+  for (var i = 0; i < (rows || []).length; i++) {
+    /*
+     * มุมมองที่คัดด้วยวันนัด ไม่ได้คัดด้วยสถานะ จึงต้องนับคนละทาง
+     *
+     * "นัดไว้วันนี้ไหม" ตัดสินมาจากฝั่งเซิร์ฟเวอร์แล้วด้วยวันไทย (visit.isToday)
+     * หน้านี้ไม่คำนวณวันเอง เพราะเบราว์เซอร์ของผู้ใช้ตั้งเขตเวลาอะไรก็ได้
+     *
+     * และต้องนับ **ก่อน** วนหาสถานะ เพราะงานหนึ่งอยู่ได้ทั้งสองมุมมองพร้อมกัน —
+     * งานที่นัดไว้วันนี้ก็ยังเป็นงานที่กำลังดำเนินการอยู่ด้วย
+     */
+    if (rows[i].visit && rows[i].visit.isToday) {
+      for (var d = 0; d < TASK_VIEWS_.length; d++) {
+        if (TASK_VIEWS_[d].byDate) counts[TASK_VIEWS_[d].key]++;
+      }
+    }
+
+    for (var k = 0; k < TASK_VIEWS_.length; k++) {
+      if (TASK_VIEWS_[k].byDate) continue;
+      if (TASK_VIEWS_[k].statuses.indexOf(rows[i].status) !== -1) {
+        counts[TASK_VIEWS_[k].key]++;
+        break;
+      }
+    }
+  }
+  return counts;
+}
+
+/**
+ * สีของแต่ละสถานะ — ประกาศคู่กับการแปลเป็นคำไทย เพื่อให้ทุกหน้าใช้สีชุดเดียวกัน
+ *
+ * เก็บเป็น "โทน" ไม่ใช่รหัสสี ตัวสีจริงอยู่ในตัวแปร CSS ที่ ui_Style ที่เดียว
+ * ถ้าหน้าไหนประกอบป้ายสถานะเอง วันหนึ่งสถานะเดียวกันจะเป็นคนละสีในคนละหน้า
+ * แล้วผู้ใช้จะเลิกเชื่อสีไปเลย
+ */
+var STATUS_TONE = {
+  woStatus: {
+    PENDING_APPROVE: 'warn', RETURNED: 'danger', APPROVED: 'info',
+    IN_PROGRESS: 'brand', COMPLETED: 'ok', CANCELLED: 'danger'
+  },
+  /*
+   * งานที่ยกเลิกใช้สีของ "สิ่งที่หยุดไปแล้ว" ไม่ใช่สีเทากลาง ๆ เพราะมันอยู่ปนกับ
+   * งานที่ปิดสำเร็จในเมนู "เสร็จสิ้น" ถ้าสองอย่างนี้สีใกล้กัน คนจะอ่านผิดทุกวัน (SPEC 17.3)
+   */
+  taskStatus: {
+    PENDING_ACCEPT: 'warn', IN_PROGRESS: 'brand', RETURNED: 'danger',
+    COMPLETED: 'ok', CANCELLED: 'danger'
+  },
+  payment: { PAID: 'ok', UNPAID: 'warn' }
+};
+
+/**
+ * ป้ายสถานะหนึ่งป้าย พร้อมคำไทยและสีประจำสถานะนั้น
+ * @param {string} table ชื่อตารางใน LABELS (woStatus / taskStatus / payment)
+ * @param {*} value ค่าสถานะ
+ * @return {string} HTML
+ */
+function statusPill(table, value) {
+  var tone = (STATUS_TONE[table] || {})[value] || 'muted';
+  return '<span class="pill tone-' + tone + '">' + escapeHtml(labelOf(table, value)) + '</span>';
+}
+
+/**
+ * ข้อความภาษาไทยของสถานะใบงาน
+ * @param {string} value ค่าจาก Overall_Status
+ * @return {string}
+ */
+function statusLabel(value) {
+  return labelOf('woStatus', value);
+}
+
+/**
+ * ข้อความภาษาไทยของแผนกผู้รับงาน
+ * @param {string} value ค่าจาก Assignment_Type
+ * @return {string}
+ */
+function assignmentLabel(value) {
+  return labelOf('assignment', value);
+}
+
+/**
+ * ข้อความภาษาไทยของบทบาทผู้ใช้ ใช้แสดงว่าใครกำลังใช้งานอยู่
+ * @param {string[]} roles รายการ Role
+ * @return {string}
+ */
+function rolesLabel(roles) {
+  if (!roles || !roles.length) return 'ยังไม่ได้กำหนดสิทธิ์';
+  var names = [];
+  for (var i = 0; i < roles.length; i++) names.push(labelOf('role', roles[i]));
+  return names.join(' · ');
+}
+
+/**
+ * กันไม่ให้ข้อความ "กำลังโหลด" ค้างถาวร (SPEC 17.3)
+ *
+ * ข้อความกำลังโหลดที่ไม่จบ คือข้อผิดพลาด ไม่ใช่สถานะ — ผู้ใช้รอไปเรื่อย ๆ
+ * โดยไม่รู้ว่าควรรอต่อหรือควรแจ้งใคร และหน้าจอไม่มีทางออกให้ด้วย
+ *
+ * เกิดได้เมื่อเส้นทางใดเส้นทางหนึ่งลืมเขียนทับกล่องนั้น เช่นตอนข้อมูลมาไม่ครบ
+ * แล้วโค้ดที่ควรวาดรายการไม่ได้ถูกเรียกเลย ซึ่งเกิดขึ้นมาแล้วจริง
+ *
+ * @param {string} containerId กล่องที่กำลังขึ้นว่ากำลังโหลด
+ * @param {number} [seconds] รอได้นานเท่าไรก่อนถือว่าผิดปกติ
+ * @return {function()} เรียกเมื่อโหลดเสร็จ เพื่อยกเลิกตัวกันค้าง
+ */
+function guardLoading(containerId, seconds) {
+  var timer = setTimeout(function () {
+    var box = document.getElementById(containerId);
+    if (!box || box.innerHTML.indexOf('กำลังโหลด') === -1) return;
+
+    showPageError(containerId,
+      'ระบบไม่ตอบกลับภายในเวลาที่ควรจะเป็น กรุณาโหลดหน้าใหม่อีกครั้ง ' +
+      'ถ้ายังเป็นเหมือนเดิม กรุณาแจ้งผู้ดูแลระบบ');
+  }, (seconds || 20) * 1000);
+
+  return function () { clearTimeout(timer); };
+}
+
+/**
+ * ตัวกันค้างชั้นสุดท้าย — ทำงานแม้สคริปต์ของหน้านั้นไม่เคยเริ่มทำงานเลย (SPEC 17.4)
+ *
+ * **`guardLoading` ไม่พอ เพราะมันถูกติดตั้งจากสคริปต์ของหน้านั้นเอง**
+ *
+ * เคยเกิดจริง: สตริงในไฟล์ของหน้าแผนกมีการขึ้นบรรทัดใหม่อยู่ข้างในเครื่องหมาย
+ * คำพูด · เบราว์เซอร์แปลบล็อกนั้นไม่ผ่าน จึงข้ามทั้งบล็อกไปเงียบ ๆ แล้วโค้ดของ
+ * หน้าไม่เคยทำงานสักบรรทัด รวมทั้งบรรทัดที่ติดตั้ง `guardLoading` ด้วย ·
+ * ผลคือ "กำลังโหลดรายการ…" ค้างอยู่ตลอดกาล ฝั่งเซิร์ฟเวอร์ไม่มีอะไรผิดให้เห็น
+ * และตัวกันค้างที่เขียนไว้แล้วก็ไม่ได้ช่วยอะไรเลย
+ *
+ * ตัวนี้อยู่ในไฟล์รวมซึ่งเป็นคนละบล็อก `<script>` กับของแต่ละหน้า · บล็อกที่แปล
+ * ไม่ผ่านหนึ่งบล็อกไม่ทำให้บล็อกอื่นหยุด ตัวนี้จึงยังทำงานได้เมื่อของหน้านั้นตายไปแล้ว
+ *
+ * รอ 25 วินาที ยาวกว่า `guardLoading` ที่รอ 20 โดยตั้งใจ — เมื่อสคริปต์ของหน้า
+ * ทำงานปกติ ข้อความที่เจาะจงกว่าของมันต้องได้ขึ้นก่อนเสมอ ตัวนี้เป็นพื้นรองเท่านั้น
+ */
+function armLoadingWatchdog() {
+  setTimeout(function () {
+    var stuck = document.querySelectorAll('.loading');
+    if (!stuck.length) return;
+
+    for (var i = 0; i < stuck.length; i++) {
+      var box = stuck[i].parentNode || stuck[i];
+      box.innerHTML =
+        '<div class="note-box stop">หน้านี้โหลดไม่สำเร็จ และไม่ได้แจ้งสาเหตุกลับมา ' +
+        'กรุณากดลองใหม่ · ถ้ายังเป็นเหมือนเดิม กรุณาแจ้งผู้ดูแลระบบ ' +
+        'พร้อมบอกว่าเปิดหน้าไหนอยู่</div>' +
+        '<div class="actions">' +
+        '<button type="button" class="ghost small" onclick="location.reload()">ลองใหม่</button>' +
+        '</div>';
+    }
+  }, 25000);
+}
+
+/*
+ * ติดตั้งทันทีตอนแปลไฟล์ ไม่รอ DOMContentLoaded และไม่รอให้หน้าไหนเรียก
+ *
+ * ถ้ารอให้หน้าเรียก มันจะตายไปพร้อมกับหน้าที่แปลไม่ผ่าน ซึ่งเป็นกรณีเดียว
+ * ที่ตัวนี้มีไว้รับมือ · setTimeout เรียกได้ก่อน DOM พร้อม เพราะกว่าจะถึงเวลา
+ * ทำงานจริง หน้าถูกวาดเสร็จไปนานแล้ว
+ */
+armLoadingWatchdog();
+
+/**
+ * อ่านข้อมูลตั้งต้นที่เซิร์ฟเวอร์ฝังมากับหน้า — จุดเดียวของทั้งระบบ (SPEC 17.3)
+ *
+ * ห้ามหน้าไหนไปแกะ data-bootstrap เองอีก และห้ามหยิบค่าลึก ๆ ตรง ๆ
+ * เพราะเมื่อรูปแบบเปลี่ยน จะได้ undefined ที่ไม่บอกว่าอะไรหายไป
+ * แล้วอาการจะโผล่ไกลจากต้นเหตุมาก เช่นหน้าขึ้นว่า "ยังไม่ได้ระบุแผนก"
+ * ทั้งที่ทะเบียนถูกต้อง หรือพังที่บรรทัดอ่าน displayName
+ *
+ * ทุกคีย์อยู่ระดับเดียวกันหมด ทั้งตัวตน เมนู และข้อมูลของหน้านั้น
+ *
+ * เดิมก้อนนี้ถูกฝังมากับหน้าตอนเซิร์ฟเวอร์ประกอบ HTML แต่ตอนนี้ระบุตัวตนด้วยโทเคน
+ * ที่เก็บไว้ในเบราว์เซอร์ ซึ่งตอนประกอบหน้ายังไม่มีทางรู้ (ห้ามส่งโทเคนผ่าน URL)
+ * ก้อนนี้จึงมาจาก api_pageData แทน · ยังเป็นคำขอเดียวต่อการเปิดหนึ่งหน้าเหมือนเดิม
+ *
+ * @param {string[]} [needs] คีย์ที่หน้านี้ต้องใช้ ถ้าขาดจะบอกว่าขาดตัวไหน
+ * @param {Object} boot ก้อนข้อมูลที่ได้จากเซิร์ฟเวอร์
+ * @return {Object} {ok, boot, error}
+ */
+function readBootstrap(needs, boot) {
+  if (!boot) {
+    return { ok: false, boot: {}, error: 'ระบบไม่ได้ส่งข้อมูลตั้งต้นของหน้านี้มา กรุณาโหลดหน้าใหม่' };
+  }
+
+  // ข้อผิดพลาดที่เซิร์ฟเวอร์แนบมา สำคัญกว่าเรื่องคีย์ขาด จึงรายงานก่อน
+  if (boot.error) return { ok: false, boot: boot, error: boot.error };
+
+  var missing = [];
+  var list = needs || [];
+  for (var i = 0; i < list.length; i++) {
+    if (boot[list[i]] === undefined || boot[list[i]] === null) missing.push(list[i]);
+  }
+  if (missing.length) {
+    return { ok: false, boot: boot,
+      error: 'ระบบส่งข้อมูลมาไม่ครบสำหรับหน้านี้ ขาด: ' + missing.join(', ') +
+        ' · กรุณาแจ้งผู้ดูแลระบบ' };
+  }
+
+  return { ok: true, boot: boot, error: '' };
+}
+
+/* ===========================================================================
+   การอัปโหลดไฟล์ — ใช้ร่วมกันทุกหน้า (SPEC 14, 16, 21)
+
+   ข้อจำกัดที่ต้องออกแบบรอบ: ไฟล์วิ่งจากเบราว์เซอร์ผ่านโปรเจกต์หน้าบ้านไปหลังบ้าน
+   คือข้าม 2 ต่อ ทั้งสองต่อมีเพดานเวลา 6 นาทีและเพดานขนาดพารามิเตอร์ของตัวเอง
+   กติกาที่ตามมาจึงเป็น
+     - ทีละไฟล์เสมอ ห้ามยิงพร้อมกัน ไม่งั้นล้มทั้งชุด
+     - บอกว่ากำลังไฟล์ที่เท่าไรจากทั้งหมด เพราะจะช้าและผู้ใช้ต้องรู้ว่ายังเดินอยู่
+     - ไฟล์ใดพลาด ต้องบอกว่าไฟล์ไหน แล้วให้ลองใหม่เฉพาะไฟล์นั้น ห้ามเริ่มใหม่ทั้งชุด
+   =========================================================================== */
+
+/** ข้อจำกัดที่เซิร์ฟเวอร์เป็นคนกำหนด — หน้าเว็บห้ามมีตัวเลขชุดของตัวเอง */
+var UPLOAD = { maxBytes: 0, maxLabel: '', extensions: [], imageMaxSide: 1600, imageQuality: 0.85 };
+
+/**
+ * รับข้อจำกัดของการอัปโหลดจากเซิร์ฟเวอร์ เรียกครั้งเดียวตอนโหลดหน้า
+ * @param {Object} limits ค่าจาก bootstrap
+ */
+function setUploadLimits(limits) {
+  if (limits) UPLOAD = limits;
+}
+
+/**
+ * ขนาดไฟล์ที่คนอ่านรู้เรื่อง
+ * @param {number} bytes จำนวนไบต์
+ * @return {string}
+ */
+function fileSizeLabel(bytes) {
+  var size = Number(bytes) || 0;
+  if (size < 1024) return size + ' B';
+  if (size < 1024 * 1024) return Math.round(size / 1024) + ' KB';
+  return (Math.round(size / 1024 / 1024 * 10) / 10) + ' MB';
+}
+
+/**
+ * ไฟล์นี้เป็นรูปภาพหรือไม่ — ย่อได้เฉพาะรูป ไฟล์เอกสารส่งตามต้นฉบับ ห้ามแตะ
+ * @param {File} file ไฟล์ที่ผู้ใช้เลือก
+ * @return {boolean}
+ */
+function isImageFile(file) {
+  return String((file && file.type) || '').indexOf('image/') === 0;
+}
+
+/**
+ * อ่านไฟล์เป็นข้อความ base64
+ * @param {Blob} blob ไฟล์หรือก้อนข้อมูล
+ * @return {Promise<string>}
+ */
+function readAsBase64(blob) {
+  return new Promise(function (resolve, reject) {
+    var reader = new FileReader();
+    reader.onload = function () {
+      // ผลที่ได้เป็น data URL — ตัดส่วนหัว "data:...;base64," ออกให้เหลือแต่เนื้อ
+      var text = String(reader.result || '');
+      resolve(text.substring(text.indexOf(',') + 1));
+    };
+    reader.onerror = function () { reject(new Error('อ่านไฟล์จากเครื่องไม่สำเร็จ')); };
+    reader.readAsDataURL(blob);
+  });
+}
+
+/**
+ * ย่อรูปที่ฝั่งเบราว์เซอร์ก่อนส่ง — บังคับ ไม่ใช่ทางเลือก (SPEC 16)
+ *
+ * พื้นที่ Drive มี 15 GB ทั้งระบบ รูปจากมือถือใบละ 3-5 MB ถ้า 500 ใบงานต่อเดือน
+ * ใบละ 5 รูป จะกินราว 10 GB ต่อเดือน คือเต็มในเดือนครึ่ง
+ * ย่อด้านยาวเหลือ 1600 px ลดขนาดลงราว 10 เท่า โดยยังเห็นป้ายและสภาพหน้างานชัด
+ *
+ * รูปบางชนิดเบราว์เซอร์ถอดรหัสไม่ได้ (เช่น HEIC บนเครื่องที่ไม่รองรับ)
+ * กรณีนั้นส่งต้นฉบับไปแทน ดีกว่าปฏิเสธไฟล์ของผู้ใช้ทิ้งไปเฉย ๆ
+ *
+ * @param {File} file รูปที่ผู้ใช้เลือก
+ * @return {Promise<Object>} {blob, fileName, mimeType, shrunk}
+ */
+function shrinkImage(file) {
+  return new Promise(function (resolve) {
+    var url = URL.createObjectURL(file);
+    var image = new Image();
+
+    image.onload = function () {
+      URL.revokeObjectURL(url);
+
+      var side = Math.max(image.width, image.height);
+      var scale = side > UPLOAD.imageMaxSide ? (UPLOAD.imageMaxSide / side) : 1;
+
+      var canvas = document.createElement('canvas');
+      canvas.width = Math.round(image.width * scale);
+      canvas.height = Math.round(image.height * scale);
+      canvas.getContext('2d').drawImage(image, 0, 0, canvas.width, canvas.height);
+
+      canvas.toBlob(function (blob) {
+        if (!blob || blob.size >= file.size) {
+          // ย่อแล้วไม่เล็กลง (รูปเล็กอยู่แล้ว หรือย่อไม่สำเร็จ) ส่งต้นฉบับไปตรง ๆ
+          resolve({ blob: file, fileName: file.name, mimeType: file.type, shrunk: false });
+          return;
+        }
+        resolve({
+          blob: blob,
+          fileName: replaceExtension(file.name, 'jpg'),
+          mimeType: 'image/jpeg',
+          shrunk: true
+        });
+      }, 'image/jpeg', UPLOAD.imageQuality);
+    };
+
+    image.onerror = function () {
+      URL.revokeObjectURL(url);
+      resolve({ blob: file, fileName: file.name, mimeType: file.type, shrunk: false });
+    };
+
+    image.src = url;
+  });
+}
+
+/**
+ * เปลี่ยนนามสกุลของชื่อไฟล์ — ใช้ตอนย่อรูปแล้วได้ JPEG
+ * ชื่อเดิมยังถูกเก็บไว้ในคอลัมน์ Original_File_Name ฝั่งเซิร์ฟเวอร์ (SPEC 14.2)
+ * @param {string} name ชื่อไฟล์เดิม
+ * @param {string} extension นามสกุลใหม่
+ * @return {string}
+ */
+function replaceExtension(name, extension) {
+  var text = String(name || 'image');
+  var dot = text.lastIndexOf('.');
+  return (dot > 0 ? text.substring(0, dot) : text) + '.' + extension;
+}
+
+/**
+ * เตรียมไฟล์ 1 ไฟล์ให้พร้อมส่ง — ย่อถ้าเป็นรูป แล้วแปลงเป็น base64
+ * @param {File} file ไฟล์ที่ผู้ใช้เลือก
+ * @return {Promise<Object>} {content, fileName, mimeType, originalSize, finalSize, shrunk}
+ */
+function prepareUpload(file) {
+  var step = isImageFile(file)
+    ? shrinkImage(file)
+    : Promise.resolve({ blob: file, fileName: file.name, mimeType: file.type, shrunk: false });
+
+  return step.then(function (ready) {
+    /*
+     * เพดานยังเป็นศูนย์ แปลว่าหน้านี้ไม่เคยได้รับข้อจำกัดจากเซิร์ฟเวอร์
+     * ถ้าปล่อยผ่าน ไฟล์ทุกไฟล์จะใหญ่เกินเพดานศูนย์ไบต์ แล้วถูกปฏิเสธด้วยข้อความ
+     * ที่ไม่มีตัวเลขอยู่ในนั้น ซึ่งไล่หาสาเหตุไม่ได้เลย — ต้องบอกสาเหตุจริงแทน
+     */
+    if (!UPLOAD.maxBytes) {
+      throw new Error('หน้านี้ยังไม่ได้รับข้อจำกัดการอัปโหลดจากเซิร์ฟเวอร์ ' +
+        'จึงยังแนบไฟล์ไม่ได้ กรุณาโหลดหน้าใหม่อีกครั้ง');
+    }
+    if (ready.blob.size > UPLOAD.maxBytes) {
+      throw new Error('ไฟล์ "' + file.name + '" มีขนาด ' + fileSizeLabel(ready.blob.size) +
+        ' ซึ่งเกิน ' + UPLOAD.maxLabel + ' ต่อไฟล์ กรุณาย่อขนาดหรือแยกเป็นหลายไฟล์');
+    }
+    return readAsBase64(ready.blob).then(function (content) {
+      return {
+        content: content,
+        fileName: ready.fileName,
+        mimeType: ready.mimeType,
+        originalSize: file.size,
+        finalSize: ready.blob.size,
+        shrunk: ready.shrunk
+      };
+    });
+  });
+}
+
+/**
+ * ส่งไฟล์ทีละไฟล์จนครบ — ไม่ยิงพร้อมกันเด็ดขาด (SPEC 21)
+ *
+ * ไฟล์ที่พลาดจะถูกเก็บไว้คืนให้ผู้เรียก เพื่อให้กดลองใหม่เฉพาะไฟล์นั้นได้
+ * ผู้ใช้ที่เลือกมา 8 ไฟล์แล้วพลาดไฟล์ที่ 7 ไม่ควรต้องเริ่มใหม่ทั้งชุด
+ *
+ * @param {Object[]} items รายการ {file, context} — context คือค่าที่จะส่งไปกับไฟล์นั้น
+ * @param {Object} hooks {onProgress(index,total,name), onOk(item,result), onFail(item,error)}
+ * @return {Promise<Object>} {ok, failed} — failed คือรายการเดิมที่ยังส่งไม่สำเร็จ
+ */
+function uploadFilesOneByOne(items, hooks) {
+  var done = [];
+  var failed = [];
+  var chain = Promise.resolve();
+
+  items.forEach(function (item, index) {
+    chain = chain.then(function () {
+      if (hooks.onProgress) hooks.onProgress(index + 1, items.length, item.file.name);
+
+      return prepareUpload(item.file)
+        .then(function (part) {
+          var request = {};
+          for (var key in item.context) {
+            if (Object.prototype.hasOwnProperty.call(item.context, key)) request[key] = item.context[key];
+          }
+          request.fileName = part.fileName;
+          request.mimeType = part.mimeType;
+          request.content = part.content;
+
+          return callApi('api_uploadFile', [request]).then(function (result) {
+            done.push(result);
+            if (hooks.onOk) hooks.onOk(item, result, part);
+          });
+        })
+        .catch(function (error) {
+          failed.push(item);
+          if (hooks.onFail) hooks.onFail(item, error);
+        });
+    });
+  });
+
+  return chain.then(function () { return { ok: done, failed: failed }; });
+}
+
+/* ===========================================================================
+   ตะกร้าไฟล์ที่เลือกไว้ก่อนส่ง (SPEC 21 · 9.4)
+
+   ใช้ตัวเดียวกันสองที่: หน้าสร้างใบงาน และหน้าขั้นตอนของแผนก
+   ถ้าเขียนแยกกันสองชุด วันหนึ่งจะมีชุดหนึ่งที่ลืมตรวจขนาดไฟล์ หรือลืมให้ลองใหม่
+   เฉพาะไฟล์ที่พลาด แล้วจะไม่มีใครรู้จนกว่าผู้ใช้จะเจอเอง
+
+   สิ่งที่ตะกร้ารับผิดชอบ
+     - เก็บไฟล์ที่เลือกจากหลายหัวข้อไว้ด้วยกัน พร้อมหัวข้อของแต่ละไฟล์
+     - ปฏิเสธไฟล์ที่ใหญ่เกินเพดาน **ตั้งแต่ตอนเลือก** ไม่ใช่ตอนส่งแล้วล้ม
+     - เอาไฟล์ออกจากรายการก่อนส่งได้
+     - ส่งทั้งชุดด้วยการกดครั้งเดียว โดยเบื้องหลังส่งทีละไฟล์
+     - ไฟล์ที่พลาดยังอยู่ในตะกร้าพร้อมเหตุผล ให้กดส่งใหม่เฉพาะตัวนั้นได้
+
+   สิ่งที่ตะกร้าไม่รับผิดชอบ คือปุ่มส่งและถ้อยคำของแต่ละหน้า ซึ่งต่างกันจริง ๆ
+   =========================================================================== */
+
+/**
+ * ไฟล์นี้รับได้ไหม — กฎเดียวที่ทุกหน้าที่แนบไฟล์ใช้ร่วมกัน
+ *
+ * **ต้องตอบได้ตั้งแต่ตอนผู้ใช้เลือกไฟล์ ไม่ใช่ตอนส่งแล้วล้ม** (SPEC 21)
+ * คนที่เลือกมาแปดไฟล์แล้วรอสองนาทีเพื่อจะรู้ว่าไฟล์แรกใหญ่เกิน จะเลิกใช้ระบบ
+ *
+ * รูปภาพถูกย่อที่เบราว์เซอร์ก่อนส่งเสมอ (ดู shrinkImage) ขนาดต้นฉบับจึงไม่ใช่
+ * ขนาดที่จะเดินทางจริง · ถ้าเอาขนาดต้นฉบับมาตัดสิน รูปจากมือถือใบละ 6 MB
+ * จะถูกปฏิเสธทั้งที่ย่อแล้วเหลือไม่ถึงครึ่งเมกะไบต์ ซึ่งคือทุกรูปที่ช่างถ่ายมา ·
+ * รูปที่ย่อแล้วยังใหญ่เกินจริง ๆ ยังถูกปฏิเสธอยู่ดีที่ prepareUpload ก่อนออกจากเครื่อง
+ *
+ * @param {File} file ไฟล์ที่เลือก
+ * @return {string} เหตุผลที่รับไม่ได้ · ข้อความว่าง = รับได้
+ */
+function uploadRejectReason(file) {
+  if (!UPLOAD.maxBytes) {
+    return 'หน้านี้ยังไม่ได้รับข้อจำกัดการอัปโหลดจากเซิร์ฟเวอร์ กรุณาโหลดหน้าใหม่';
+  }
+  if (isImageFile(file)) return '';
+  if (file.size > UPLOAD.maxBytes) {
+    return 'ใหญ่ ' + fileSizeLabel(file.size) + ' ซึ่งเกิน ' + UPLOAD.maxLabel + ' ต่อไฟล์';
+  }
+  return '';
+}
+
+/**
+ * คัดไฟล์ที่รับไม่ได้ออกจากชุดที่เลือกมา
+ * @param {FileList|File[]} files ไฟล์ที่ผู้ใช้เลือก
+ * @return {Object} {ok: File[], rejected: [{name, reason}]}
+ */
+function splitAcceptedFiles(files) {
+  var list = Array.prototype.slice.call(files || []);
+  var ok = [];
+  var rejected = [];
+  for (var i = 0; i < list.length; i++) {
+    var why = uploadRejectReason(list[i]);
+    if (why) rejected.push({ name: list[i].name, reason: why });
+    else ok.push(list[i]);
+  }
+  return { ok: ok, rejected: rejected };
+}
+
+/**
+ * ข้อความบอกว่ารับไฟล์ไหนไม่ได้เพราะอะไร — ถ้อยคำเดียวกันทุกหน้า
+ * @param {Object[]} rejected รายการที่ถูกปฏิเสธ
+ * @return {string} ข้อความว่าง = ไม่มีไฟล์ถูกปฏิเสธ
+ */
+function rejectedFilesMessage(rejected) {
+  if (!rejected || !rejected.length) return '';
+  var why = [];
+  for (var i = 0; i < rejected.length; i++) {
+    why.push('"' + rejected[i].name + '" ' + rejected[i].reason);
+  }
+  return 'รับไม่ได้ ' + rejected.length + ' ไฟล์ — ' + why.join(' · ');
+}
+
+/** ตัวนับเพื่อให้ทุกไฟล์ในตะกร้ามีคีย์ของตัวเอง — ชื่อไฟล์ซ้ำกันได้ คีย์ต้องไม่ซ้ำ */
+var BASKET_SEQ = 0;
+
+/**
+ * สร้างตะกร้าไฟล์ผูกกับกล่องหนึ่งกล่องบนหน้า
+ * @param {Object} options {boxId: รหัสกล่องที่จะวาดรายการลงไป, onChange: เรียกเมื่อรายการเปลี่ยน}
+ * @return {Object} ตะกร้า
+ */
+function newUploadBasket(options) {
+  var boxId = options.boxId;
+  var onChange = options.onChange || function () {};
+  var items = [];
+
+  var basket = {
+    /**
+     * เพิ่มไฟล์ที่เลือกเข้าตะกร้า
+     * @param {FileList|File[]} files ไฟล์ที่ผู้ใช้เลือก
+     * @param {Object} meta {topicName, context} — context คือค่าที่จะส่งไปกับไฟล์นั้น
+     * @return {Object} {added, rejected:[{name, reason}]}
+     */
+    add: function (files, meta) {
+      var list = Array.prototype.slice.call(files || []);
+      var rejected = [];
+      var added = 0;
+
+      for (var i = 0; i < list.length; i++) {
+        var why = uploadRejectReason(list[i]);
+        if (why) {
+          rejected.push({ name: list[i].name, reason: why });
+          continue;
+        }
+        BASKET_SEQ++;
+        items.push({
+          key: 'f' + BASKET_SEQ,
+          file: list[i],
+          topicName: meta.topicName || '',
+          context: meta.context || {},
+          error: ''
+        });
+        added++;
+      }
+
+      basket.render();
+      return { added: added, rejected: rejected };
+    },
+
+    /** @return {Object[]} ไฟล์ทั้งหมดที่รออยู่ */
+    items: function () { return items; },
+
+    /** @return {number} จำนวนไฟล์ที่รออยู่ */
+    count: function () { return items.length; },
+
+    /**
+     * เอาไฟล์ออกจากตะกร้า
+     * @param {string} key คีย์ของไฟล์
+     */
+    remove: function (key) {
+      items = items.filter(function (one) { return one.key !== key; });
+      basket.render();
+    },
+
+    /** ล้างตะกร้าทั้งใบ */
+    clear: function () {
+      items = [];
+      basket.render();
+    },
+
+    /**
+     * ส่งไฟล์ในตะกร้า
+     * @param {Object} hooks {only: คีย์เดียวที่จะส่ง, onProgress, contextOf}
+     * @return {Promise<Object>} {ok, failed}
+     */
+    send: function (hooks) {
+      hooks = hooks || {};
+      var sending = hooks.only
+        ? items.filter(function (one) { return one.key === hooks.only; })
+        : items.slice();
+
+      if (!sending.length) return Promise.resolve({ ok: [], failed: [] });
+
+      sending.forEach(function (one) { one.error = ''; });
+
+      return uploadFilesOneByOne(sending.map(function (one) {
+        return {
+          file: one.file,
+          // เก็บคีย์ไว้กับรายการ เพื่อให้รู้ว่าตัวไหนสำเร็จตัวไหนพลาดตอนจบ
+          basketKey: one.key,
+          context: hooks.contextOf ? hooks.contextOf(one) : one.context
+        };
+      }), {
+        onProgress: hooks.onProgress,
+        onOk: function (item) {
+          items = items.filter(function (one) { return one.key !== item.basketKey; });
+        },
+        onFail: function (item, error) {
+          for (var i = 0; i < items.length; i++) {
+            if (items[i].key === item.basketKey) items[i].error = error.message;
+          }
+        }
+      }).then(function (outcome) {
+        basket.render();
+        return outcome;
+      });
+    },
+
+    /** วาดรายการที่เลือกไว้ พร้อมหัวข้อของแต่ละไฟล์และปุ่มเอาออก */
+    render: function () {
+      var box = document.getElementById(boxId);
+      if (!box) return;
+
+      if (!items.length) {
+        box.innerHTML = '';
+        onChange(0);
+        return;
+      }
+
+      var total = 0;
+      var failedCount = 0;
+      var html = '<div class="table-wrap"><table class="file-list">' +
+        '<tr><th>ไฟล์ที่เลือกไว้</th><th>หัวข้อ</th><th>ขนาด</th><th></th></tr>';
+
+      for (var i = 0; i < items.length; i++) {
+        var one = items[i];
+        total += one.file.size;
+        if (one.error) failedCount++;
+        html += '<tr>' +
+          '<td>' + escapeHtml(one.file.name) +
+            (one.error ? '<br><span class="req">ส่งไม่สำเร็จ — ' + escapeHtml(one.error) + '</span>' : '') +
+          '</td>' +
+          '<td>' + escapeHtml(one.topicName || '-') + '</td>' +
+          '<td>' + escapeHtml(fileSizeLabel(one.file.size)) + '</td>' +
+          '<td>' +
+            (one.error
+              ? '<button type="button" class="small basket-retry" data-key="' +
+                escapeHtml(one.key) + '">ลองใหม่เฉพาะไฟล์นี้</button> '
+              : '') +
+            '<button type="button" class="neutral small basket-remove" data-key="' +
+            escapeHtml(one.key) + '">เอาออก</button>' +
+          '</td>' +
+          '</tr>';
+      }
+
+      html += '</table></div>' +
+        '<div class="hint">เลือกไว้ ' + items.length + ' ไฟล์ · รวม ' + fileSizeLabel(total) +
+        (failedCount ? (' · ส่งไม่สำเร็จ ' + failedCount + ' ไฟล์') : '') + '</div>';
+
+      box.innerHTML = html;
+
+      var off = box.querySelectorAll('.basket-remove');
+      for (var r = 0; r < off.length; r++) {
+        off[r].addEventListener('click', function () { basket.remove(this.getAttribute('data-key')); });
+      }
+      var again = box.querySelectorAll('.basket-retry');
+      for (var a = 0; a < again.length; a++) {
+        again[a].addEventListener('click', function () {
+          if (basket.onRetry) basket.onRetry(this.getAttribute('data-key'));
+        });
+      }
+
+      onChange(items.length);
+    },
+
+    /** ผู้ใช้กดลองใหม่เฉพาะไฟล์เดียว — หน้าที่ใช้ตะกร้าเป็นคนตั้งค่านี้ */
+    onRetry: null
+  };
+
+  return basket;
+}
+
+/* ===========================================================================
+   เปิดดูเอกสารของใบงาน — ส่วนประกอบตัวเดียวที่ทุกหน้าใช้ (กฎข้อ 34 · SPEC 16)
+
+   **ทำไมเป็นดาวน์โหลด ไม่ใช่เปิดดูในหน้า**
+
+   วัดของจริงแล้วเมื่อ 28-09-2026 (ตารางอยู่ใน SPEC 16) — Chrome บนคอมปฏิเสธการ
+   แสดง PDF ในกรอบที่ถูกจำกัดสิทธิ์ ซึ่งเป็นกรอบที่ Apps Script เป็นคนสร้าง
+   เราเปลี่ยนไม่ได้ · แท็บใหม่ถูกบล็อกทั้งคอมและมือถือ · เหลือทางเดียวที่ได้ทั้งสองที่
+   คือดาวน์โหลด · ส่วนรูปภาพยังแสดงในหน้าตามเดิมเพราะได้ทุกเครื่อง
+
+   **สิ่งที่การรอ 3 วินาทีบังคับให้ต้องมี** — ค่าโสหุ้ยคงที่ราว 3 วินาทีต่อคำขอ
+   และขนาดไฟล์แทบไม่มีราคา (5 MB ใช้ 3.8 วินาที) · คนที่กดแล้วไม่เห็นอะไรเกิดขึ้น
+   สี่วินาทีจะกดซ้ำ แล้วได้คำขอซ้อนกันสองชุดที่ช้ากว่าเดิมทั้งคู่
+   =========================================================================== */
+
+/** ชนิดของเอกสารที่ขอได้ — ต้องตรงกับ DOC_KIND ใน 09_Api.gs */
+var DOC_KIND = { REPORT: 'report', ARCHIVE: 'archive', FILE: 'file' };
+
+/**
+ * ทางออกเมื่อกดแล้วไม่มีอะไรเกิดขึ้น
+ *
+ * เราตรวจไม่ได้ว่าดาวน์โหลดเริ่มจริงหรือไม่ — เบราว์เซอร์ไม่บอกกลับมา ·
+ * และเบราว์เซอร์ในแอป LINE ยังไม่ได้ยืนยันว่าดาวน์โหลดได้ · การเงียบไว้แล้วให้
+ * ผู้ใช้เดาว่าระบบพัง แย่กว่าการบอกทางออกสั้น ๆ ไว้ก่อน
+ */
+var DOWNLOAD_HINT =
+  'ถ้าไฟล์ไม่ลงเครื่อง ให้เปิดเว็บนี้ด้วย Chrome แทนเบราว์เซอร์ในแอป แล้วกดใหม่';
+
+/**
+ * ปุ่มดาวน์โหลดเอกสารหนึ่งใบ — ใช้รูปแบบเดียวกันทุกหน้า
+ *
+ * บอกตั้งแต่บนปุ่มว่าเป็นการดาวน์โหลด ไม่ใช่ให้ไฟล์โผล่ในโฟลเดอร์แล้วค่อยรู้
+ *
+ * @param {Object} doc {woId, kind, ref, label}
+ * @param {string} [extraClass] คลาสเพิ่มเติมของปุ่ม
+ * @return {string} HTML
+ */
+function docButtonHtml(doc, extraClass) {
+  return '<button type="button" class="doc-get ' + (extraClass || 'ghost small') + '"' +
+    ' data-wo="' + escapeHtml(doc.woId) + '"' +
+    ' data-kind="' + escapeHtml(doc.kind) + '"' +
+    ' data-ref="' + escapeHtml(doc.ref === undefined || doc.ref === null ? '' : doc.ref) + '"' +
+    '>' + escapeHtml(doc.label) + ' <span class="muted">(ดาวน์โหลด)</span></button>';
+}
+
+/**
+ * ผูกปุ่มดาวน์โหลดทุกปุ่มในกล่องหนึ่งกล่อง
+ *
+ * ผูกทีเดียวทั้งกล่องหลังวาดเสร็จ แทนที่จะให้แต่ละหน้าไล่ผูกเอง · หน้าที่ลืมผูก
+ * จะได้ปุ่มที่กดแล้วไม่เกิดอะไรเลย ซึ่งเป็นอาการเดียวกับที่เรากำลังแก้อยู่พอดี
+ *
+ * @param {Element} box กล่องที่เพิ่งวาดเสร็จ
+ */
+function bindDocButtons(box) {
+  if (!box) return;
+  var buttons = box.querySelectorAll('.doc-get');
+  for (var i = 0; i < buttons.length; i++) {
+    buttons[i].addEventListener('click', function () { getDocument(this); });
+  }
+}
+
+/**
+ * ขอไบต์ของเอกสารแล้วสั่งให้เบราว์เซอร์บันทึกลงเครื่อง
+ *
+ * @param {Element} button ปุ่มที่ถูกกด
+ * @return {Promise}
+ */
+function getDocument(button) {
+  // กันการกดซ้ำ — คำขอซ้อนกันสองชุดช้ากว่าเดิมทั้งคู่ และไม่ได้ไฟล์เร็วขึ้นเลย
+  if (button.disabled) return Promise.resolve();
+
+  var original = button.innerHTML;
+  button.disabled = true;
+  button.innerHTML = 'กำลังเตรียมไฟล์…';
+
+  return callApi('api_woDocument', [
+    button.getAttribute('data-wo'),
+    button.getAttribute('data-kind'),
+    button.getAttribute('data-ref')
+  ])
+    .then(function (doc) {
+      if (!doc.found) {
+        /*
+         * เซิร์ฟเวอร์ตอบเหมือนกันทุกกรณีโดยตั้งใจ (ไม่มีแถว ถูกลบ หรือไม่ใช่ของใบนี้)
+         * หน้าจอจึงบอกได้แค่สิ่งที่เป็นจริงเสมอ คือ "เปิดไม่ได้" ไม่ใช่เดาสาเหตุ
+         */
+        showMessage('เปิดเอกสารนี้ไม่ได้ — อาจถูกลบไปแล้ว หรือไม่ได้อยู่ในใบงานนี้', 'warn');
+        return;
+      }
+      saveToDevice(doc.dataUrl, doc.mimeType, doc.name);
+      showMessage('เริ่มดาวน์โหลด "' + doc.name + '" (' + fileSizeLabel(doc.size) + ') แล้ว · ' +
+        DOWNLOAD_HINT, 'ok');
+    })
+    .catch(function (error) { showMessage(error.message, 'error'); })
+    .then(function () {
+      button.disabled = false;
+      button.innerHTML = original;
+    });
+}
+
+/**
+ * สั่งให้เบราว์เซอร์บันทึกไบต์ลงเครื่อง
+ *
+ * ใช้ blob ไม่ใช่ data URL เพราะ data URL ของไฟล์ 5 MB ยาวราว 7 ล้านตัวอักษร
+ * ซึ่งบางเบราว์เซอร์ปฏิเสธที่ความยาวระดับนั้น · blob ไม่มีเพดานความยาว
+ *
+ * ต้องใส่ลิงก์ลงในหน้าก่อนกด แล้วเอาออกทีหลัง — ลิงก์ที่ไม่อยู่ในหน้าถูกบางเบราว์เซอร์
+ * เมินเงียบ ๆ ซึ่งจะกลายเป็นอาการ "กดแล้วไม่มีอะไรเกิดขึ้น" ที่หาสาเหตุไม่เจอ
+ *
+ * @param {string} dataUrl ไบต์ในรูป data URL
+ * @param {string} mimeType ชนิดไฟล์
+ * @param {string} name ชื่อไฟล์ที่จะบันทึก
+ */
+function saveToDevice(dataUrl, mimeType, name) {
+  var url = URL.createObjectURL(dataUrlToBlob(dataUrl, mimeType));
+  var link = document.createElement('a');
+  link.href = url;
+  link.download = name || 'เอกสาร';
+  link.style.display = 'none';
+  document.body.appendChild(link);
+  link.click();
+
+  /*
+   * คืนที่อยู่ของ blob ช้ากว่าการกดเล็กน้อย · ถ้าคืนทันที บางเบราว์เซอร์จะยังไม่ทัน
+   * เริ่มโหลดแล้วได้ไฟล์ขนาดศูนย์ไบต์ ซึ่งดูเหมือนดาวน์โหลดสำเร็จทุกประการ
+   */
+  setTimeout(function () {
+    link.remove();
+    URL.revokeObjectURL(url);
+  }, 60000);
+}
+
+/**
+ * แปลง data URL เป็น Blob
+ * @param {string} dataUrl ข้อความ data URL
+ * @param {string} mimeType ชนิดไฟล์
+ * @return {Blob}
+ */
+function dataUrlToBlob(dataUrl, mimeType) {
+  var raw = atob(String(dataUrl).substring(String(dataUrl).indexOf(',') + 1));
+  var bytes = new Uint8Array(raw.length);
+  for (var i = 0; i < raw.length; i++) bytes[i] = raw.charCodeAt(i);
+  return new Blob([bytes], { type: mimeType || 'application/octet-stream' });
+}
+
+/**
+ * กล่องยืนยันในหน้า — **ห้ามใช้ confirm() ของเบราว์เซอร์**
+ *
+ * กรอบของ Apps Script ปิดกล่องของเบราว์เซอร์ได้ · ถ้าถูกปิด confirm() จะคืน false
+ * ทันทีโดยไม่ถามอะไรเลย แล้วโค้ดจะถือว่าผู้ใช้กดยกเลิก · ผลคือปุ่มที่ต้องยืนยัน
+ * จะกดไม่ผ่านทั้งระบบ โดยที่เทสต์ฝั่งเซิร์ฟเวอร์มองไม่เห็นอะไรเลย (กฎข้อ 33)
+ *
+ * @param {Object} ask {title, body, okLabel, cancelLabel}
+ * @return {Promise<boolean>} true = ผู้ใช้ยืนยัน
+ */
+function confirmInPage(ask) {
+  return new Promise(function (resolve) {
+    var shade = document.createElement('div');
+    shade.className = 'ask-shade';
+    shade.innerHTML =
+      '<div class="ask-box" role="dialog" aria-modal="true">' +
+        '<h3>' + escapeHtml(ask.title) + '</h3>' +
+        '<div class="ask-body">' + ask.body + '</div>' +
+        '<div class="actions">' +
+          '<button type="button" class="ask-ok">' + escapeHtml(ask.okLabel || 'ยืนยัน') + '</button>' +
+          '<button type="button" class="neutral ask-no">' +
+            escapeHtml(ask.cancelLabel || 'กลับไปแก้ไข') + '</button>' +
+        '</div>' +
+      '</div>';
+
+    function close(answer) {
+      shade.remove();
+      resolve(answer);
+    }
+
+    shade.querySelector('.ask-ok').addEventListener('click', function () { close(true); });
+    shade.querySelector('.ask-no').addEventListener('click', function () { close(false); });
+    /*
+     * กดพื้นที่นอกกล่อง = ยกเลิก · ไม่ใช่ยืนยัน เพราะการกดพลาดต้องไม่ทำให้เกิดผล
+     * ที่ผู้ใช้ไม่ได้ตั้งใจ ส่วนการยกเลิกพลาดแค่ต้องกดปุ่มเดิมใหม่
+     */
+    shade.addEventListener('click', function (event) {
+      if (event.target === shade) close(false);
+    });
+
+    document.body.appendChild(shade);
+    shade.querySelector('.ask-ok').focus();
+  });
+}
+
+/**
+ * อ่านค่าที่ฝั่ง Server ฝากมากับหน้า ผ่าน data attribute (ไม่ฝังค่าลงใน script โดยตรง)
+ * @param {string} key ชื่อ attribute หลัง data-
+ * @return {string}
+ */
+function pageData(key) {
+  var host = document.getElementById('pageData');
+  return host ? (host.getAttribute('data-' + key) || '') : '';
+}
+</script>

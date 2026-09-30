@@ -1,0 +1,681 @@
+<!DOCTYPE html>
+<html lang="th">
+<head>
+  <base target="_top">
+  <meta charset="utf-8">
+  <?!= include('ui_Style') ?>
+</head>
+<body>
+<div id="pageData"
+  data-wo-id="<?= woId ?>" data-dept="<?= dept ?>" data-view="<?= view ?>" data-route="<?= route ?>"
+  data-base-url="<?= baseUrl ?>" data-home-url="<?= homeUrl ?>"
+  data-bootstrap="<?= bootstrapJson ?>" hidden></div>
+
+<div class="app" id="app">
+  <aside class="side" id="side">
+    <a class="side-head" id="brandLink" href="#">
+      <span class="side-mark" aria-hidden="true">
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+          stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M3 11l9-7 9 7"/><path d="M5 10v10h14V10"/><path d="M10 20v-6h4v6"/>
+        </svg>
+      </span>
+      <span class="side-title">ระบบใบสั่งงาน<small>กลับหน้าติดตามใบงาน</small></span>
+    </a>
+    <nav class="side-nav" id="navBar" aria-label="เมนูหลัก"></nav>
+    <div class="side-foot" id="navFoot"></div>
+  </aside>
+  <button type="button" class="scrim" id="scrim" aria-label="ปิดเมนู" hidden></button>
+
+  <div class="main-col">
+    <header class="topbar">
+      <button type="button" class="icon-btn btn-menu" id="btnMenu" aria-label="เปิดเมนู">
+        <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+          stroke-width="1.8" stroke-linecap="round"><path d="M4 7h16"/><path d="M4 12h16"/><path d="M4 17h16"/></svg>
+      </button>
+      <button type="button" class="icon-btn btn-collapse" id="btnCollapse" aria-label="พับหรือกางแถบเมนู">
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+          stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M4 5h16"/><path d="M4 12h10"/><path d="M4 19h16"/><path d="M19 9l3 3-3 3"/></svg>
+      </button>
+      <h1 id="pageTitle">งานของแผนก</h1>
+      <span class="who" id="whoami">กำลังตรวจสอบผู้ใช้…</span>
+    </header>
+
+    <main>
+  <div id="message" class="msg"></div>
+
+  <div class="actions" style="margin-bottom:12px">
+    <button type="button" id="btnRefresh" class="ghost small">โหลดรายการใหม่</button>
+    <span class="hint" id="viewNote" style="align-self:center"></span>
+  </div>
+
+  <div id="list"><div class="loading">กำลังโหลดรายการ…</div></div>
+  <div id="pager" class="pager"></div>
+    </main>
+  </div>
+</div>
+
+<?!= include('ui_Script') ?>
+<?!= include('ui_Nav') ?>
+<?!= include('ui_Auth') ?>
+<?!= include('ui_Reports') ?>
+<script>
+/*
+  หน้างานของแผนก Service และ Project (SPEC 7.1, 7.2, 17.2)
+
+  ใช้ไฟล์เดียวกันทั้งสองแผนก เพราะขั้นตอนการทำงานเหมือนกันทุกอย่าง
+  ต่างกันแค่ว่าฝั่ง Service เรียก "ขั้นตอน" ส่วนฝั่ง Project เรียก "งวดงาน"
+  ซึ่งอ่านได้จากคอลัมน์ Type ของแต่ละแถวใน Task_Step ไม่ใช่เขียนแยกไว้ในโค้ด
+
+  จำนวนขั้นตอนและจำนวนงวดมาจากแถวที่สร้างไว้จริงทั้งหมด ไม่มีเลข 3 อยู่ในไฟล์นี้ (กฎข้อ 9)
+  เวลาทุกค่าที่แสดงถูกจัดรูปแบบมาจาก formatForDisplay_ ฝั่งเซิร์ฟเวอร์แล้ว (กฎข้อ 19)
+  ปุ่มที่เห็นเป็นแค่ความสะดวก การตรวจสิทธิ์จริงอยู่ใน 09_Api ทุกครั้งที่กด (กฎข้อ 7)
+*/
+
+/*
+  คีย์ที่หน้านี้ต้องใช้จากก้อนข้อมูลที่เซิร์ฟเวอร์ฝังมา (SPEC 17.3)
+  ประกาศไว้ตรงนี้เพื่อให้เทสต์ฝั่งเซิร์ฟเวอร์อ่านไปตรวจได้ว่าส่งมาครบจริง
+  ซึ่งเป็นรอยต่อที่เทสต์ไม่ได้เดินผ่าน เพราะไม่ได้รันจาวาสคริปต์ในหน้าเว็บ
+*/
+var PAGE_NEEDS = ['rows', 'total', 'page', 'pageSize', 'pageCount', 'view'];
+
+/*
+  มุมมองของเมนูย่อย — กรองจากสถานะของงานแผนก ไม่ใช่สถานะของใบงาน (SPEC 17.3)
+
+  รายชื่อสถานะของแต่ละมุมมองมาจาก TASK_VIEWS ฝั่งเซิร์ฟเวอร์ที่เดียว ส่งมากับก้อนข้อมูล
+  หน้านี้จึงไม่มีรายการสถานะเขียนซ้ำไว้เอง — ถ้าเขียนซ้ำ วันหนึ่งตัวเลขบนเมนู
+  จะไม่ตรงกับจำนวนรายการที่เห็นจริงในหน้า
+*/
+var state = { rows: [], user: null, labels: null, view: '', today: '',
+  total: 0, page: 1, pageSize: 0, pageCount: 1 };
+
+document.addEventListener('DOMContentLoaded', function () {
+  initNav('work');
+  // บอกไว้ว่าถ้าต้องล็อกอินกลางคัน แล้วล็อกอินเสร็จ ให้กลับมาทำอะไรต่อ (SPEC 17.3)
+  bootPage(loadPage, function () { loadList(state.page); });
+});
+
+/** เปิดหน้า — ตรวจสิทธิ์ ผูกปุ่ม แล้ววาดรายการรอบแรก */
+function loadPage() {
+  // ทุกกล่องที่ขึ้นว่ากำลังโหลด ต้องจบลงด้วยอะไรสักอย่างเสมอ (SPEC 17.3)
+  var doneLoading = guardLoading('list');
+
+  /*
+   * ตรวจสิทธิ์ให้ผ่านก่อน แล้วค่อยขอข้อมูล (SPEC 17.3)
+   * ห้ามโหลดรายการมาแสดงแล้วค่อยบอกว่าไม่มีสิทธิ์ เพราะนั่นแปลว่าข้อมูล
+   * ที่ไม่ควรเห็นถูกส่งมาถึงเบราว์เซอร์เรียบร้อยแล้ว
+   *
+   * เมนู "แผนกงาน SV" กับ "แผนกงาน PE" ชี้มาหน้านี้ทั้งคู่ ต่างกันที่พารามิเตอร์บอกแผนก
+   * ด่านนี้จึงเทียบแผนกที่ขอมากับแผนกของผู้ใช้ด้วย ไม่ใช่ดูแค่ Role
+   */
+  startPage('list', PAGE_NEEDS).then(function (started) {
+    if (!started.allowed) { doneLoading(); return; }
+
+    var title = document.getElementById('pageTitle');
+    if (NAV.dept) title.textContent = 'งานของ' + labelOf('assignment', NAV.dept);
+
+    /*
+     * ห่อด้วยฟังก์ชัน ไม่ผูก loadList ตรง ๆ เพราะตอนนี้มันรับเลขหน้าเป็นอาร์กิวเมนต์
+     * ถ้าผูกตรง ๆ เบราว์เซอร์จะส่งอ็อบเจกต์เหตุการณ์เข้าไปเป็นเลขหน้า ซึ่งเป็นค่าจริง
+     * ในเชิงตรรกะ จึงผ่าน `page || state.page` ไปได้โดยไม่มี error ให้เห็น
+     */
+    document.getElementById('btnRefresh')
+      .addEventListener('click', function () { loadList(state.page); });
+    document.getElementById('pager').addEventListener('click', changePage);
+
+    // ข้อมูลรอบแรกมากับคำขอเดียวกันแล้ว ไม่ต้องยิงถามซ้ำ (SPEC 17.3)
+    apply(started.boot);
+    doneLoading();
+  });
+}
+
+/**
+ * รับข้อมูลรายการมาแสดง ใช้ร่วมกันทั้งข้อมูลที่ฝังมากับหน้าและที่โหลดใหม่ภายหลัง
+ * @param {Object} data ผลจาก api_listMyTasks
+ */
+function apply(data) {
+  state.rows = data.rows || [];
+  /*
+   * หน้ากับมุมมองมาจากคำตอบของเซิร์ฟเวอร์ ไม่ใช่จากที่หน้านี้จำไว้
+   *
+   * เพราะมุมมองเดินทางมาทาง query string ได้ และเซิร์ฟเวอร์เป็นคนตัดสินว่า
+   * คีย์นั้นใช้ได้จริงหรือไม่ · ถ้าหน้านี้จำมุมมองของตัวเอง วันหนึ่งรายการที่เห็น
+   * จะเป็นของมุมมองหนึ่ง แต่หัวข้อกับปุ่มเปลี่ยนหน้าเป็นของอีกมุมมองหนึ่ง
+   */
+  /*
+   * เชื่อมุมมองที่เซิร์ฟเวอร์คืนมาเท่านั้น ห้ามถอยไปอ่าน URL เอง
+   *
+   * การถอยไปอ่าน URL ทำให้หน้ากรองด้วยมุมมองหนึ่ง ขณะที่แถวที่ถืออยู่เป็นของ
+   * อีกมุมมองหนึ่ง — ซึ่งไม่ใช่การกันพลาด แต่เป็นการซ่อนว่าสองฝั่งไม่ตรงกัน
+   */
+  state.view = data.view || DEFAULT_VIEW;
+  state.total     = Number(data.total || 0);
+  state.page      = Number(data.page || 1);
+  state.pageSize  = Number(data.pageSize || 0);
+  state.pageCount = Number(data.pageCount || 1);
+  /*
+   * ตัวเลขบนเมนูย่อยมาจากเซิร์ฟเวอร์เสมอ หน้านี้นับเองไม่ได้อีกต่อไป
+   * เพราะมันถืองานแค่มุมมองเดียวและแค่หน้าเดียว · การนับจากสิ่งที่ถืออยู่
+   * จะทำให้มุมมองอื่นกลายเป็นศูนย์ทันที ทั้งที่งานยังอยู่ครบ
+   */
+  if (data.counts) updateNavCounts(data.counts);
+  // วันไทยของ "วันนี้" ตัดสินมาจากฝั่งเซิร์ฟเวอร์ หน้านี้ไม่คำนวณวันเอง (กฎข้อ 19)
+  state.today = data.today || '';
+  // ตัวตนมีแหล่งเดียวคือก้อนข้อมูลที่ฝังมา ซึ่งแถบเมนูใช้ตัวเดียวกัน
+  // ถ้าอ่านคนละที่ วันหนึ่งแถบบนจะบอกอย่าง เนื้อหาในหน้าจะบอกอีกอย่าง
+  state.user = NAV.user;
+  if (data.labels) setLabels(data.labels);
+  render();
+}
+
+/** โหลดรายการงานของแผนกตัวเอง — ขอมาทุกสถานะครั้งเดียว แล้วสลับมุมมองในหน้าได้เลย */
+function loadList(page) {
+  var box = document.getElementById('list');
+  box.innerHTML = '<div class="loading">กำลังโหลดรายการ…</div>';
+  clearMessage();
+
+  /*
+   * ขอมาเฉพาะมุมมองที่เปิดอยู่และทีละหน้า (กฎข้อ 28 · 29)
+   *
+   * เดิมขอมาทุกสถานะครั้งเดียวแล้วสลับมุมมองในหน้า ซึ่งแปลว่าต้องลากงานของแผนก
+   * มาทั้งหมด รวมทั้งงานที่ปิดไปแล้วเมื่อสองปีก่อน แล้วค่อยทิ้งเกือบทั้งหมด
+   */
+  callApi('api_listMyTasks', [false, state.view, page || state.page])
+    .then(apply)
+    .catch(function (error) {
+      // ข้อผิดพลาดอยู่ข้างในโครงหน้าเดิม เมนูและปุ่มกลับหน้าแรกจึงยังอยู่ครบ
+      showPageError('list', error.message);
+    });
+}
+
+/** กดปุ่มเปลี่ยนหน้า */
+function changePage(event) {
+  var target = taskPagerTarget(event, state);
+  if (target) loadList(target);
+}
+
+/**
+ * งานที่อยู่ในมุมมองที่เลือกอยู่
+ *
+ * มุมมอง "งานวันนี้" คัดด้วยวันนัดด้วย ไม่ใช่ด้วยสถานะอย่างเดียว · ฐานข้อมูลกรองมาให้
+ * แล้วตั้งแต่ฝั่งเซิร์ฟเวอร์ (กฎข้อ 28) การคัดซ้ำที่นี่จึงไม่ได้ลากข้อมูลเพิ่มเลย
+ * แต่ทำให้หน้าไม่ผิดในกรณีที่ผู้ใช้สลับมุมมองไปมาโดยไม่ได้โหลดใหม่ ซึ่งเกิดได้จริง
+ *
+ * "นัดไว้วันนี้ไหม" ตัดสินมาจากฝั่งเซิร์ฟเวอร์ด้วยวันไทยแล้ว หน้านี้ไม่คำนวณวันเอง
+ */
+function rowsInView() {
+  var statuses = viewStatuses(state.view);
+  var byDate = isDateView(state.view);
+  var out = [];
+
+  for (var i = 0; i < state.rows.length; i++) {
+    var row = state.rows[i];
+    if (statuses.indexOf(row.status) === -1) continue;
+    if (byDate && !(row.visit && row.visit.isToday)) continue;
+    out.push(row);
+  }
+  return out;
+}
+
+
+/** วาดรายการทั้งหมด */
+function render() {
+  var box = document.getElementById('list');
+
+  if (!state.user || !state.user.department) {
+    box.innerHTML = emptyHtml('บัญชีนี้ยังไม่ได้ระบุว่าอยู่แผนกใด',
+      'กรุณาติดต่อผู้ดูแลระบบให้กำหนดแผนกในทะเบียนผู้ใช้ แล้วงานของแผนกจะขึ้นที่นี่');
+    return;
+  }
+
+  var rows = rowsInView();
+  var note = document.getElementById('viewNote');
+  if (note) {
+    /*
+     * บอกวันที่ของ "วันนี้" ด้วย เพราะวันไทยถูกตัดสินที่ฝั่งเซิร์ฟเวอร์
+     * ผู้ใช้ที่เปิดหน้าค้างไว้ข้ามเที่ยงคืน จะได้รู้ว่ารายการที่เห็นเป็นของเมื่อวาน
+     * ไม่ใช่เข้าใจว่าวันนี้ไม่มีงาน
+     */
+    note.textContent = viewLabel(state.view) +
+      (isDateView(state.view) && state.today ? ' ' + state.today : '') +
+      ' · ' + rows.length + ' รายการ';
+  }
+
+  /*
+   * ตัวเลขบนเมนูย่อยต้องตรงกับจำนวนที่เห็นจริงในหน้าเสมอ จึงนับจากข้อมูลชุดเดียวกัน
+   *
+   * **นับได้เฉพาะตอนที่ถือรายการครบทุกสถานะอยู่ในมือ** · มุมมอง "งานวันนี้" ได้มา
+   * เฉพาะงานที่นัดไว้วันนี้ (ฐานข้อมูลกรองมาให้) ถ้าเอาไปนับ ตัวเลขของมุมมองอื่น
+   * จะกลายเป็นศูนย์ทันทีที่เปิดหน้านี้ ทั้งที่งานยังอยู่ครบ · ตอนนั้นให้ใช้ตัวเลข
+   * ที่เซิร์ฟเวอร์ส่งมากับเมนูแทน ซึ่งนับจากงานทั้งหมดของแผนกอยู่แล้ว
+   */
+  /*
+   * ตัวเลขบนเมนูย่อยมาจากเซิร์ฟเวอร์ชุดเดียว ไม่นับเองจากรายการที่ถืออยู่
+   *
+   * ตั้งแต่แบ่งหน้า หน้านี้ถืองานแค่มุมมองเดียวและแค่ยี่สิบรายการ การนับจาก
+   * สิ่งที่ถืออยู่จะทำให้มุมมองอื่นกลายเป็นศูนย์ทันที ทั้งที่งานยังอยู่ครบ
+   */
+  renderTaskPager(state);
+
+  /*
+   * รายการว่างเป็นสถานะปกติ ไม่ใช่ข้อผิดพลาด (SPEC 17.4)
+   * และต้องบอกด้วยว่าปกติจะมีงานเมื่อไร ไม่งั้นผู้ใช้ที่เพิ่งเริ่มใช้
+   * จะแยกไม่ออกระหว่าง "ยังไม่มีงาน" กับ "ระบบพัง"
+   */
+  if (!rows.length) {
+    box.innerHTML = emptyHtml('ไม่มีงานใน "' + viewLabel(state.view) + '" ตอนนี้',
+      emptyReasonOf(state.view, labelOf('assignment', state.user.department)));
+    return;
+  }
+
+  var html = '';
+  for (var i = 0; i < rows.length; i++) html += cardHtml(rows[i], i);
+  box.innerHTML = html;
+  bindCards();
+}
+
+/**
+ * ข้อความอธิบายเมื่อมุมมองนั้นยังไม่มีงาน — ต้องบอกว่าปกติงานจะมาเมื่อไร (SPEC 17.4)
+ * @param {string} view มุมมองที่เปิดอยู่
+ * @param {string} dept ชื่อแผนกภาษาไทย
+ * @return {string}
+ */
+function emptyReasonOf(view, dept) {
+  if (isDateView(view)) {
+    return 'ไม่มีงานของ' + dept + 'ที่นัดเข้างานไว้วันนี้ · ' +
+      'งานที่ยังไม่ได้กำหนดวันเข้างานจะไม่ขึ้นที่นี่ แต่ยังดูได้จากเมนู "กำลังดำเนินการ" ตามปกติ';
+  }
+  if (view === 'pending') {
+    return 'งานจะมาอยู่ตรงนี้เมื่อผู้อนุมัติส่งงานให้' + dept + ' แล้วรอให้คุณกดรับงาน';
+  }
+  if (view === 'active') {
+    return 'งานจะมาอยู่ตรงนี้เมื่อคุณกดรับงานจากเมนู "รอกดรับงาน" แล้วเริ่มลงมือทำ';
+  }
+  return 'งานที่ปิดแล้วและงานที่ยกเลิกไปจะถูกเก็บไว้ที่นี่ ตอนนี้ยังไม่มีสักรายการ';
+}
+
+/**
+ * การ์ดของงานหนึ่งใบ
+ * @param {Object} row ข้อมูลจาก taskViewOf_ ฝั่งเซิร์ฟเวอร์
+ * @param {number} index ลำดับในรายการ ใช้ผูกปุ่มกับแถว
+ * @return {string}
+ */
+function cardHtml(row, index) {
+  var wo = row.workOrder;
+
+  return '<div class="wo-item" data-index="' + index + '">' +
+    '<h3>' + escapeHtml(row.woId) + ' · ' + escapeHtml(wo.customerName || '-') + '</h3>' +
+    '<div>' + statusPills(row) + '</div>' +
+    noticesHtml(row) +
+    '<dl>' +
+      '<dt>โครงการ</dt><dd>' + escapeHtml(wo.project || '-') + '</dd>' +
+      '<dt>สถานที่</dt><dd>' + escapeHtml(wo.location || '-') + '</dd>' +
+      '<dt>ผู้ติดต่อ</dt><dd>' + escapeHtml(wo.contact || '-') +
+        (wo.phone ? ' · ' + escapeHtml(wo.phone) : '') + '</dd>' +
+      '<dt>ลักษณะงาน</dt><dd>' + escapeHtml(wo.jobDescription || '-') + '</dd>' +
+      '<dt>กำหนดเข้างาน</dt><dd>' + escapeHtml(row.display.startDate || 'ยังไม่กำหนด') + '</dd>' +
+      '<dt>กำหนดออกงาน</dt><dd>' + escapeHtml(row.display.endDate || 'ยังไม่กำหนด') + '</dd>' +
+      acceptedLine(row) +
+      completedLine(row) +
+    '</dl>' +
+    visitHtml(row) +
+    jointHtml(row) +
+    stepsHtml(row) +
+    reportsHtml(row) +
+    actionsHtml(row) +
+    '</div>';
+}
+
+/** ป้ายสถานะของงานและของใบงาน */
+function statusPills(row) {
+  return statusPill('taskStatus', row.status) + ' ' +
+    '<span class="muted">ใบงาน:</span> ' + statusPill('woStatus', row.workOrder.status);
+}
+
+/** บรรทัด "รับงานเมื่อ" แสดงเฉพาะเมื่อรับแล้ว */
+function acceptedLine(row) {
+  if (!row.acceptedBy) return '';
+  return '<dt>รับงานโดย</dt><dd>' + escapeHtml(row.acceptedBy) +
+    (row.display.acceptedDate ? ' · ' + escapeHtml(row.display.acceptedDate) : '') + '</dd>';
+}
+
+/** บรรทัด "ปิดงานเมื่อ" แสดงเฉพาะเมื่อปิดแล้ว */
+function completedLine(row) {
+  if (!row.completedBy) return '';
+  return '<dt>ปิดงานโดย</dt><dd>' + escapeHtml(row.completedBy) +
+    (row.display.completedDate ? ' · ' + escapeHtml(row.display.completedDate) : '') + '</dd>';
+}
+
+/**
+ * กล่องข้อความอธิบายว่าทำไมถึงทำรายการไม่ได้ หรือเกิดอะไรขึ้นกับงานนี้
+ *
+ * ต้องเป็นประโยคที่บอกว่าเกิดอะไรและต้องรอใคร ไม่ใช่ทำปุ่มเทาเฉย ๆ แล้วปล่อยให้เดา (SPEC 17.3)
+ * และใบที่ถูกตีกลับต้องยังเห็นอยู่ในรายการเสมอ ห้ามซ่อนทิ้ง ไม่งั้นผู้ใช้จะงงว่างานหายไปไหน
+ */
+function noticesHtml(row) {
+  var html = '';
+
+  if (row.blocked.returned) {
+    html += '<div class="note-box stop"><b>ใบงานนี้ถูกตีกลับ รอธุรการแก้ไขแล้วส่งอนุมัติใหม่</b><br>' +
+      'ระหว่างนี้ทำรายการกับงานนี้ไม่ได้ทั้งหมด แต่ขั้นตอนที่ทำไปแล้วยังอยู่ครบ ไม่ได้ถูกล้าง' +
+      (row.workOrder.returnReason
+        ? '<br>เหตุผลที่ตีกลับ: ' + escapeHtml(row.workOrder.returnReason) : '') +
+      '</div>';
+  }
+
+  if (row.blocked.payment && row.status === 'PENDING_ACCEPT') {
+    html += '<div class="note-box warn"><b>ใบงานนี้ต้องได้รับชำระเงินก่อนจึงจะเริ่มงานได้</b><br>' +
+      'ตอนนี้ยังไม่ได้บันทึกว่าได้รับชำระ จึงยังกดรับงานไม่ได้ ' +
+      'ให้ฝ่ายขายหรือธุรการบันทึกการรับชำระก่อน แล้วกดโหลดรายการใหม่</div>';
+  }
+
+  if (row.status === 'CANCELLED') {
+    html += '<div class="note-box info"><b>งานของแผนกนี้ถูกยกเลิกแล้ว</b>' +
+      (row.cancelReason ? '<br>เหตุผล: ' + escapeHtml(row.cancelReason) : '') + '</div>';
+  }
+
+  if (row.returnReason && !row.blocked.returned) {
+    html += '<div class="note-box info">เคยตีกลับใบงานนี้ด้วยเหตุผล: ' +
+      escapeHtml(row.returnReason) + '</div>';
+  }
+
+  return html;
+}
+
+/**
+ * สถานะของอีกแผนกในใบงานร่วม
+ * คนทำงานต้องรู้ว่าปิดของตัวเองแล้วใบงานจะปิดตามเลยหรือยังต้องรออีกแผนก (SPEC 8)
+ */
+function jointHtml(row) {
+  if (!row.isJoint) return '';
+
+  var lines = '';
+  var waiting = 0;
+  for (var i = 0; i < row.others.length; i++) {
+    var other = row.others[i];
+    var open = (other.status !== 'COMPLETED' && other.status !== 'CANCELLED');
+    if (open) waiting++;
+    lines += '<li>' + escapeHtml(labelOf('assignment', other.department)) + ' — ' +
+      escapeHtml(labelOf('taskStatus', other.status)) +
+      (other.total ? ' (ทำไปแล้ว ' + other.done + ' จาก ' + other.total + ')' : '') +
+      (other.cancelReason ? ' · เหตุผลที่ยกเลิก: ' + escapeHtml(other.cancelReason) : '') +
+      '</li>';
+  }
+
+  var summary = waiting
+    ? 'ปิดงานของแผนกคุณแล้ว ใบงานจะยังไม่ปิด ต้องรออีกแผนกปิดหรือยกเลิกให้ครบก่อน'
+    : 'อีกแผนกปิดหรือยกเลิกงานครบแล้ว ถ้าคุณปิดงานของแผนกคุณ ใบงานจะปิดทันที';
+
+  return '<div class="note-box info"><b>ใบงานนี้เป็นงานร่วม ' + (row.others.length + 1) + ' แผนก</b>' +
+    '<ul class="sib-list">' + lines + '</ul>' + escapeHtml(summary) + '</div>';
+}
+
+/**
+ * รายการขั้นตอนหรืองวดงานบนการ์ด — อ่านอย่างเดียว
+ *
+ * การบันทึกความคืบหน้าย้ายไปอยู่ในแผงขั้นตอนงานทั้งหมด เพราะของเดิมติ๊กแล้วบันทึกทันที
+ * แล้วโหลดรายการทั้งหน้าใหม่ทุกครั้ง — แผงที่เปิดค้างไว้ปิดตัวลง ไฟล์ที่เลือกไว้หาย
+ * และคนที่ติ๊กสามขั้นก็คุยกับเซิร์ฟเวอร์สามรอบโดยไม่จำเป็น
+ *
+ * จำนวนมาจากแถวที่สร้างไว้จริงทั้งหมด ฝั่ง Project จะมีกี่งวดก็ได้ ไม่เท่ากับฝั่ง Service (กฎข้อ 9)
+ */
+function stepsHtml(row) {
+  if (row.status === 'PENDING_ACCEPT') {
+    return '<div class="hint">กดรับงานก่อน จึงจะบันทึกความคืบหน้าได้</div>';
+  }
+  if (!row.steps.length) {
+    return '<div class="hint">งานนี้ยังไม่มีขั้นตอนย่อย ปิดงานได้เลยเมื่อทำเสร็จ</div>';
+  }
+  return '<div class="step-summary">' + stepSummaryHtml(row) + '</div>';
+}
+
+/**
+ * เนื้อในของรายการขั้นตอน — วาดใหม่ได้เองเมื่อแผงบันทึกข้อมูลเสร็จ โดยไม่ต้องโหลดทั้งหน้า
+ * @param {Object} row ข้อมูลของงานหนึ่งใบ
+ * @return {string} HTML
+ */
+function stepSummaryHtml(row) {
+  var kind = (row.steps[0].type === 'PERIOD') ? 'งวดงาน' : 'ขั้นตอนงาน';
+  var html = '<div class="hint" style="margin-top:10px">' + kind + ' ' +
+    row.progress.done + ' จาก ' + row.progress.total +
+    ' · กดปุ่มด้านล่างเพื่อเลือกขั้นตอน แนบเอกสารและรูป แล้วบันทึกทีละขั้น' +
+    '</div><ul class="step-list">';
+
+  for (var i = 0; i < row.steps.length; i++) {
+    var step = row.steps[i];
+    html += '<li class="step-row' + (step.done ? ' done' : '') + '">' +
+      '<span class="step-mark">' + (step.done ? '✓' : '○') + '</span>' +
+      '<span class="step-name">' + step.stepNo + '. ' + escapeHtml(step.stepName || '-') + '</span>' +
+      (step.done && step.completedBy
+        ? '<span class="step-when">' + escapeHtml(step.completedBy) +
+          (step.completedDate ? ' · ' + escapeHtml(step.completedDate) : '') + '</span>'
+        : '') +
+      '</li>';
+  }
+  return html + '</ul>';
+}
+
+/**
+ * ปุ่มเปิดแผงขั้นตอนงานและเอกสารของงานนี้ (SPEC 7.1, 7.2, 14.1, 17.2)
+ *
+ * โหลดเมื่อกดเท่านั้น ไม่โหลดมาพร้อมรายการทั้งหน้า เพราะแผนกหนึ่งมีงานค้างได้หลายสิบใบ
+ * ถ้าดึงเอกสารของทุกใบมาตั้งแต่เปิดหน้า จะกลายเป็นการคุยกับชีตหลายสิบรอบต่อการเปิดหนึ่งครั้ง
+ */
+function reportsHtml(row) {
+  if (row.status === 'PENDING_ACCEPT') return '';
+
+  return '<div class="actions"><button type="button" class="act-reports">' +
+    'ขั้นตอนงานและเอกสาร</button></div>' +
+    '<div class="report-panel" hidden></div>';
+}
+
+/** ปุ่มที่ทำได้กับงานนี้ พร้อมช่องกรอกเหตุผลของปุ่มที่บังคับให้กรอก */
+function actionsHtml(row) {
+  /*
+    งานที่ปิดแล้วมีปุ่มเดียว คือเปิดขึ้นมาทำต่อ (SPEC 20.6)
+
+    ลูกค้าโทรกลับมาหาช่างที่เคยไปทำ ไม่ใช่โทรหาผู้อนุมัติ · ถ้าช่างกดเองไม่ได้
+    เขาจะเลี่ยงไปเปิดใบใหม่แทน แล้วประวัติของงานก็ขาดตอน ซึ่งเป็นสิ่งที่
+    การเปิดงานซ้ำมีไว้เพื่อกันตั้งแต่แรก
+
+    ฝั่งเซิร์ฟเวอร์เป็นคนบอกว่ากดได้ไหมผ่าน row.canReopen — หน้านี้ไม่ตัดสินเอง
+  */
+  if (row.canReopen) {
+    return '<div class="reason-row">' +
+      '<input type="text" class="reopen-input" ' +
+      'placeholder="เหตุผลที่ต้องกลับไปทำต่อ (บังคับกรอก)">' +
+      '<button type="button" class="neutral act-reopen" disabled>เปิดงานนี้ขึ้นมาทำต่อ</button>' +
+      '</div>';
+  }
+
+  if (row.status === 'COMPLETED' || row.status === 'CANCELLED') return '';
+  if (row.blocked.returned) return '';
+
+  var html = '<div class="actions">';
+  if (row.status === 'PENDING_ACCEPT') {
+    html += '<button type="button" class="act-accept"' +
+      (row.blocked.payment ? ' disabled' : '') + '>กดรับงาน</button>';
+  }
+  if (row.status === 'IN_PROGRESS') {
+    html += '<button type="button" class="act-complete"' +
+      (row.progress.allDone ? '' : ' disabled') + '>ปิดงานของแผนก</button>';
+    if (!row.progress.allDone) {
+      html += '<span class="hint" style="align-self:center">ปิดงานได้เมื่อทำครบทุกข้อแล้ว</span>';
+    }
+  }
+  html += '</div>';
+
+  // ตีกลับและยกเลิกต้องกรอกเหตุผลก่อนเสมอ ปุ่มจึงกดไม่ได้จนกว่าจะพิมพ์ (SPEC 8)
+  html += '<div class="reason-row">' +
+    '<input type="text" class="reason-input" placeholder="เหตุผล (บังคับกรอกก่อนตีกลับหรือยกเลิก)">' +
+    '<button type="button" class="neutral act-return" disabled>ตีกลับให้ธุรการแก้ไข</button>' +
+    '<button type="button" class="danger act-cancel" disabled>ยกเลิกงานของแผนก</button>' +
+    '</div>';
+
+  return html;
+}
+
+/** ผูกปุ่มและช่องติ๊กของทุกการ์ดเข้ากับข้อมูลของแถวนั้น */
+function bindCards() {
+  var cards = document.querySelectorAll('.wo-item');
+  var rows = rowsInView();
+
+  for (var i = 0; i < cards.length; i++) {
+    (function (card) {
+      var row = rows[Number(card.getAttribute('data-index'))];
+
+      var reason = card.querySelector('.reason-input');
+      var btnReturn = card.querySelector('.act-return');
+      var btnCancel = card.querySelector('.act-cancel');
+      if (reason) {
+        reason.addEventListener('input', function () {
+          var ready = reason.value.trim() !== '';
+          btnReturn.disabled = !ready;
+          btnCancel.disabled = !ready;
+        });
+      }
+
+      bind(card, '.act-accept', function () {
+        run(card, 'api_acceptTask', [row.taskId], 'รับงานเรียบร้อย เริ่มบันทึกความคืบหน้าได้เลย');
+      });
+      bind(card, '.act-complete', function () {
+        run(card, 'api_completeTask', [row.taskId], 'ปิดงานของแผนกเรียบร้อย');
+      });
+      bind(card, '.act-return', function () {
+        run(card, 'api_returnTask', [row.taskId, reason.value.trim()],
+          'ตีกลับใบงานให้ธุรการแก้ไขแล้ว');
+      });
+      bind(card, '.act-cancel', function () {
+        if (!confirm('ยกเลิกงานของแผนกในใบนี้ใช่หรือไม่ การยกเลิกย้อนกลับไม่ได้')) return;
+        run(card, 'api_cancelTask', [row.taskId, reason.value.trim()], 'ยกเลิกงานของแผนกแล้ว');
+      });
+
+      /*
+       * เปิดงานที่ปิดแล้วขึ้นมาทำต่อ (SPEC 20.6)
+       *
+       * ไม่ส่งชื่อแผนกไปกับคำขอ เพราะฝั่งเซิร์ฟเวอร์อ่านแผนกจากทะเบียนผู้ใช้เอง ·
+       * ถ้าส่งไป มันจะถูกมองข้ามอยู่ดี และการส่งค่าที่ถูกมองข้ามทำให้คนอ่านโค้ด
+       * เข้าใจผิดว่าหน้าเว็บเป็นคนเลือกแผนกได้
+       */
+      var reopen = card.querySelector('.reopen-input');
+      var btnReopen = card.querySelector('.act-reopen');
+      if (reopen && btnReopen) {
+        reopen.addEventListener('input', function () {
+          btnReopen.disabled = reopen.value.trim() === '';
+        });
+      }
+      bind(card, '.act-reopen', function () {
+        run(card, 'api_reopenWorkOrder', [row.woId, reopen.value.trim(), '', {}],
+          'เปิดงานขึ้นมาทำต่อแล้ว · งานกลับไปอยู่ใน "กำลังดำเนินการ"');
+      });
+
+      bindVisitBox(card, row, run);
+
+      /*
+       * แผงขั้นตอนงานและเอกสารของงานนี้
+       *
+       * แผงส่งข้อมูลล่าสุดกลับมาให้การ์ดทุกครั้งที่บันทึกเสร็จ การ์ดจึงอัปเดตตัวเลข
+       * ความคืบหน้าและปุ่มปิดงานได้ทันทีโดยไม่ต้องโหลดรายการทั้งหน้าใหม่ —
+       * ซึ่งถ้าโหลดใหม่ แผงที่เปิดค้างอยู่จะหายไปพร้อมของที่กำลังทำอยู่
+       */
+      var visitAsked = false;
+      attachReportPanel(card, row.taskId, function (data) {
+        applyPanelData(card, row, data);
+      }, function (context) {
+        /*
+         * ยังไม่ได้กำหนดวันเข้างานแล้วกดปิดขั้นตอน — ถามยืนยัน "ครั้งเดียว" แล้วผ่านได้
+         *
+         * **ไม่ใช่ด่าน** ช่างที่ยืนอยู่หน้างานแล้วต้องทำงานต่อได้ทันที การบังคับให้
+         * กรอกก่อนจะทำให้เขาต้องกรอกอะไรก็ได้ลงไปเพื่อผ่าน ซึ่งได้ข้อมูลที่ผิดมาแทน
+         * ตอบว่าไม่เอา = ไม่บันทึกอะไรเลย แล้วถามใหม่ในครั้งถัดไป
+         */
+        if (!context.completing || row.visit.isSet || visitAsked) return true;
+
+        var go = confirm('งานใบนี้ยังไม่ได้กำหนดวันเวลาที่แผนกเข้างาน\n\n' +
+          'จะบันทึกความคืบหน้าเลยหรือไม่ · กำหนดวันเข้างานทีหลังได้ตลอด');
+        if (go) visitAsked = true;
+        return go;
+      });
+    })(cards[i]);
+  }
+}
+
+/**
+ * อัปเดตการ์ดจากข้อมูลที่แผงเพิ่งได้มา โดยไม่คุยกับเซิร์ฟเวอร์เพิ่มอีกรอบ
+ *
+ * ขั้นตอนทั้งชุดสร้างใหม่จากที่แผงได้มา ไม่ใช่ไล่แก้ทีละช่อง เพราะฝั่ง Project
+ * เพิ่มและลบงวดได้ในแผงเดียวกัน จำนวนขั้นตอนจึงเปลี่ยนได้ ไม่ใช่แค่สถานะของขั้นเดิม
+ *
+ * @param {Element} card การ์ดของงาน
+ * @param {Object} row ข้อมูลของงานใบนั้น (แก้ในที่ เพื่อให้การวาดครั้งต่อไปเห็นค่าล่าสุด)
+ * @param {Object} data ผลจาก api_listTaskReports
+ */
+function applyPanelData(card, row, data) {
+  var steps = [];
+  var done = 0;
+
+  for (var i = 0; i < data.slots.length; i++) {
+    var slot = data.slots[i];
+    if (!slot.stepId) continue;   // งานที่ไม่มีขั้นตอนย่อย มีช่องแนบที่ตัวงานเอง ไม่ใช่ขั้นตอน
+    if (slot.done) done++;
+    steps.push({
+      stepId: slot.stepId, stepNo: slot.stepNo, stepName: slot.stepName, type: slot.type,
+      done: slot.done, completedBy: slot.doneBy, completedDate: slot.doneDate
+    });
+  }
+
+  row.steps = steps;
+  row.progress = { done: done, total: steps.length, allDone: done === steps.length };
+
+  var summary = card.querySelector('.step-summary');
+  if (summary && steps.length) summary.innerHTML = stepSummaryHtml(row);
+
+  /*
+   * ปุ่มปิดงานเปิดได้เมื่อทำครบทุกขั้นแล้ว — ด่านจริงอยู่ที่ completeTask ซึ่งตรวจทั้ง
+   * ความครบของขั้นตอนและเอกสารที่บังคับอีกชั้นเสมอ ตรงนี้เป็นแค่ความสะดวก (กฎข้อ 7)
+   */
+  var complete = card.querySelector('.act-complete');
+  if (complete) complete.disabled = !row.progress.allDone;
+}
+
+/**
+ * ผูกปุ่มถ้ามีอยู่จริงในการ์ดนั้น
+ * @param {Element} card การ์ดของงาน
+ * @param {string} selector ตัวเลือกปุ่ม
+ * @param {function()} handler สิ่งที่ทำเมื่อกด
+ */
+function bind(card, selector, handler) {
+  var button = card.querySelector(selector);
+  if (button) button.addEventListener('click', handler);
+}
+
+/**
+ * เรียกฟังก์ชันฝั่งเซิร์ฟเวอร์แล้วโหลดรายการใหม่เมื่อสำเร็จ
+ *
+ * ต้องโหลดใหม่ทุกครั้ง ไม่ใช่แก้ค่าบนหน้าจอเอง เพราะการปิดงานหนึ่งอาจทำให้
+ * สถานะใบงานเปลี่ยนตามไปด้วย (SPEC 8) หน้าจอจึงต้องเห็นภาพจริงหลังทำรายการเสมอ
+ *
+ * @param {Element} card การ์ดที่กดปุ่มมา ใช้ปิดปุ่มเฉพาะการ์ดนั้นระหว่างรอ
+ * @param {string} name ชื่อฟังก์ชันใน 09_Api
+ * @param {Array} args อาร์กิวเมนต์
+ * @param {string} okMessage ข้อความเมื่อสำเร็จ
+ */
+function run(card, name, args, okMessage) {
+  clearMessage();
+  setBusy(true, card);
+
+  callApi(name, args)
+    .then(function () {
+      showMessage(okMessage, 'ok');
+      loadList();
+    })
+    .catch(function (error) {
+      showMessage(error.message, 'error');
+      setBusy(false, card);
+      loadList();   // ดึงค่าจริงกลับมา เผื่อช่องติ๊กบนจอไม่ตรงกับที่บันทึกไว้
+    });
+}
+</script>
+</body>
+</html>

@@ -1,0 +1,606 @@
+<script>
+/*
+  ui_Nav.html — แถบเมนูซ้าย ตัวตนผู้ใช้ และด่านตรวจสิทธิ์ของทุกหน้า (SPEC 17.3, 17.4)
+
+  โครงของแถบ
+    หัวแถบ     ชื่อระบบ
+    กลางแถบ    เมนู 6 กลุ่ม กลุ่มที่มีเมนูย่อยกางลงในแถบเดิม ไม่เปิดหน้าใหม่
+    ท้ายแถบ    ชื่อผู้ใช้ แผนก และปุ่มออกจากระบบ
+
+  พฤติกรรมตามขนาดจอ
+    คอมพิวเตอร์ 1024px ขึ้นไป   เปิดค้างไว้ 260px กดพับเหลือไอคอนได้
+    แท็บเล็ต    768-1023px      พับเป็นไอคอนเป็นค่าเริ่มต้น กดกางได้
+    มือถือ      ต่ำกว่า 768px    ซ่อนไว้ เปิดทับทั้งจอเมื่อกด ปิดด้วยการแตะพื้นหลัง ปัดไปซ้าย
+                                หรือเลือกเมนู · ข้อนี้สำคัญที่สุด เพราะช่างใช้มือถือหน้างาน
+
+  เมนูแสดงครบทุกกลุ่มเสมอ ไม่ซ่อนตาม Role — ผู้ใช้ต้องเห็นว่าระบบมีอะไรบ้าง
+  กลุ่มที่ไม่ใช่สิทธิ์ของตัวเองจะจางและมีเครื่องหมาย แต่ยังกดได้และยังกางดูเมนูย่อยได้
+  พอกดเข้าไปจริงจะถูกปฏิเสธพร้อมคำอธิบาย — การไม่ซ่อนเป็นเรื่องของหน้าจอล้วน ๆ
+  09_Api ยังตรวจสิทธิ์ครบเหมือนเดิมทุกข้อ และหน้าที่ไม่มีสิทธิ์ไม่ได้ข้อมูลมาเลยแม้แต่แถวเดียว
+*/
+
+/** สิ่งที่หน้าปัจจุบันรู้เกี่ยวกับตัวเอง ตั้งค่าโดย initNav() */
+var NAV = { page: '', dept: '', view: '', base: '', home: '', user: null, menu: [], groups: [], counts: null };
+
+/** ชื่อช่องใน localStorage ที่จำสภาพของแถบเมนูไว้ให้ผู้ใช้คนนั้นบนเครื่องนั้น */
+var NAV_MINI_KEY = 'wo.nav.mini';
+var NAV_OPEN_KEY = 'wo.nav.open';
+
+/**
+ * ไอคอนของเมนู — SVG ฝังในไฟล์ ไม่โหลดชุดไอคอนจากภายนอก (SPEC 17.4)
+ * @param {string} name ชื่อไอคอนจาก MENU_GROUPS
+ * @return {string} SVG
+ */
+function navIcon(name) {
+  var paths = {
+    doc:   '<path d="M6 2h7l5 5v15H6z"/><path d="M13 2v5h5"/>',
+    check: '<path d="M4 12l5 5L20 6"/>',
+    tool:  '<path d="M14 7a4 4 0 1 0-5 5l-6 6 3 3 6-6a4 4 0 0 0 5-5l-3 3-3-3z"/>',
+    build: '<path d="M3 21h18"/><path d="M5 21V8l7-5 7 5v13"/><path d="M10 21v-6h4v6"/>',
+    flask: '<path d="M9 2h6"/><path d="M10 2v7L4 20h16l-6-11V2"/><path d="M7 15h10"/>',
+    menu:  '<path d="M4 7h16"/><path d="M4 12h16"/><path d="M4 17h16"/>',
+    left:  '<path d="M15 5l-7 7 7 7"/>',
+    right: '<path d="M9 5l7 7-7 7"/>',
+    out:   '<path d="M10 17l-5-5 5-5"/><path d="M5 12h12"/><path d="M14 4h5v16h-5"/>'
+  };
+  return '<svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" ' +
+    'stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">' +
+    (paths[name] || paths.doc) + '</svg>';
+}
+
+/**
+ * เตรียมเมนู — เรียกครั้งเดียวตอนหน้าโหลด ก่อนดึงข้อมูลใด ๆ
+ * @param {string} currentPage ชื่อหน้าปัจจุบัน
+ */
+function initNav(currentPage) {
+  NAV.page = currentPage;
+  NAV.dept = pageData('dept');
+  NAV.view = pageData('view');
+  NAV.base = pageData('base-url');
+  NAV.home = pageData('home-url');
+
+  /*
+   * หัวแถบเมนูคือทางกลับหน้าแรกของทุกหน้า (SPEC 17.4)
+   *
+   * เมนู 6 กลุ่มไม่มีรายการ "หน้าแรก" อยู่ในนั้น ถ้าหัวแถบไม่พากลับ
+   * ผู้ใช้ที่อยู่หน้าอื่นจะไม่มีทางกลับไปหน้ารายการใบงานเลยนอกจากแก้ URL เอง
+   * ตั้งค่าตั้งแต่ตอนเปิดหน้า ไม่รอข้อมูลจากเซิร์ฟเวอร์ เพราะทางออกต้องมีอยู่เสมอ
+   */
+  var brand = document.getElementById('brandLink');
+  if (brand && NAV.home) brand.setAttribute('href', NAV.home);
+
+  /*
+   * หน้าแรกก็เป็นหน้าหนึ่ง จึงต้องบอกได้ว่ากำลังอยู่ที่นั่น
+   *
+   * เมนูหกกลุ่มไม่มีรายการ "หน้าแรก" อยู่ในนั้น ทางเข้าหน้าแรกคือหัวแถบ ·
+   * ถ้าหัวแถบไม่เคยบอกว่าเป็นหน้าที่เปิดอยู่ ผู้ใช้ที่อยู่หน้าแรกจะเห็นแถบเมนู
+   * ที่ไม่มีรายการไหนถูกเน้นเลยสักรายการ แล้วอ่านว่าระบบหลงทาง
+   */
+  if (brand && NAV.page === 'home') {
+    brand.className = 'side-head current';
+    brand.setAttribute('aria-current', 'page');
+  }
+
+  bindShell();
+}
+
+/**
+ * ผูกปุ่มของโครงหน้า — ปุ่มเปิดเมนูบนมือถือ ปุ่มพับแถบ และการปิดเมนู
+ *
+ * ทำตั้งแต่ตอนเปิดหน้า ไม่รอข้อมูลจากเซิร์ฟเวอร์ เพราะผู้ใช้ต้องกดเปิดเมนูได้
+ * แม้ในตอนที่ข้อมูลยังโหลดไม่เสร็จหรือโหลดไม่สำเร็จ
+ */
+function bindShell() {
+  var app = document.getElementById('app');
+  if (!app) return;
+
+  // จำไว้ว่าผู้ใช้คนนี้พับแถบไว้หรือไม่ — ความสะดวกส่วนตัวของเครื่องนั้น ไม่ใช่ข้อมูลของระบบ
+  if (readLocal(NAV_MINI_KEY) === '1') app.classList.add('mini');
+
+  var burger = document.getElementById('btnMenu');
+  if (burger) burger.addEventListener('click', function () { toggleDrawer(true); });
+
+  var scrim = document.getElementById('scrim');
+  if (scrim) scrim.addEventListener('click', function () { toggleDrawer(false); });
+
+  var collapse = document.getElementById('btnCollapse');
+  if (collapse) {
+    collapse.addEventListener('click', function () {
+      var mini = app.classList.toggle('mini');
+      // บนแท็บเล็ตแถบพับอยู่แล้วตั้งแต่ต้น ปุ่มนี้จึงทำหน้าที่ "กาง" ด้วยคลาส wide
+      app.classList.toggle('wide', !mini);
+      writeLocal(NAV_MINI_KEY, mini ? '1' : '0');
+    });
+  }
+
+  // ปัดไปทางซ้ายบนแถบเพื่อปิด — ท่าที่คนใช้มือถือคาดหวัง
+  var side = document.getElementById('side');
+  if (side) {
+    var startX = 0;
+    side.addEventListener('touchstart', function (e) { startX = e.touches[0].clientX; }, { passive: true });
+    side.addEventListener('touchend', function (e) {
+      if (startX - e.changedTouches[0].clientX > 60) toggleDrawer(false);
+    });
+  }
+
+  document.addEventListener('keydown', function (e) {
+    if (e.key === 'Escape') toggleDrawer(false);
+  });
+}
+
+/**
+ * เปิดหรือปิดแถบเมนูแบบทับจอ (ใช้บนมือถือ)
+ * @param {boolean} open true = เปิด
+ */
+function toggleDrawer(open) {
+  var app = document.getElementById('app');
+  var scrim = document.getElementById('scrim');
+  if (!app) return;
+  app.classList.toggle('nav-open', !!open);
+  if (scrim) scrim.hidden = !open;
+}
+
+/**
+ * อ่านค่าที่จำไว้ในเครื่อง — เบราว์เซอร์ที่ปิด localStorage ต้องไม่ทำให้ทั้งหน้าพัง
+ * @param {string} key ชื่อช่อง
+ * @return {string}
+ */
+function readLocal(key) {
+  try { return localStorage.getItem(key) || ''; } catch (e) { return ''; }
+}
+
+/**
+ * จำค่าไว้ในเครื่อง
+ * @param {string} key ชื่อช่อง
+ * @param {string} value ค่า
+ */
+function writeLocal(key, value) {
+  try { localStorage.setItem(key, value); } catch (e) { /* จำไม่ได้ก็ใช้งานต่อได้ */ }
+}
+
+/**
+ * ที่อยู่ของเมนูหนึ่งรายการ
+ * แผนกงาน SV กับ PE ชี้ไปหน้าเดียวกัน ต่างกันแค่พารามิเตอร์บอกแผนกและมุมมอง
+ * @param {Object} item รายการเมนูจากเซิร์ฟเวอร์
+ * @return {string}
+ */
+function menuUrl(item) {
+  if (!NAV.base) return '';
+  return NAV.base + '?page=' + encodeURIComponent(item.page) +
+    (item.dept ? '&dept=' + encodeURIComponent(item.dept) : '') +
+    (item.view ? '&view=' + encodeURIComponent(item.view) : '');
+}
+
+/**
+ * รายการเมนูนี้คือหน้าที่เปิดอยู่ตอนนี้หรือไม่ (ไม่สนมุมมองของเมนูย่อย)
+ * @param {Object} item รายการเมนู
+ * @return {boolean}
+ */
+function isCurrentMenu(item) {
+  if (item.page !== NAV.page) return false;
+  return item.dept ? (item.dept === NAV.dept) : true;
+}
+
+/**
+ * เมนูย่อยรายการนี้คือสิ่งที่เปิดอยู่ตอนนี้หรือไม่
+ * @param {Object} child เมนูย่อย
+ * @return {boolean}
+ */
+function isCurrentChild(child) {
+  if (!isCurrentMenu(child)) return false;
+  if (!child.view) return true;
+  // ไม่ได้ระบุมุมมองมา ให้ถือว่าอยู่ที่มุมมองตั้งต้นของหน้านั้น
+  return child.view === (NAV.view || 'active');
+}
+
+/**
+ * วาดแถบเมนูและตัวตนผู้ใช้ — เรียกหลังรู้แล้วว่าใครเป็นคนใช้งานอยู่
+ *
+ * ทุกหน้าต้องบอกว่าผู้ใช้เป็นใคร ชื่อ แผนก และสิทธิ์ที่มี เพื่อให้ตอบคำถาม
+ * "ทำไมฉันกดอันนี้ไม่ได้" ได้ตั้งแต่ก่อนกด (SPEC 17.4)
+ *
+ * @param {Object} user ผู้ใช้จากก้อนข้อมูลตั้งต้น
+ * @param {Object[]} menu รายการเมนูพร้อมธงสิทธิ์ (แหล่งเดียวของสิทธิ์)
+ * @param {Object[]} [groups] โครงเมนู 6 กลุ่มของแถบซ้าย
+ * @param {Object} [counts] จำนวนงานของแผนกตัวเอง แยกตามมุมมอง
+ */
+function renderNav(user, menu, groups, counts) {
+  NAV.user = user;
+  NAV.menu = menu || [];
+  NAV.groups = groups || [];
+  NAV.counts = counts || null;
+
+  var who = document.getElementById('whoami');
+  if (who) {
+    who.textContent = (user.displayName || user.email || '') +
+      (user.department ? ' · ' + labelOf('assignment', user.department) : '') +
+      (user.roles && user.roles.length ? ' · ' + rolesLabel(user.roles) : '');
+  }
+
+  renderNavGroups();
+  renderNavFoot(user);
+}
+
+/** วาดเมนูทั้ง 6 กลุ่มลงในแถบ */
+function renderNavGroups() {
+  var box = document.getElementById('navBar');
+  if (!box) return;
+
+  var opened = openedGroupKeys();
+  var html = '';
+
+  for (var g = 0; g < NAV.groups.length; g++) {
+    var group = NAV.groups[g];
+    var current = groupIsCurrent(group);
+    var open = current || opened.indexOf(group.key) !== -1;
+    var lock = group.allowed ? '' : '<span class="nav-lock" aria-hidden="true">🔒</span>';
+    var title = group.allowed ? '' : ' title="เมนูนี้สำหรับ ' + escapeHtml(group.rolesLabel) + '"';
+
+    html += '<div class="nav-group' + (open ? ' open' : '') + (current ? ' current' : '') + '"' +
+      ' data-group="' + escapeHtml(group.key) + '">';
+
+    if (group.children.length) {
+      // หัวกลุ่มที่มีเมนูย่อย ใช้กางเท่านั้น ไม่พาไปไหน เมนูย่อยเป็นตัวพาไป
+      html += '<button type="button" class="nav-top' + (group.allowed ? '' : ' locked') + '"' +
+        title + ' aria-expanded="' + (open ? 'true' : 'false') + '">' +
+        navIcon(group.icon) +
+        '<span class="nav-label">' + escapeHtml(group.label) + '</span>' + lock +
+        groupTotalHtml(group) +
+        '<svg class="nav-caret" width="16" height="16" viewBox="0 0 24 24" fill="none" ' +
+        'stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M9 5l7 7-7 7"/></svg>' +
+        '</button><ul class="nav-children">';
+
+      for (var c = 0; c < group.children.length; c++) {
+        var child = group.children[c];
+        html += '<li><a class="nav-child' + (isCurrentChild(child) ? ' current' : '') + '" href="' +
+          escapeHtml(menuUrl(child)) + '">' +
+          '<span>' + escapeHtml(child.label) + '</span>' + childCountHtml(group, child) +
+          '</a></li>';
+      }
+      html += '</ul>';
+    } else {
+      html += '<a class="nav-top' + (group.allowed ? '' : ' locked') + '"' + title +
+        ' href="' + escapeHtml(menuUrl(group)) + '">' +
+        navIcon(group.icon) +
+        '<span class="nav-label">' + escapeHtml(group.label) + '</span>' + lock +
+        '</a>';
+    }
+    html += '</div>';
+  }
+
+  box.innerHTML = html;
+  bindNavGroups();
+}
+
+/**
+ * จำนวนงานของเมนูย่อยหนึ่งรายการ — แสดงเฉพาะแผนกของผู้ใช้เอง
+ *
+ * แผนกอื่นไม่แสดงตัวเลข เพราะผู้ใช้เปิดหน้าของแผนกอื่นไม่ได้อยู่แล้ว
+ * และการไปนับงานของแผนกอื่นให้ดูแปลว่าต้องอ่านชีตเพิ่มทุกครั้งที่เปิดหน้า
+ *
+ * @param {Object} group กลุ่มเมนู
+ * @param {Object} child เมนูย่อย
+ * @return {string} HTML
+ */
+function childCountHtml(group, child) {
+  if (!NAV.counts || !child.countKey) return '';
+  if (!group.department || !NAV.user || group.department !== NAV.user.department) return '';
+
+  var n = Number(NAV.counts[child.countKey] || 0);
+  return '<span class="nav-count">' + n + '</span>';
+}
+
+/**
+ * ตัวเลขรวมบนหัวกลุ่ม — ใช้ตอนแถบถูกพับเหลือไอคอน ซึ่งมองไม่เห็นเมนูย่อย
+ * นับเฉพาะงานที่ยังไม่จบ เพราะงานที่เสร็จแล้วไม่ใช่สิ่งที่ต้องเตือนให้รีบทำ
+ * @param {Object} group กลุ่มเมนู
+ * @return {string} HTML
+ */
+function groupTotalHtml(group) {
+  if (!NAV.counts || !group.department) return '';
+  if (!NAV.user || group.department !== NAV.user.department) return '';
+
+  var total = Number(NAV.counts.pending || 0) + Number(NAV.counts.active || 0);
+  return total ? '<span class="nav-total">' + total + '</span>' : '';
+}
+
+/**
+ * กลุ่มนี้คือกลุ่มของหน้าที่เปิดอยู่หรือไม่
+ * @param {Object} group กลุ่มเมนู
+ * @return {boolean}
+ */
+function groupIsCurrent(group) {
+  if (group.page) return isCurrentMenu(group);
+  for (var i = 0; i < group.children.length; i++) {
+    if (isCurrentMenu(group.children[i])) return true;
+  }
+  return false;
+}
+
+/**
+ * กลุ่มที่ผู้ใช้กางค้างไว้ — จำข้ามหน้าไว้ในเครื่อง
+ * @return {string[]}
+ */
+function openedGroupKeys() {
+  var saved = readLocal(NAV_OPEN_KEY);
+  return saved ? saved.split(',') : [];
+}
+
+/** ผูกการกางและหุบของทุกกลุ่ม แล้วจำสภาพไว้ */
+function bindNavGroups() {
+  var groups = document.querySelectorAll('.nav-group');
+
+  for (var i = 0; i < groups.length; i++) {
+    (function (node) {
+      var head = node.querySelector('button.nav-top');
+      if (!head) return;   // กลุ่มที่ไม่มีเมนูย่อย หัวกลุ่มเป็นลิงก์ ไม่ต้องผูกอะไร
+
+      head.addEventListener('click', function () {
+        var open = node.classList.toggle('open');
+        head.setAttribute('aria-expanded', open ? 'true' : 'false');
+
+        var keys = openedGroupKeys();
+        var key = node.getAttribute('data-group');
+        var at = keys.indexOf(key);
+        if (open && at === -1) keys.push(key);
+        if (!open && at !== -1) keys.splice(at, 1);
+        writeLocal(NAV_OPEN_KEY, keys.join(','));
+      });
+    })(groups[i]);
+  }
+
+  // เลือกเมนูแล้วต้องปิดแถบทันทีบนมือถือ ไม่ใช่ค้างบังหน้าไว้ระหว่างรอหน้าใหม่
+  var links = document.querySelectorAll('.nav-child, a.nav-top');
+  for (var l = 0; l < links.length; l++) {
+    links[l].addEventListener('click', function () { toggleDrawer(false); });
+  }
+}
+
+/**
+ * ท้ายแถบ — ชื่อผู้ใช้ แผนก และปุ่มออกจากระบบ
+ * @param {Object} user ผู้ใช้
+ */
+function renderNavFoot(user) {
+  var foot = document.getElementById('navFoot');
+  if (!foot) return;
+
+  var name = user.displayName || user.email || 'ยังไม่ได้เข้าสู่ระบบ';
+  var second = (user.department ? labelOf('assignment', user.department) : '') ||
+    (user.roles && user.roles.length ? rolesLabel(user.roles) : '');
+
+  foot.innerHTML = '<div class="side-user">' +
+    '<span class="side-avatar" aria-hidden="true">' + escapeHtml(name.substring(0, 1)) + '</span>' +
+    '<span class="side-who"><b>' + escapeHtml(name) + '</b>' +
+    '<span>' + escapeHtml(second) + '</span></span>' +
+    '</div>' +
+    '<button type="button" class="side-logout" id="navLogout">' +
+    navIcon('out') + '<span>ออกจากระบบ</span></button>';
+
+  var logout = document.getElementById('navLogout');
+  if (logout) logout.addEventListener('click', doLogout);
+}
+
+/**
+ * ออกจากระบบ — ปิดโทเคนที่เซิร์ฟเวอร์ก่อน แล้วค่อยลบของในเครื่อง
+ *
+ * ถ้าลบแค่ฝั่งเบราว์เซอร์ โทเคนใบนั้นยังใช้ได้ต่ออีก 12 ชั่วโมง
+ * ใครที่คัดลอกไปไว้แล้วจะเข้าใช้ต่อได้ทั้งที่ผู้ใช้กดออกไปแล้ว
+ *
+ * ถึงเซิร์ฟเวอร์จะตอบไม่สำเร็จ ก็ยังต้องพาออกจากระบบฝั่งนี้อยู่ดี
+ * เพราะผู้ใช้สั่งออก การค้างอยู่ต่อคือสิ่งที่ผิดกว่า
+ *
+ * จบด้วยแผงเข้าสู่ระบบทับหน้าเดิม ไม่ใช่พาไปหน้าอื่น — แผงทึบจึงบังข้อมูลของ
+ * คนที่เพิ่งออกไปทั้งหมด และคนถัดไปล็อกอินต่อได้ทันทีโดยไม่ต้องโหลดหน้าใหม่
+ */
+function doLogout() {
+  callApi('api_logout', [])
+    .catch(function () { return null; })
+    .then(function () { requireLogin('ออกจากระบบแล้ว'); });
+}
+
+/**
+ * ตรวจว่าผู้ใช้เปิดหน้านี้ได้หรือไม่ ก่อนดึงข้อมูลใด ๆ ของหน้า
+ *
+ * สำคัญ: ต้องเรียกให้ผ่านก่อนยิงขอข้อมูล ห้ามโหลดรายการมาแสดงแล้วค่อยบอกว่าไม่มีสิทธิ์
+ * เพราะนั่นแปลว่าข้อมูลที่ไม่ควรเห็นถูกส่งมาถึงเบราว์เซอร์แล้ว
+ *
+ * @param {string} containerId ที่สำหรับแสดงข้อความเมื่อไม่มีสิทธิ์
+ * @return {boolean} true = เปิดหน้านี้ได้
+ */
+function guardPage(containerId) {
+  var item = null;
+  for (var i = 0; i < NAV.menu.length; i++) {
+    if (isCurrentMenu(NAV.menu[i])) { item = NAV.menu[i]; break; }
+  }
+  if (!item || item.allowed) return true;
+
+  var box = document.getElementById(containerId);
+  if (box) box.innerHTML = deniedHtml(item);
+  return false;
+}
+
+/**
+ * ข้อความอธิบายเมื่อกดเมนูที่ไม่มีสิทธิ์
+ * ต้องบอกทั้งว่าเมนูนี้ของใคร และตอนนี้ตัวเองมีสิทธิ์อะไร ไม่ใช่บอกแค่ว่าเข้าไม่ได้
+ * @param {Object} item รายการเมนูที่ถูกปฏิเสธ
+ * @return {string} HTML
+ */
+function deniedHtml(item) {
+  var user = NAV.user || {};
+  var mine = (user.roles && user.roles.length)
+    ? rolesLabel(user.roles) : 'ยังไม่ได้รับสิทธิ์ใดในระบบ';
+
+  return '<div class="note-box stop">' +
+    '<b>บัญชีของคุณเปิดหน้านี้ไม่ได้</b><br>' +
+    'เมนู "' + escapeHtml(item.label) + '" สำหรับ ' + escapeHtml(item.rolesLabel) +
+    (item.dept ? ' ที่สังกัด' + escapeHtml(labelOf('assignment', item.dept)) : '') + '<br>' +
+    'สิทธิ์ปัจจุบันของคุณคือ ' + escapeHtml(mine) +
+    (user.department ? ' · สังกัด' + escapeHtml(labelOf('assignment', user.department)) : '') +
+    /*
+     * ถ้าค่าแผนกในทะเบียนใช้ไม่ได้ ต้องบอกตรงนี้ เพราะนี่คือจุดที่มันมีผลจริง
+     * ผู้ใช้ที่เห็นแค่ "ไม่มีสิทธิ์" จะไปขอเพิ่มสิทธิ์ ทั้งที่สิทธิ์ถูกอยู่แล้ว
+     * และของที่ต้องแก้คือค่าในช่องแผนก
+     */
+    (user.departmentProblem
+      ? '<br><b>' + escapeHtml(user.departmentProblem) + '</b>'
+      : '<br>ถ้าคิดว่าควรเข้าได้ กรุณาติดต่อผู้ดูแลระบบให้เพิ่มสิทธิ์ในทะเบียนผู้ใช้') +
+    '</div>' +
+    '<div class="actions"><a class="btn-link" href="' + escapeHtml(NAV.home) + '">กลับหน้าแรก</a></div>';
+}
+
+/**
+ * ตัดสินว่าจะเปิดหน้าให้หรือไม่ และด้วยเหตุผลข้อไหน (SPEC 17.4)
+ *
+ * แยกออกมาเป็นฟังก์ชันล้วนที่ไม่แตะ DOM เพื่อให้เทสต์ป้อนค่าปลอมพิสูจน์ลำดับได้
+ * ลำดับคือหัวใจของฟังก์ชันนี้ ไม่ใช่ผลลัพธ์แต่ละข้อ
+ *
+ * @param {Object} boot ก้อนข้อมูลตั้งต้นทั้งก้อน
+ * @param {string[]} needs คีย์ที่หน้านี้ประกาศว่าต้องใช้
+ * @param {boolean} allowed ผลจาก guardPage — ผู้ใช้เปิดหน้านี้ได้หรือไม่
+ * @return {Object} {stage: 'ok'|'denied'|'missing', error}
+ */
+function pageOutcome(boot, needs, allowed) {
+  /*
+   * ไม่มีสิทธิ์ต้องมาก่อนคีย์ขาดเสมอ
+   *
+   * เพราะเซิร์ฟเวอร์ตั้งใจไม่ส่งข้อมูลของหน้าที่ผู้ใช้ไม่มีสิทธิ์มาให้ (SPEC 17.3) —
+   * คีย์ที่ขาดจึงเป็นผลของการปฏิเสธ ไม่ใช่ความผิดพลาด · ถ้าตรวจคีย์ก่อน ผู้ใช้จะเห็น
+   * รายชื่อคีย์ที่ขาดซึ่งฟังดูเหมือนระบบพัง แทนที่จะรู้ว่าหน้านี้เป็นของใคร
+   * และตอนนี้ตัวเองมีสิทธิ์อะไร
+   */
+  if (!allowed) return { stage: 'denied', error: '' };
+
+  var result = readBootstrap(needs || [], boot);
+  if (!result.ok) return { stage: 'missing', error: result.error };
+  return { stage: 'ok', error: '' };
+}
+
+/**
+ * เตรียมหน้าด้วยการขอข้อมูลตั้งต้นทั้งก้อนในคำขอเดียว (SPEC 17.4)
+ *
+ * @param {string} containerId ที่สำหรับแสดงข้อความเมื่อไม่มีสิทธิ์
+ * @param {string[]} [needs] คีย์ที่หน้านี้ต้องใช้ นอกเหนือจากตัวตนและเมนู
+ * @return {Promise<Object>} {allowed, boot} — boot คือข้อมูลตั้งต้นทั้งก้อน คีย์อยู่ระดับเดียวกันหมด
+ */
+function startPage(containerId, needs) {
+  /*
+   * ขอข้อมูลของหน้าในคำขอเดียว — ตัวตน เมนู จำนวนงานค้าง และข้อมูลของหน้ามาพร้อมกัน
+   *
+   * เดิมก้อนนี้ถูกฝังมากับหน้าตั้งแต่ตอนเซิร์ฟเวอร์ประกอบ HTML แต่ตอนนี้ตัวตนอยู่ในโทเคน
+   * ที่เก็บไว้ในเบราว์เซอร์ ซึ่งตอนประกอบหน้ายังไม่มีทางรู้ (ห้ามส่งโทเคนผ่าน URL)
+   * จึงต้องขอมาเป็นคำขอของตัวเอง · ยังเป็นคำขอเดียวต่อการเปิดหนึ่งหน้าเหมือนเดิม
+   *
+   * ผู้ที่ยังไม่ล็อกอินจะถูก callApi พาไปหน้าเข้าสู่ระบบเอง จึงไม่ต้องตรวจซ้ำที่นี่
+   */
+  /*
+   * มุมมองที่เมนูย่อยชี้มา ต้องเดินทางไปถึงเซิร์ฟเวอร์ด้วย (SPEC 17.3)
+   *
+   * เคยเกิดจริง 29-09-2026: ส่งไปแค่แผนก มุมมองจึงไม่เคยไปถึงตอนเปิดหน้า ·
+   * เซิร์ฟเวอร์ที่ไม่รู้ว่าขอมุมมองไหน จะคืนงานที่ "ยังไม่จบ" มาให้ แล้วหน้าเว็บ
+   * เอาไปกรองด้วยมุมมอง "เสร็จสิ้น" ที่อ่านจาก URL — ไม่มีแถวไหนรอดสักแถว ·
+   * ผลคือเมนูบอกว่ามีงาน แต่กดเข้าไปแล้วว่างเปล่า และกดปุ่มโหลดใหม่ก็หาย
+   * เพราะคำขอรอบที่สองส่งมุมมองไปด้วย
+   */
+  var params = { dept: NAV.dept, view: NAV.view, wo: pageData('wo-id') };
+
+  return callApi('api_pageData', [NAV.page, params])
+    .then(function (boot) {
+      /*
+       * ได้ข้อมูลของหน้ามาแล้ว — ตั้งแต่นี้ไปถ้าต้องล็อกอินใหม่กลางคัน
+       * ห้ามเริ่มหน้าใหม่ทั้งหน้า เพราะปุ่มต่าง ๆ ถูกผูกไปแล้ว การเริ่มใหม่จะผูกซ้ำ
+       */
+      PAGE_STATE_.loaded = true;
+
+      /*
+       * ตัวตนและเมนูต้องมาก่อนเสมอ แม้ข้อมูลของหน้าจะขาด
+       * เพราะหน้าที่ไม่มีเมนูคือหน้าที่ผู้ใช้ออกไปไหนไม่ได้ (SPEC 17.4)
+       */
+      var result = readBootstrap(['user', 'menu', 'groups', 'labels', 'upload', 'taskViews'], boot);
+      var ready = result.boot || {};
+
+      setLabels(ready.labels);
+      setTaskViews(ready.taskViews, ready.defaultView);
+      /*
+       * ข้อจำกัดของการอัปโหลดมาถึงทุกหน้าตรงนี้จุดเดียว
+       * ห้ามให้หน้าใดขอเอง เพราะหน้าที่ลืมขอจะแนบไฟล์ไม่ได้เลยโดยไม่มีอะไรฟ้อง
+       */
+      setUploadLimits(ready.upload);
+      renderNav(ready.user || {}, ready.menu || [], ready.groups || [], ready.counts || null);
+
+      if (!result.ok) {
+        showPageError(containerId, result.error);
+        return { allowed: false, boot: ready };
+      }
+
+      /*
+       * ตรวจสิทธิ์ก่อนตรวจว่าข้อมูลของหน้ามาครบไหม — ลำดับนี้สำคัญ (SPEC 17.4)
+       *
+       * แถบเมนูแสดงครบทุกกลุ่มให้ทุกคนโดยตั้งใจ และกดได้ · คนที่กดเข้าหน้าที่ไม่ใช่
+       * สิทธิ์ของตัวเองจึงเป็นเรื่องปกติ ไม่ใช่ความผิดพลาด · เซิร์ฟเวอร์ไม่ส่งข้อมูล
+       * ของหน้านั้นมาให้ ซึ่งถูกต้องแล้ว เพราะข้อมูลที่ไม่ควรเห็นต้องไม่มาถึงเบราว์เซอร์
+       *
+       * เคยเกิดจริง: ด่านคีย์ขาดถูกตรวจก่อน ผู้ใช้จึงเห็น "ระบบส่งข้อมูลมาไม่ครบ
+       * สำหรับหน้านี้ ขาด: rows, total, page, pageSize, pageCount, view" ซึ่งฟังดูเหมือน
+       * ระบบพัง ทั้งที่ระบบทำถูกทุกอย่าง · สิ่งที่เขาต้องรู้คือหน้านี้เป็นของใคร
+       * และตอนนี้ตัวเองมีสิทธิ์อะไร ซึ่ง guardPage บอกได้อยู่แล้ว
+       */
+      var outcome = pageOutcome(boot, needs, guardPage(containerId));
+      if (outcome.stage !== 'ok') {
+        // หน้าที่ไม่มีสิทธิ์ ข้อความของ guardPage ขึ้นไปแล้ว ห้ามเขียนทับด้วยเรื่องคีย์ขาด
+        if (outcome.error) showPageError(containerId, outcome.error);
+        return { allowed: false, boot: ready };
+      }
+      return { allowed: true, boot: ready };
+    })
+    .catch(function (error) {
+      // ต้องยังมีทางออกเสมอ แม้ตอนที่ยังไม่รู้ว่าผู้ใช้เป็นใคร (SPEC 17.4)
+      renderNav({}, [], [], null);
+      showPageError(containerId, error.message);
+      return { allowed: false, boot: {} };
+    });
+}
+
+/**
+ * อัปเดตตัวเลขบนเมนูย่อยโดยไม่ต้องขอข้อมูลใหม่จากเซิร์ฟเวอร์
+ *
+ * ใช้หลังผู้ใช้ทำรายการจนสถานะของงานเปลี่ยน เช่นกดรับงานแล้วงานย้ายจาก "รอกดรับงาน"
+ * ไปอยู่ "กำลังดำเนินการ" — ตัวเลขต้องขยับตามทันที ไม่ใช่รอให้โหลดหน้าใหม่
+ *
+ * @param {Object} counts {pending, active, done}
+ */
+function updateNavCounts(counts) {
+  NAV.counts = counts || null;
+  renderNavGroups();
+}
+
+/**
+ * แสดงข้อผิดพลาด "ข้างใน" โครงหน้าเดิม ไม่ใช่วาดทับทั้งหน้า (SPEC 17.4)
+ *
+ * เดิมบางเส้นทางวาดข้อความทับทั้งหน้า ทำให้เมนูและปุ่มกลับหน้าแรกหายไปด้วย
+ * ผู้ใช้ติดอยู่ตรงนั้นจนต้องแก้ URL เอง ซึ่งคนทั่วไปทำไม่เป็น
+ *
+ * @param {string} containerId ที่สำหรับแสดงข้อความ
+ * @param {string} message ข้อความภาษาไทย
+ */
+function showPageError(containerId, message) {
+  var box = document.getElementById(containerId);
+  if (!box) return;
+
+  box.innerHTML = '<div class="note-box stop">' + escapeHtml(message) + '</div>' +
+    '<div class="actions"><a class="btn-link" href="' + escapeHtml(NAV.home) + '">กลับหน้าแรก</a></div>';
+}
+
+/**
+ * ข้อความ "ยังไม่มีข้อมูล" ที่เป็นสถานะปกติ ไม่ใช่ข้อผิดพลาด (SPEC 17.4)
+ *
+ * ต้องบอกด้วยว่าปกติจะมีข้อมูลเมื่อไร ไม่ใช่บอกแค่ว่าว่าง
+ * เพราะผู้ใช้ที่เพิ่งเริ่มใช้ระบบจะแยกไม่ออกระหว่าง "ยังไม่มีงาน" กับ "ระบบพัง"
+ *
+ * @param {string} what สิ่งที่ยังไม่มี
+ * @param {string} when ปกติจะมีเมื่อไร
+ * @return {string} HTML
+ */
+function emptyHtml(what, when) {
+  return '<div class="empty"><b>' + escapeHtml(what) + '</b>' + escapeHtml(when) + '</div>';
+}
+</script>

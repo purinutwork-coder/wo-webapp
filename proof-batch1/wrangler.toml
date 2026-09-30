@@ -1,0 +1,17 @@
+# เครื่องวัดของกองที่ 1 ข้อ 2 — ชั่วคราว ต้องลบทิ้งทันทีที่วัดเสร็จ
+#
+# ชื่อต้องไม่ชนกับ cnr-rfq ซึ่งเป็น Worker ของคนอื่นในบัญชีเดียวกัน
+# ห้ามแตะ ห้ามเขียนทับ ห้ามลบ Worker ตัวนั้นเด็ดขาด
+#
+# ไม่มีความลับของฐานข้อมูลอยู่ในไฟล์นี้และในเครื่องวัดเลย
+# รหัสลับของด่าน (PROOF_TOKEN) ตั้งด้วย `wrangler secret put` ไม่ใช่เขียนไว้ที่นี่
+
+name = "wo-probe-fetch"
+main = "index.js"
+compatibility_date = "2026-09-01"
+
+# ต้องการ AbortSignal.timeout และพฤติกรรมของ fetch ตามมาตรฐานล่าสุด
+compatibility_flags = ["nodejs_compat"]
+
+[observability]
+enabled = true
