@@ -146,11 +146,18 @@ var audit = args.indexOf('--audit') !== -1;
 var given = args.filter(function (a) { return a.charAt(0) !== '-'; })[0];
 var dir = given || path.join(__dirname, '..', 'src');
 
+/*
+  ต้องนับ .gs ด้วย ไม่ใช่แค่ .js
+  เส้นเทียบที่แช่แข็งไว้ (wo-webapp/) เป็นไฟล์ .gs ทั้งกอง เพราะเป็นของยุค Apps Script
+  ตัวนับที่อ่านเส้นเทียบไม่ได้ ก็เทียบ "ก่อน" กับ "หลัง" ไม่ได้ ซึ่งเป็นงานเดียวที่มันมี
+  เคยพลาดจริง: สั่งนับ wo-webapp/ แล้วได้ 1 จุดจาก 14 ไฟล์ ทั้งที่ของจริงมี 40 ไฟล์
+  — ตัวเลขนั้นดูเหมือนคำตอบ และต่ำกว่าความจริงหลายร้อยเท่า
+*/
 var files = fs.readdirSync(dir).filter(function (name) {
-  return /\.(js|html)$/.test(name);
+  return /\.(gs|js|html)$/.test(name);
 }).sort();
 
-if (!files.length) throw new Error('ไม่พบไฟล์ .js หรือ .html ใน ' + dir);
+if (!files.length) throw new Error('ไม่พบไฟล์ .gs .js หรือ .html ใน ' + dir);
 
 var rows = [];
 var byApi = {};
