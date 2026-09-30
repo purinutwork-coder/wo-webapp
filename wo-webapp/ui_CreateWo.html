@@ -1,0 +1,1447 @@
+<!DOCTYPE html>
+<html lang="th">
+<head>
+  <base target="_top">
+  <meta charset="utf-8">
+  <?!= include('ui_Style') ?>
+</head>
+<body>
+<div id="pageData"
+  data-wo-id="<?= woId ?>" data-dept="<?= dept ?>" data-view="<?= view ?>" data-route="<?= route ?>"
+  data-base-url="<?= baseUrl ?>" data-home-url="<?= homeUrl ?>"
+  data-bootstrap="<?= bootstrapJson ?>" hidden></div>
+
+<div class="app" id="app">
+  <aside class="side" id="side">
+    <a class="side-head" id="brandLink" href="#">
+      <span class="side-mark" aria-hidden="true">
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+          stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M3 11l9-7 9 7"/><path d="M5 10v10h14V10"/><path d="M10 20v-6h4v6"/>
+        </svg>
+      </span>
+      <span class="side-title">ระบบใบสั่งงาน<small>กลับหน้าติดตามใบงาน</small></span>
+    </a>
+    <nav class="side-nav" id="navBar" aria-label="เมนูหลัก"></nav>
+    <div class="side-foot" id="navFoot"></div>
+  </aside>
+  <button type="button" class="scrim" id="scrim" aria-label="ปิดเมนู" hidden></button>
+
+  <div class="main-col">
+    <header class="topbar">
+      <button type="button" class="icon-btn btn-menu" id="btnMenu" aria-label="เปิดเมนู">
+        <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+          stroke-width="1.8" stroke-linecap="round"><path d="M4 7h16"/><path d="M4 12h16"/><path d="M4 17h16"/></svg>
+      </button>
+      <button type="button" class="icon-btn btn-collapse" id="btnCollapse" aria-label="พับหรือกางแถบเมนู">
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+          stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M4 5h16"/><path d="M4 12h10"/><path d="M4 19h16"/><path d="M19 9l3 3-3 3"/></svg>
+      </button>
+      <h1 id="pageTitle">สร้างใบสั่งงาน</h1>
+      <span class="pill" id="statusPill" hidden></span>
+      <span class="who" id="whoami">กำลังตรวจสอบผู้ใช้…</span>
+    </header>
+
+    <main>
+  <div id="message" class="msg"></div>
+  <div id="formArea"></div>
+
+  <!-- การ์ดที่ 1 ข้อมูลลูกค้า (SPEC 9.3) -->
+  <section class="card">
+    <h2>ข้อมูลลูกค้า</h2>
+
+    <label for="customerSearch">ค้นหาชื่อลูกค้า <span class="req">*</span></label>
+    <div class="row">
+      <input type="text" id="customerSearch" placeholder="พิมพ์บางส่วนของชื่อลูกค้า" autocomplete="off">
+      <button type="button" id="btnSearchCustomer" class="ghost" style="flex:0 0 auto">ค้นหา</button>
+    </div>
+    <div class="hint">รายชื่อลูกค้ามาจากโปรแกรมบัญชี ระบบนี้อ่านอย่างเดียวและเพิ่มเองไม่ได้ ถ้าไม่เจอให้เพิ่มในโปรแกรมบัญชีก่อน</div>
+    <div id="customerResults"></div>
+
+    <div class="row">
+      <div>
+        <label for="customerName">ชื่อลูกค้า <span class="req">*</span></label>
+        <input type="text" id="customerName" readonly>
+      </div>
+      <div>
+        <label for="customerCode">รหัสลูกค้า <span class="req">*</span></label>
+        <input type="text" id="customerCode" readonly>
+      </div>
+    </div>
+    <div class="row">
+      <div>
+        <label for="salesPerson">พนักงานขาย</label>
+        <input type="text" id="salesPerson" readonly>
+      </div>
+      <div>
+        <label for="startContactDate">วันที่เริ่มติดต่อ</label>
+        <input type="date" id="startContactDate">
+      </div>
+    </div>
+    <div class="row">
+      <div>
+        <label for="contact">ชื่อผู้ติดต่อ <span class="req">*</span></label>
+        <input type="text" id="contact" placeholder="ชื่อคนที่ติดต่อหน้างาน">
+      </div>
+      <div>
+        <label for="phone">โทรศัพท์ <span class="req">*</span></label>
+        <input type="tel" id="phone" inputmode="tel" placeholder="เบอร์ที่ติดต่อได้จริง">
+      </div>
+    </div>
+  </section>
+
+  <!-- การ์ดที่ 2 สถานที่และโครงการ -->
+  <section class="card">
+    <h2>สถานที่และโครงการ</h2>
+
+    <label for="project">โครงการ <span class="req">*</span></label>
+    <input type="text" id="project" placeholder="เช่น ออนิว เฟส 1 หรือชื่อที่ลูกค้าใช้เรียกงานนี้">
+    <div class="hint">บังคับกรอก เพราะชื่อโครงการเป็นส่วนหนึ่งของรหัสสถานที่ และเป็นสิ่งที่แยกงานของลูกค้ารายเดียวกันออกจากกัน ·
+      ถ้าลูกค้าไม่ได้เรียกงานนี้เป็นโครงการ ให้ใส่ชื่อที่ใช้เรียกกันจริง เช่น "งานซ่อมทั่วไป" ·
+      เปลี่ยนชื่อโครงการแล้ว รายการสถานที่ด้านล่างจะโหลดใหม่ให้เอง</div>
+
+    <label for="location">สถานที่ <span class="req">*</span></label>
+    <select id="location">
+      <option value="">— เลือกสถานที่ที่เคยทำงาน —</option>
+    </select>
+    <div class="hint" id="locationHint">เลือกจากรายการเดิมก่อนเสมอ ถ้าพิมพ์ชื่อใหม่ทั้งที่เป็นจุดเดิม ประวัติงานของจุดนั้นจะแยกออกจากกัน</div>
+    <div class="actions">
+      <button type="button" id="btnNewLocation" class="ghost small">เพิ่มสถานที่ใหม่</button>
+    </div>
+
+    <div id="newLocationBox" hidden>
+      <label for="newLocation">ชื่อสถานที่ใหม่</label>
+      <input type="text" id="newLocation" placeholder="เช่น ห้องปั๊มน้ำ อาคาร A">
+      <div class="actions">
+        <button type="button" id="btnConfirmLocation" class="small">ตรวจสอบและใช้ชื่อนี้</button>
+        <button type="button" id="btnCancelLocation" class="neutral small">ยกเลิก</button>
+      </div>
+      <div id="similarBox"></div>
+    </div>
+
+    <label for="pjId">รหัสสถานที่</label>
+    <input type="text" id="pjId" readonly placeholder="ระบบออกให้เมื่อบันทึกใบงาน">
+    <div class="hint">รหัสนี้ผูกกับจุดทำงาน ใบงานคนละใบที่ทำที่เดียวกันจะใช้รหัสเดียวกัน</div>
+  </section>
+
+  <!-- การ์ดที่ 3 รายละเอียดของงาน -->
+  <section class="card">
+    <h2>รายละเอียดของงาน</h2>
+
+    <label for="assignmentType">สายงาน <span class="req">*</span></label>
+    <select id="assignmentType">
+      <option value="SERVICE">แผนก Service</option>
+      <option value="PROJECT">แผนก Project</option>
+      <option value="SERVICE_PROJECT">แผนก Service และ Project</option>
+      <option value="LAB">แผนก Lab</option>
+      <option value="UNSPECIFIED" selected>ยังไม่รู้ว่า Service หรือ Project</option>
+    </select>
+    <div class="hint">เลือก "ยังไม่รู้ว่า Service หรือ Project" ได้ ผู้อนุมัติสายบริการและโครงการจะเป็นคนระบุให้ตอนอนุมัติ ·
+      งานแล็บต้องเลือกแผนก Lab ตั้งแต่ตอนสร้าง เพราะระบบไม่มีการส่งต่อข้ามสาย ถ้าเลือกผิดต้องให้ผู้อนุมัติตีกลับมาแก้</div>
+
+    <label>สิ่งที่ต้องการ <span class="req">*</span> (เลือกอย่างน้อย 1 อย่าง)</label>
+    <div class="checks" id="requestTypes"><span class="hint">กำลังโหลดรายการ…</span></div>
+
+    <label for="jobDescription">ลักษณะงานที่ทำ หรืออาการ <span class="req">*</span></label>
+    <textarea id="jobDescription" placeholder="เล่าอาการหรือสิ่งที่ต้องให้ไปทำ เช่น ปั๊มน้ำมีเสียงดังผิดปกติตั้งแต่สัปดาห์ที่แล้ว"></textarea>
+    <div class="hint">บังคับกรอก เพราะผู้อนุมัติใช้ข้อมูลนี้ตัดสินใจ</div>
+
+    <label for="productDetail">รายละเอียดของสินค้า</label>
+    <textarea id="productDetail" placeholder="ยี่ห้อ รุ่น ขนาด หรือหมายเลขเครื่อง"></textarea>
+
+    <label for="workScope">ขอบเขตของงาน ตำแหน่ง สถานที่</label>
+    <textarea id="workScope" placeholder="จุดที่ต้องเข้าไปทำงาน และขอบเขตที่ตกลงกับลูกค้า"></textarea>
+
+    <label for="referenceDoc">เอกสารอ้างอิง</label>
+    <input type="text" id="referenceDoc" placeholder="เช่น เลขที่ใบเสนอราคา หรือเลขที่ใบสั่งซื้อ">
+  </section>
+
+  <!-- การ์ดที่ 4 กำหนดการ -->
+  <section class="card">
+    <h2>กำหนดการ</h2>
+    <div class="row">
+      <div>
+        <label for="startDate">กำหนดเข้างาน</label>
+        <input type="datetime-local" id="startDate">
+      </div>
+      <div>
+        <label for="endDate">กำหนดออกงาน</label>
+        <input type="datetime-local" id="endDate">
+      </div>
+    </div>
+    <div class="hint" id="scheduleHint">เว้นว่างได้ถ้ายังไม่ได้นัดวันเวลา · ถ้ากรอกทั้งคู่ กำหนดออกงานต้องไม่มาก่อนกำหนดเข้างาน</div>
+
+    <label for="durationDays">ขอบเขตวันการทำงาน</label>
+    <input type="number" id="durationDays" min="1" step="1" placeholder="เช่น 15">
+    <div class="hint">เว้นว่างได้ และส่วนใหญ่เว้นว่าง · กรอกเฉพาะใบที่รู้ว่ามีเงื่อนไข เช่นรอของแล้วไม่รู้วันแน่นอน
+      จึงใส่ขอบเขตเผื่อไว้แล้วกลับมาดูทีหลังว่าเลยกำหนดหรือยัง ·
+      นับเป็นวันตามปฏิทินจากวันที่เปิดใบงาน รวมเสาร์อาทิตย์และวันหยุด ·
+      เลยกำหนดแล้วยังทำงานต่อได้ตามปกติ ไม่ได้กั้นอะไรเลย เป็นข้อมูลให้คนเห็นเท่านั้น</div>
+
+    <label for="paymentRequired" class="checks" style="margin-top:14px">
+      <input type="checkbox" id="paymentRequired" style="width:auto">
+      <span>ต้องชำระเงินก่อนเริ่มงาน</span>
+    </label>
+    <div class="hint">ติ๊กเมื่อเป็นลูกค้าที่ต้องชำระก่อน แผนกจะกดรับงานไม่ได้จนกว่าจะบันทึกว่าได้รับเงินแล้ว</div>
+  </section>
+
+  <!-- การ์ดที่ 5 ผู้แจ้งงาน -->
+  <section class="card">
+    <h2>ผู้แจ้งงาน</h2>
+    <div class="row">
+      <div>
+        <label for="createdBy">ผู้แจ้งงาน</label>
+        <input type="text" id="createdBy" readonly>
+      </div>
+      <div>
+        <label for="createdDate">วันที่แจ้ง</label>
+        <input type="text" id="createdDate" readonly>
+      </div>
+    </div>
+    <div class="hint">ระบบบันทึกให้เองจากบัญชีที่ใช้งานอยู่ พิมพ์แก้เองไม่ได้</div>
+  </section>
+
+  <!-- การ์ดที่ 6 หมายเหตุ -->
+  <section class="card">
+    <h2>หมายเหตุ</h2>
+    <label for="remark">หมายเหตุ</label>
+    <textarea id="remark" placeholder="สิ่งที่อยากบอกผู้อนุมัติหรือแผนกที่รับงาน"></textarea>
+  </section>
+
+  <!-- การ์ดที่ 7 สิ่งที่แนบ (SPEC 9.4, 14, 16) -->
+  <section class="card" id="attachCard">
+    <h2>สิ่งที่แนบ</h2>
+    <div class="hint" id="attachLimits">กำลังโหลดข้อจำกัดของไฟล์…</div>
+
+    <div class="hint" id="attachOrder">
+      เลือกไฟล์ให้ครบทุกหัวข้อก่อน แล้วกดส่งขออนุมัติครั้งเดียว —
+      ระบบจะสร้างใบงาน อัปโหลดไฟล์ทั้งชุด แล้วออกใบสั่งงานให้ตามลำดับนั้น
+    </div>
+
+    <div id="attachTools">
+      <div class="row">
+        <div>
+          <label for="attachTopic">หัวข้อของไฟล์</label>
+          <select id="attachTopic"></select>
+        </div>
+        <div>
+          <label for="attachInput">เลือกไฟล์ (เลือกได้หลายไฟล์ · ถ่ายรูปจากกล้องได้เลย)</label>
+          <input type="file" id="attachInput" multiple accept="image/*,application/pdf,.doc,.docx,.xls,.xlsx,.dwg,.dxf,.zip">
+        </div>
+      </div>
+      <div class="actions">
+        <button type="button" id="btnStage" class="neutral small">เพิ่มเข้ารายการที่จะส่ง</button>
+        <button type="button" id="btnUpload" class="small" hidden>อัปโหลดไฟล์ที่เลือกไว้</button>
+      </div>
+      <div id="attachPending"></div>
+      <div id="attachProgress" class="hint"></div>
+    </div>
+
+    <div id="attachList"></div>
+  </section>
+
+  <!-- การ์ดที่ 8 ใบสั่งงาน PDF (SPEC 16.1) -->
+  <section class="card" id="reportCard" hidden>
+    <h2>ใบสั่งงาน (PDF)</h2>
+    <div class="hint">
+      ระบบออกให้เองสามจังหวะ — ตอนเปิดใบงาน ตอนผู้อนุมัติอนุมัติ และตอนส่งขออนุมัติใหม่หลังถูกตีกลับ ·
+      ฉบับเก่าถูกเก็บไว้ในโฟลเดอร์ _archive ของใบงานนี้ ไม่ได้ถูกลบทิ้ง
+    </div>
+    <div id="reportLink" class="hint"></div>
+    <div class="actions" id="reportActions" hidden>
+      <button type="button" id="btnReport" class="small ghost">ออกเอกสารใหม่</button>
+    </div>
+  </section>
+
+  <!-- ปุ่มหลักติดอยู่ล่างจอบนมือถือ ไม่ต้องเลื่อนลงไปหาหลังกรอกเสร็จ (SPEC 17.4) -->
+  <div class="actions sticky-bar">
+    <!-- ปุ่มเดียว ไม่มีบันทึกร่าง — ใบสั่งงานกรอกรอบเดียวจบ (SPEC 4.1) -->
+    <button type="button" id="btnSubmit">ส่งขออนุมัติ</button>
+    <button type="button" id="btnReset" class="neutral">ล้างข้อมูลทั้งหมด</button>
+  </div>
+    </main>
+  </div>
+</div>
+
+<?!= include('ui_Script') ?>
+<?!= include('ui_Nav') ?>
+<?!= include('ui_Auth') ?>
+<script>
+/*
+  หน้าสร้าง / แก้ไขใบสั่งงาน — การ์ดและชื่อฟิลด์ยึดตามตารางใน SPEC หัวข้อ 9.3
+
+  จุดที่ต้องระวังเป็นพิเศษคือ "สถานที่" — SPEC 10.3 ระบุว่าต้องให้เลือกจากรายการเดิมก่อนเสมอ
+  ไม่ใช่ช่องพิมพ์เปล่า เพราะพิมพ์ต่างกันนิดเดียวก็กลายเป็นคนละรหัสสถานที่
+  แล้วประวัติงานของจุดเดียวกันจะแตกกระจาย
+
+  วันที่ทุกช่องรับส่งเป็นข้อความ ไม่ใช่ Date เพราะ google.script.run ส่ง Date ข้ามไม่ได้ (SPEC 19)
+*/
+
+var state = {
+  woId: '',              // ว่าง = โหมดสร้างใหม่
+  updatedDate: null,     // ค่าที่หน้าจอถืออยู่ ใช้ตรวจว่ามีคนอื่นแก้ไปก่อนหรือไม่ (SPEC C-3)
+  customer: null,
+  requestTypes: [],
+  attachmentTopics: [],  // หัวข้อไฟล์แนบจากแท็บ Attachment_Topic — ห้ามให้ผู้ใช้พิมพ์เอง
+  files: [],             // ไฟล์ที่แนบไว้แล้วของใบงานนี้
+  missingTopics: [],     // หัวข้อบังคับที่ยังไม่ได้แนบ
+  // ตะกร้าไฟล์ที่เลือกไว้แต่ยังไม่ได้ส่ง ถูกสร้างตอนโหลดหน้า (ดู basket ด้านล่าง)
+  locations: [],
+  searchTimer: null,
+  user: null,       // ใช้เติมชื่อผู้แจ้งงานกลับมาหลังล้างฟอร์ม
+  reportUrl: '',    // ลิงก์ใบสั่งงาน PDF ฉบับล่าสุดของใบนี้
+  canGenerateReport: false,
+  dirty: false      // ผู้ใช้แตะฟอร์มแล้วหรือยัง ใช้ตัดสินว่าปุ่มยกเลิกการแก้ไขกดได้ไหม
+};
+
+/*
+  คีย์ที่หน้านี้ต้องใช้จากก้อนข้อมูลที่เซิร์ฟเวอร์ฝังมา (SPEC 17.3)
+  ประกาศไว้ตรงนี้เพื่อให้เทสต์ฝั่งเซิร์ฟเวอร์อ่านไปตรวจได้ว่าส่งมาครบจริง
+  ซึ่งเป็นรอยต่อที่เทสต์ไม่ได้เดินผ่าน เพราะไม่ได้รันจาวาสคริปต์ในหน้าเว็บ
+*/
+var PAGE_NEEDS = ['requestTypes', 'attachmentTopics', 'upload', 'files', 'missingTopics', 'report'];
+
+/*
+  ตะกร้าไฟล์ที่เลือกไว้แต่ยังไม่ได้ส่ง — ส่วนประกอบตัวเดียวกับที่หน้าขั้นตอนของแผนกใช้
+  สร้างตอนโหลดหน้าเพื่อให้ผู้ใช้เลือกไฟล์ได้ตั้งแต่ก่อนมีเลขที่ใบงาน (SPEC 9.4)
+*/
+var basket = null;
+
+document.addEventListener('DOMContentLoaded', function () {
+  state.woId = pageData('wo-id');
+  initNav('create');
+
+  basket = newUploadBasket({
+    boxId: 'attachPending',
+    onChange: function () { refreshUploadButton(); }
+  });
+  basket.onRetry = function (key) { uploadAlone(key); };
+
+  bindEvents();
+
+  /*
+   * หน้านี้ไม่บอกวิธี "โหลดข้อมูลใหม่" ไว้โดยตั้งใจ (SPEC 17.3)
+   * ถ้าโทเคนหมดอายุตอนผู้ใช้กรอกฟอร์มค้างอยู่ การโหลดใหม่จะล้างทุกอย่างที่พิมพ์ไป
+   * ระบบจึงเก็บแผงเข้าสู่ระบบแล้วปล่อยให้ฟอร์มอยู่เหมือนเดิม แล้วบอกให้กดปุ่มเดิมอีกครั้ง
+   */
+  bootPage(boot);
+});
+
+/** ผูกเหตุการณ์ของปุ่มและช่องกรอกทั้งหมด */
+function bindEvents() {
+  document.getElementById('btnSearchCustomer').addEventListener('click', searchCustomer);
+  document.getElementById('customerSearch').addEventListener('input', function () {
+    if (state.searchTimer) clearTimeout(state.searchTimer);
+    if (this.value.trim().length < 2) return;
+    state.searchTimer = setTimeout(searchCustomer, 400);   // หน่วงไว้ ไม่ยิงทุกตัวอักษรที่พิมพ์
+  });
+
+  document.getElementById('project').addEventListener('change', loadLocations);
+  document.getElementById('btnNewLocation').addEventListener('click', openNewLocation);
+  document.getElementById('btnCancelLocation').addEventListener('click', closeNewLocation);
+  document.getElementById('btnConfirmLocation').addEventListener('click', confirmNewLocation);
+
+  document.getElementById('btnSubmit').addEventListener('click', save);
+  document.getElementById('btnReset').addEventListener('click', resetOrRevert);
+  document.getElementById('btnStage').addEventListener('click', stageChosenFiles);
+  document.getElementById('btnUpload').addEventListener('click', function () { uploadAlone(); });
+  document.getElementById('btnReport').addEventListener('click', generateReport);
+
+  // จำไว้ว่าผู้ใช้แตะฟอร์มแล้วหรือยัง ใช้ตัดสินว่าปุ่ม "ยกเลิกการแก้ไข" กดได้หรือไม่
+  var main = document.querySelector('main');
+  main.addEventListener('input', markDirty);
+  main.addEventListener('change', markDirty);
+}
+
+/** โหลดข้อมูลตั้งต้นของหน้า และถ้าเป็นโหมดแก้ไขก็โหลดใบงานเดิมมาเติมฟอร์ม */
+function boot() {
+  setBusy(true);
+
+  // ตรวจสิทธิ์ให้ผ่านก่อน แล้วค่อยขอข้อมูลตั้งต้น (SPEC 17.3)
+  // ทุกกล่องที่ขึ้นว่ากำลังโหลด ต้องจบลงด้วยอะไรสักอย่างเสมอ (SPEC 17.3)
+  var doneLoading = guardLoading('requestTypes');
+  var doneLimits = guardLoading('attachLimits');
+
+  startPage('formArea', PAGE_NEEDS).then(function (started) {
+    if (!started.allowed) {
+      doneLimits();
+      doneLoading();
+      document.getElementById('formArea').scrollIntoView({ block: 'start' });
+      setBusy(false);
+      return null;
+    }
+
+    // ข้อมูลตั้งต้นมากับคำขอเดียวกันแล้ว ไม่ต้องยิงถามซ้ำ (SPEC 17.3)
+    return applyBootstrap(started.boot);
+  })
+    .catch(function (error) { showPageError('formArea', error.message); })
+    .then(function () {
+      doneLimits();
+      doneLoading();
+      setBusy(false);
+    });
+}
+
+/**
+ * เติมข้อมูลตั้งต้นลงฟอร์ม
+ * @param {Object} data ผลจาก api_getBootstrap
+ * @return {Promise}
+ */
+function applyBootstrap(data) {
+  return Promise.resolve()
+    .then(function () {
+      if (data.labels) setLabels(data.labels);
+      state.user = NAV.user;      // ตัวตนมีแหล่งเดียว ใช้ตัวเดียวกับแถบเมนู
+
+      // ใบงานใหม่ยังไม่มีผู้แจ้งในชีต จึงแสดงคนที่กำลังกรอกและวันนี้ไว้ก่อน
+      setValue('createdBy', state.user.displayName || state.user.email);
+      setValue('createdDate', todayText());
+
+      state.requestTypes = data.requestTypes || [];
+      renderRequestTypes();
+
+      // ข้อจำกัดของการอัปโหลดตั้งไว้แล้วที่ startPage() ซึ่งเป็นทางผ่านของทุกหน้า
+      state.attachmentTopics = data.attachmentTopics || [];
+      state.files = data.files || [];
+      state.missingTopics = data.missingTopics || [];
+      renderAttachments();
+
+      state.canGenerateReport = !!(data.report && data.report.canGenerate);
+      renderReport();
+
+      return state.woId ? loadWorkOrder() : null;
+    })
+    .then(function () {
+      state.dirty = false;
+      refreshResetButton();
+    });
+}
+
+/**
+ * วันที่แจ้งงานของวันนี้ สำหรับช่องแสดงผล (ไม่ใช่ช่องเลือกวันที่)
+ * ผ่าน formatDate() จุดเดียวกับที่อื่น จะได้ไม่หลุดรูปแบบเมื่อมีการเปลี่ยนทั้งระบบ (กฎข้อ 20)
+ * @return {string} dd-MM-yyyy
+ */
+function todayText() {
+  var now = new Date();
+  var pad = function (n) { return n < 10 ? '0' + n : String(n); };
+  // ประกอบเป็นข้อความวันที่ล้วนก่อน เพื่อให้ formatDate คืนเฉพาะวันที่ ไม่มีเวลาต่อท้าย
+  return formatDate(now.getFullYear() + '-' + pad(now.getMonth() + 1) + '-' + pad(now.getDate()));
+}
+
+/** วาดรายการ "สิ่งที่ต้องการ" จากแท็บ Request_Type */
+function renderRequestTypes() {
+  var box = document.getElementById('requestTypes');
+  if (!state.requestTypes.length) {
+    box.innerHTML = '<span class="hint">ยังไม่มีรายการให้เลือก ' +
+      'กรุณาให้ผู้ดูแลระบบเพิ่มรายการในแท็บ Request_Type ก่อน</span>';
+    return;
+  }
+  var html = '';
+  for (var i = 0; i < state.requestTypes.length; i++) {
+    var name = escapeHtml(state.requestTypes[i].name);
+    html += '<label><input type="checkbox" class="request-type" value="' + name + '"><span>' + name + '</span></label>';
+  }
+  box.innerHTML = html;
+}
+
+/* ---------------------------------------------------------------------------
+ * ลูกค้า
+ * --------------------------------------------------------------------------- */
+
+/** ค้นลูกค้าจากชีต Customer ด้วยชื่อ */
+function searchCustomer() {
+  var keyword = document.getElementById('customerSearch').value.trim();
+  if (keyword.length < 2) {
+    showMessage('พิมพ์ชื่อลูกค้าอย่างน้อย 2 ตัวอักษรก่อน แล้วกดค้นหาอีกครั้ง', 'warn');
+    return;
+  }
+  clearMessage();
+  var box = document.getElementById('customerResults');
+  box.innerHTML = '<div class="loading">กำลังค้นหา…</div>';
+
+  callApi('api_searchCustomers', [keyword])
+    .then(function (rows) { renderCustomerResults(rows); })
+    .catch(function (error) {
+      box.innerHTML = '';
+      showMessage(error.message, 'error');
+    });
+}
+
+/**
+ * แสดงผลการค้นหาให้เลือก พร้อมรหัสลูกค้าและพนักงานขายกำกับ เพื่อแยกกรณีชื่อซ้ำ (SPEC 11)
+ * @param {Object[]} rows ผลการค้นหา
+ */
+function renderCustomerResults(rows) {
+  var box = document.getElementById('customerResults');
+  if (!rows.length) {
+    box.innerHTML = '<div class="empty">ไม่พบลูกค้าที่ชื่อตรงกับคำค้น ลองพิมพ์สั้นลง ' +
+      'หรือถ้ายังไม่มีลูกค้ารายนี้ ให้เพิ่มในโปรแกรมบัญชีก่อน</div>';
+    return;
+  }
+  var html = '<div class="suggest">';
+  for (var i = 0; i < rows.length; i++) {
+    var note = rows[i].hasCode
+      ? 'รหัส ' + escapeHtml(rows[i].code) + ' · พนักงานขาย ' + escapeHtml(rows[i].salesPerson || 'ยังไม่ระบุ')
+      : '<span class="no-code">ยังไม่มีรหัสลูกค้า เปิดใบงานไม่ได้</span>';
+    html += '<button type="button" data-index="' + i + '">' +
+      escapeHtml(rows[i].name) + '<br><small>' + note + '</small></button>';
+  }
+  html += '</div>';
+  box.innerHTML = html;
+
+  var buttons = box.querySelectorAll('button');
+  for (var b = 0; b < buttons.length; b++) {
+    buttons[b].addEventListener('click', function () {
+      selectCustomer(rows[Number(this.getAttribute('data-index'))]);
+    });
+  }
+}
+
+/**
+ * เลือกลูกค้าแล้วเติมข้อมูลลงฟอร์ม (SPEC 11)
+ * ลูกค้าที่ยังไม่มีรหัสเปิดใบงานไม่ได้ เพราะรหัสลูกค้าเป็นส่วนหนึ่งของรหัสสถานที่ (SPEC 10.2.2)
+ * @param {Object} customer ลูกค้าที่เลือก
+ */
+function selectCustomer(customer) {
+  state.customer = customer;
+  setValue('customerName', customer.name);
+  setValue('customerCode', customer.code);
+  setValue('salesPerson', customer.salesPerson);
+  setValue('startContactDate', toDateInput(customer.startContactDate));
+  setValue('customerSearch', customer.name);
+  document.getElementById('customerResults').innerHTML = '';
+
+  if (!customer.hasCode) {
+    showMessage('ลูกค้ารายนี้ยังไม่มีรหัสใน Sheet Customer กรุณาเพิ่มรหัสลูกค้าก่อนเปิดใบงาน', 'error');
+  } else {
+    clearMessage();
+  }
+  applyCustomerLock();
+  loadLocations();
+}
+
+/** ปิดปุ่มบันทึกเมื่อลูกค้าที่เลือกยังไม่มีรหัส */
+function applyCustomerLock() {
+  var blocked = !!state.customer && !state.customer.hasCode;
+  document.getElementById('btnSubmit').disabled = blocked;
+}
+
+/* ---------------------------------------------------------------------------
+ * สถานที่ (SPEC 10.3)
+ * --------------------------------------------------------------------------- */
+
+/** โหลดรายการสถานที่เดิมของคู่ ลูกค้า + โครงการ มาให้เลือก */
+function loadLocations() {
+  var code = document.getElementById('customerCode').value.trim();
+  var project = document.getElementById('project').value.trim();
+  var select = document.getElementById('location');
+
+  if (!code) {
+    select.innerHTML = '<option value="">— เลือกลูกค้าก่อน —</option>';
+    return;
+  }
+
+  select.innerHTML = '<option value="">— กำลังโหลด… —</option>';
+  return callApi('api_listLocations', [code, project])
+    .then(function (rows) {
+      state.locations = rows || [];
+      var keep = select.getAttribute('data-pending-value') || '';
+      var html = '<option value="">— เลือกสถานที่ที่เคยทำงาน —</option>';
+      var found = false;
+
+      for (var i = 0; i < state.locations.length; i++) {
+        var name = String(state.locations[i]['Location'] || '');
+        if (name === keep) found = true;
+        html += '<option value="' + escapeHtml(name) + '">' + escapeHtml(name) +
+          ' · ' + escapeHtml(state.locations[i]['PJ_ID']) + '</option>';
+      }
+      // สถานที่ใหม่ที่เพิ่งยืนยัน หรือค่าเดิมของใบงานที่กำลังแก้ไข ต้องยังอยู่ในรายการ
+      if (keep && !found) {
+        html += '<option value="' + escapeHtml(keep) + '">' + escapeHtml(keep) + ' · สถานที่ใหม่</option>';
+      }
+      select.innerHTML = html;
+      if (keep) select.value = keep;
+
+      document.getElementById('locationHint').textContent = state.locations.length
+        ? 'ลูกค้าและโครงการนี้เคยทำงานมาแล้ว ' + state.locations.length + ' จุด เลือกจุดเดิมถ้าเป็นที่เดียวกัน'
+        : 'ยังไม่เคยมีงานของลูกค้าและโครงการนี้ กด "เพิ่มสถานที่ใหม่" เพื่อระบุจุดแรก';
+    })
+    .catch(function (error) {
+      select.innerHTML = '<option value="">— โหลดรายการไม่สำเร็จ —</option>';
+      showMessage(error.message, 'error');
+    });
+}
+
+/** เปิดช่องพิมพ์สถานที่ใหม่ */
+function openNewLocation() {
+  if (!document.getElementById('customerCode').value.trim()) {
+    showMessage('เลือกลูกค้าก่อน จึงจะเพิ่มสถานที่ได้', 'warn');
+    return;
+  }
+  document.getElementById('newLocationBox').hidden = false;
+  document.getElementById('newLocation').focus();
+}
+
+/** ปิดช่องพิมพ์สถานที่ใหม่ */
+function closeNewLocation() {
+  document.getElementById('newLocationBox').hidden = true;
+  document.getElementById('newLocation').value = '';
+  document.getElementById('similarBox').innerHTML = '';
+}
+
+/** ตรวจชื่อสถานที่ใหม่ก่อนใช้ — ถ้าคล้ายของเดิมต้องถามยืนยันก่อน (SPEC 10.3) */
+function confirmNewLocation() {
+  var name = document.getElementById('newLocation').value.trim();
+  if (!name) {
+    showMessage('พิมพ์ชื่อสถานที่ใหม่ก่อน', 'warn');
+    return;
+  }
+  var code = document.getElementById('customerCode').value.trim();
+  var project = document.getElementById('project').value.trim();
+
+  setBusy(true);
+  callApi('api_findSimilarLocation', [code, project, name])
+    .then(function (similar) {
+      if (similar && similar.length) {
+        renderSimilar(similar, name);
+        return;
+      }
+      useLocation(name);
+    })
+    .catch(function (error) { showMessage(error.message, 'error'); })
+    .then(function () { setBusy(false); });
+}
+
+/**
+ * แสดงสถานที่เดิมที่ชื่อคล้ายกัน ให้เลือกว่าจะใช้ของเดิมหรือยืนยันว่าเป็นคนละจุด
+ * @param {Object[]} similar สถานที่เดิมที่คล้ายกัน
+ * @param {string} name ชื่อที่ผู้ใช้พิมพ์
+ */
+function renderSimilar(similar, name) {
+  var html = '<div class="msg warn show">ที่นี่มีสถานที่ชื่อใกล้เคียงกันอยู่แล้ว ' +
+    'ถ้าเป็นจุดเดียวกันให้เลือกของเดิม เพื่อให้ประวัติงานอยู่ด้วยกัน</div><div class="suggest">';
+  for (var i = 0; i < similar.length; i++) {
+    html += '<button type="button" data-name="' + escapeHtml(similar[i]['Location']) + '">ใช้ "' +
+      escapeHtml(similar[i]['Location']) + '" · ' + escapeHtml(similar[i]['PJ_ID']) + '</button>';
+  }
+  html += '</div><div class="actions"><button type="button" id="btnForceNew" class="danger small">' +
+    'ยืนยันว่าเป็นคนละจุด ใช้ชื่อใหม่</button></div>';
+
+  var box = document.getElementById('similarBox');
+  box.innerHTML = html;
+
+  var buttons = box.querySelectorAll('.suggest button');
+  for (var b = 0; b < buttons.length; b++) {
+    buttons[b].addEventListener('click', function () { useLocation(this.getAttribute('data-name')); });
+  }
+  document.getElementById('btnForceNew').addEventListener('click', function () { useLocation(name); });
+}
+
+/**
+ * ใส่ชื่อสถานที่ที่เลือกหรือยืนยันแล้วลงในช่องเลือก
+ * @param {string} name ชื่อสถานที่
+ */
+function useLocation(name) {
+  var select = document.getElementById('location');
+  select.setAttribute('data-pending-value', name);
+
+  var exists = false;
+  for (var i = 0; i < select.options.length; i++) {
+    if (select.options[i].value === name) { exists = true; break; }
+  }
+  if (!exists) {
+    var option = document.createElement('option');
+    option.value = name;
+    option.textContent = name + ' · สถานที่ใหม่';
+    select.appendChild(option);
+  }
+  select.value = name;
+  closeNewLocation();
+  clearMessage();
+}
+
+/* ---------------------------------------------------------------------------
+ * โหมดแก้ไข
+ * --------------------------------------------------------------------------- */
+
+/** โหลดใบงานเดิมมาเติมฟอร์ม พร้อมเก็บเวลาแก้ไขล่าสุดไว้ตรวจการแก้ซ้อน */
+function loadWorkOrder() {
+  return callApi('api_getWorkOrder', [state.woId]).then(function (data) {
+    var wo = data.workOrder;
+    state.updatedDate = wo['Updated_Date'];
+
+    document.getElementById('pageTitle').textContent = 'แก้ไขใบสั่งงาน ' + wo['WO_ID'];
+    document.title = 'แก้ไขใบสั่งงาน ' + wo['WO_ID'];
+    showStatus(wo['Overall_Status']);
+
+    state.customer = {
+      name: wo['Customer_Name'], code: wo['Customer_Code'],
+      salesPerson: wo['Sales_Person'], startContactDate: wo['Start_Contact_Date'],
+      hasCode: !!String(wo['Customer_Code'] || '').trim()
+    };
+
+    setValue('customerSearch', wo['Customer_Name']);
+    setValue('customerName', wo['Customer_Name']);
+    setValue('customerCode', wo['Customer_Code']);
+    setValue('salesPerson', wo['Sales_Person']);
+    setValue('startContactDate', toDateInput(wo['Start_Contact_Date']));
+    setValue('contact', wo['Contact']);
+    setValue('phone', wo['Phone']);
+
+    setValue('project', wo['Project']);
+    setValue('pjId', wo['PJ_ID']);
+
+    setValue('assignmentType', wo['Assignment_Type'] || 'UNSPECIFIED');
+    setValue('jobDescription', wo['Job_Description']);
+    setValue('productDetail', wo['Product_Detail']);
+    setValue('workScope', wo['Work_Scope']);
+    setValue('referenceDoc', wo['Reference_Doc']);
+
+    setValue('startDate', toDateTimeInput(wo['Start_Date']));
+    setValue('endDate', toDateTimeInput(wo['End_Date']));
+    setValue('durationDays', wo['Duration_Days']);
+    document.getElementById('paymentRequired').checked = wo['Payment_Required'] === true;
+
+    setValue('createdBy', wo['Created_By_Name'] || wo['Created_By']);
+    setValue('createdDate', formatDate(wo['Created_Date']));
+    setValue('remark', wo['Remark']);
+
+    state.reportUrl = wo['Report_URL'] || '';
+    renderReport();
+
+    checkRequestTypes(String(wo['Request_Types'] || '').split(',').map(function (s) { return s.trim(); }));
+    document.getElementById('location').setAttribute('data-pending-value', wo['Location'] || '');
+
+    // แก้ได้เฉพาะใบที่ถูกตีกลับ (SPEC 5) ใบที่รออนุมัติถูกล็อกไว้
+    var editable = (wo['Overall_Status'] === 'RETURNED');
+    if (!editable) {
+      showMessage('ใบงานนี้อยู่ในสถานะ "' + statusLabel(wo['Overall_Status']) +
+        '" จึงแก้ไขไม่ได้แล้ว ถ้าจำเป็นต้องแก้ ให้ขอผู้อนุมัติตีกลับมาก่อน', 'warn');
+      document.getElementById('btnSubmit').disabled = true;
+    } else if (wo['Return_Reason']) {
+      showMessage('ใบงานนี้ถูกตีกลับมาให้แก้ไข เหตุผลคือ "' + wo['Return_Reason'] +
+        '" แก้เสร็จแล้วกดส่งขออนุมัติอีกครั้ง', 'warn');
+    }
+    return loadLocations();
+  });
+}
+
+/**
+ * แสดงสถานะปัจจุบันบนแถบหัวเป็นคำไทย
+ * @param {string} status ค่าจากคอลัมน์ Overall_Status
+ */
+function showStatus(status) {
+  var pill = document.getElementById('statusPill');
+  if (!status) {
+    pill.hidden = true;
+    return;
+  }
+  pill.textContent = 'สถานะ: ' + statusLabel(status);
+  pill.hidden = false;
+}
+
+/**
+ * ใส่ค่าลงช่องกรอกโดยไม่ต้องเช็คค่าว่างทุกบรรทัด
+ * @param {string} id ไอดีของช่อง
+ * @param {*} value ค่าที่จะใส่
+ */
+function setValue(id, value) {
+  document.getElementById(id).value = (value === null || value === undefined) ? '' : String(value);
+}
+
+/**
+ * ติ๊กรายการสิ่งที่ต้องการตามค่าที่บันทึกไว้
+ * @param {string[]} values ค่าที่เคยเลือกไว้
+ */
+function checkRequestTypes(values) {
+  var boxes = document.querySelectorAll('.request-type');
+  for (var i = 0; i < boxes.length; i++) {
+    boxes[i].checked = values.indexOf(boxes[i].value) !== -1;
+  }
+}
+
+
+
+/* ---------------------------------------------------------------------------
+ * ปุ่มล้างข้อมูล / ยกเลิกการแก้ไข
+ *
+ * สองโหมดนี้ทำคนละเรื่องกันโดยสิ้นเชิง จึงต้องใช้คำคนละคำ
+ *   - โหมดสร้างใหม่  "ล้างข้อมูลทั้งหมด" คือเคลียร์ฟอร์มที่ยังไม่ได้บันทึก
+ *   - โหมดแก้ไข      "ยกเลิกการแก้ไข" คือดึงค่าที่บันทึกไว้ล่าสุดกลับมา
+ *                     ห้ามใช้คำว่าล้างข้อมูลเด็ดขาด เพราะสื่อว่าจะลบใบงานที่บันทึกไว้แล้ว
+ * --------------------------------------------------------------------------- */
+
+/** ผู้ใช้แตะฟอร์มแล้ว — เปิดปุ่มยกเลิกการแก้ไขให้กดได้ */
+function markDirty() {
+  if (state.dirty) return;
+  state.dirty = true;
+  refreshResetButton();
+}
+
+/**
+ * ปรับข้อความและสถานะของปุ่มตามโหมดที่อยู่
+ * โหมดแก้ไขที่ยังไม่มีการแก้อะไรเลย ไม่มีอะไรให้ยกเลิก จึงกดไม่ได้
+ */
+function refreshResetButton() {
+  var button = document.getElementById('btnReset');
+  if (state.woId) {
+    button.textContent = 'ยกเลิกการแก้ไข';
+    button.title = 'ดึงข้อมูลที่บันทึกไว้ล่าสุดกลับมาแสดง';
+    button.disabled = !state.dirty;
+  } else {
+    button.textContent = 'ล้างข้อมูลทั้งหมด';
+    button.title = 'ล้างทุกช่องในฟอร์มนี้';
+    button.disabled = false;
+  }
+}
+
+/** ปุ่มเดียวทำสองหน้าที่ ขึ้นกับว่ากำลังสร้างใหม่หรือแก้ไขของเดิม */
+function resetOrRevert() {
+  if (state.woId) {
+    revertEdits();
+    return;
+  }
+  clearForm();
+}
+
+/** ล้างทุกช่องในโหมดสร้างใหม่ — ถามยืนยันก่อน เพราะกดพลาดแล้วต้องพิมพ์ใหม่หมด */
+function clearForm() {
+  if (!confirm('ล้างข้อมูลทุกช่องในฟอร์มนี้ใช่หรือไม่ ข้อมูลที่กรอกไว้จะหายทั้งหมด')) return;
+
+  var fields = ['customerSearch', 'customerName', 'customerCode', 'salesPerson', 'startContactDate',
+    'contact', 'phone', 'project', 'pjId', 'jobDescription', 'productDetail', 'workScope',
+    'referenceDoc', 'startDate', 'endDate', 'remark'];
+  for (var i = 0; i < fields.length; i++) setValue(fields[i], '');
+
+  document.getElementById('assignmentType').value = 'UNSPECIFIED';
+  document.getElementById('paymentRequired').checked = false;
+  document.getElementById('customerResults').innerHTML = '';
+  checkRequestTypes([]);
+  closeNewLocation();
+
+  // ล้างสถานที่ที่เลือกไว้ทั้งตัวเลือกและค่าที่จำไว้
+  var location = document.getElementById('location');
+  location.removeAttribute('data-pending-value');
+  location.innerHTML = '<option value="">— เลือกลูกค้าก่อน —</option>';
+  document.getElementById('locationHint').textContent =
+    'เลือกจากรายการเดิมก่อนเสมอ ถ้าพิมพ์ชื่อใหม่ทั้งที่เป็นจุดเดิม ประวัติงานของจุดนั้นจะแยกออกจากกัน';
+
+  state.customer = null;
+  state.locations = [];
+  state.dirty = false;
+
+  // ผู้แจ้งงานและวันที่แจ้งเป็นค่าที่ระบบเติมให้ ไม่ใช่ของที่ผู้ใช้กรอก จึงต้องกลับมาเสมอ
+  setValue('createdBy', state.user ? state.user.displayName : '');
+  setValue('createdDate', todayText());
+
+  applyCustomerLock();
+  refreshResetButton();
+  showMessage('ล้างข้อมูลในฟอร์มแล้ว เริ่มกรอกใบงานใหม่ได้เลย', 'ok');
+}
+
+/** ดึงค่าที่บันทึกไว้ล่าสุดกลับมาแสดงในโหมดแก้ไข */
+function revertEdits() {
+  if (!confirm('ยกเลิกการแก้ไข แล้วดึงข้อมูลที่บันทึกไว้ล่าสุดกลับมาใช่หรือไม่')) return;
+
+  clearMessage();
+  setBusy(true);
+  loadWorkOrder()
+    .then(function () {
+      state.dirty = false;
+      refreshResetButton();
+      showMessage('ยกเลิกการแก้ไขแล้ว ข้อมูลบนหน้าจอตรงกับที่บันทึกไว้ล่าสุด', 'ok');
+    })
+    .catch(function (error) { showMessage(error.message, 'error'); })
+    .then(function () { setBusy(false); });
+}
+
+/* ---------------------------------------------------------------------------
+ * บันทึก
+ * --------------------------------------------------------------------------- */
+
+/**
+ * รวบค่าจากฟอร์มเป็น object ที่ key ตรงกับชื่อคอลัมน์ใน SPEC หัวข้อ 13
+ * @return {Object}
+ */
+function collectForm() {
+  var requestTypes = [];
+  var boxes = document.querySelectorAll('.request-type:checked');
+  for (var i = 0; i < boxes.length; i++) requestTypes.push(boxes[i].value);
+
+  return {
+    'Customer_Code': document.getElementById('customerCode').value.trim(),
+    'Customer_Name': document.getElementById('customerName').value.trim(),
+    'Sales_Person': document.getElementById('salesPerson').value.trim(),
+    'Start_Contact_Date': document.getElementById('startContactDate').value || '',
+    'Contact': document.getElementById('contact').value.trim(),
+    'Phone': document.getElementById('phone').value.trim(),
+    'Project': document.getElementById('project').value.trim(),
+    'Location': document.getElementById('location').value.trim(),
+    'Assignment_Type': document.getElementById('assignmentType').value,
+    'Request_Types': requestTypes,
+    'Job_Description': document.getElementById('jobDescription').value.trim(),
+    'Product_Detail': document.getElementById('productDetail').value.trim(),
+    'Work_Scope': document.getElementById('workScope').value.trim(),
+    'Reference_Doc': document.getElementById('referenceDoc').value.trim(),
+    // เวลานัดหมายส่งเป็นข้อความ YYYY-MM-DDTHH:mm ตามที่ผู้ใช้เห็น ห้ามผ่าน toISOString() (กฎข้อ 18)
+    'Start_Date': document.getElementById('startDate').value || '',
+    'End_Date': document.getElementById('endDate').value || '',
+    // ส่งเป็นข้อความตามที่ช่องกรอกให้มา ฝั่งเซิร์ฟเวอร์เป็นคนแปลงเป็นจำนวนเต็ม
+    // ที่เดียว (toStoredCount_) ไม่ใช่แปลงสองที่แล้วตีความช่องว่างคนละแบบ
+    'Duration_Days': document.getElementById('durationDays').value.trim(),
+    'Remark': document.getElementById('remark').value.trim(),
+    'Payment_Required': document.getElementById('paymentRequired').checked
+  };
+}
+
+/*
+  ตรวจฟอร์มก่อนส่ง แล้วบอกให้ครบ 3 อย่างพร้อมกัน (SPEC 17.3)
+    1. สรุปด้านบนว่ายังขาดกี่ช่อง
+    2. ทำเครื่องหมายทุกช่องที่ขาด พร้อมข้อความใต้ช่องว่าต้องกรอกอะไร
+    3. เลื่อนจอไปที่ช่องแรกที่ขาดแล้วโฟกัสให้
+
+  บอกแค่ "ข้อมูลไม่ครบ" ไม่พอ เพราะฟอร์มยาวเกินหนึ่งจอ ผู้ใช้จะไล่หาเองไม่เจอ
+  และห้ามล้างสิ่งที่กรอกไว้แล้วไม่ว่ากรณีใด — การกรอกใหม่ทั้งใบเป็นราคาที่แพงเกินไป
+
+  นี่เป็นแค่การช่วยผู้ใช้ ไม่ใช่การป้องกัน — เซิร์ฟเวอร์ตรวจซ้ำทุกข้อเสมอ
+  และข้อความจากเซิร์ฟเวอร์ก็ระบุชื่อช่องที่ขาดเหมือนกัน
+*/
+
+/*
+  ช่องที่ต้องกรอกครบ — ต้องตรงกับ WO_FORM_REQUIRED_FIELDS ฝั่งเซิร์ฟเวอร์
+  ชุดเดียวใช้ทั้งตอนสร้างและตอนแก้ไข เพราะไม่มีขั้นบันทึกร่างแล้ว (SPEC 4.1)
+  การตรวจฝั่งนี้มีไว้ให้ผู้ใช้รู้ทันทีว่าขาดช่องไหน ส่วนด่านที่นับจริงอยู่ฝั่งเซิร์ฟเวอร์เสมอ
+*/
+var REQUIRED_FIELDS = ['Customer_Code', 'Customer_Name', 'Contact', 'Phone',
+  'Project', 'Location', 'Assignment_Type', 'Request_Types', 'Job_Description'];
+
+/** ชื่อคอลัมน์ไปยังช่องกรอกบนหน้าจอ และคำอธิบายว่าต้องทำอะไร */
+var FIELD_HINTS = {
+  'Customer_Code':   { id: 'customerCode',   text: 'ลูกค้ารายนี้ยังไม่มีรหัสใน Sheet Customer กรุณาเพิ่มรหัสก่อนเปิดใบงาน' },
+  'Customer_Name':   { id: 'customerName',   text: 'ค้นหาลูกค้าแล้วเลือกจากรายการ' },
+  'Contact':         { id: 'contact',        text: 'กรอกชื่อผู้ติดต่อหน้างาน' },
+  'Phone':           { id: 'phone',          text: 'กรอกเบอร์โทรที่ติดต่อได้' },
+  'Project':         { id: 'project',        text: 'กรอกชื่อโครงการ หรือชื่อที่ลูกค้าใช้เรียกงานนี้' },
+  'Location':        { id: 'location',       text: 'เลือกสถานที่จากรายการเดิม หรือกดเพิ่มสถานที่ใหม่' },
+  'Assignment_Type': { id: 'assignmentType', text: 'เลือกสายงาน เลือก "ยังไม่ระบุ" ได้ถ้ายังไม่แน่ใจ' },
+  'Request_Types':   { id: 'requestTypes',   text: 'เลือกสิ่งที่ต้องการอย่างน้อย 1 อย่าง' },
+  'Job_Description': { id: 'jobDescription', text: 'อธิบายลักษณะงานหรืออาการที่พบ ผู้อนุมัติใช้ข้อมูลนี้ตัดสินใจ' }
+};
+
+/**
+ * ช่องที่ยังกรอกไม่ครบ
+ * @param {Object} form ข้อมูลจากฟอร์ม
+ * @return {Object[]} [{field, id, text}]
+ */
+function missingFields(form) {
+  var need = REQUIRED_FIELDS;
+  var missing = [];
+
+  for (var i = 0; i < need.length; i++) {
+    var field = need[i];
+    var value = form[field];
+    var empty = (value === null || value === undefined || value === '' ||
+      (Object.prototype.toString.call(value) === '[object Array]' && !value.length));
+    if (!empty) continue;
+
+    var hint = FIELD_HINTS[field] || { id: '', text: 'กรุณากรอกข้อมูล' };
+    missing.push({ field: field, id: hint.id, text: hint.text });
+  }
+  return missing;
+}
+
+/** ล้างเครื่องหมายและข้อความใต้ช่องทั้งหมด — ไม่แตะค่าที่ผู้ใช้กรอกไว้ */
+function clearFormProblems() {
+  var marked = document.querySelectorAll('.field-error');
+  for (var i = 0; i < marked.length; i++) marked[i].classList.remove('field-error');
+
+  var notes = document.querySelectorAll('.field-msg');
+  for (var n = notes.length - 1; n >= 0; n--) notes[n].parentNode.removeChild(notes[n]);
+}
+
+/**
+ * ทำเครื่องหมายช่องที่ขาด แล้วพาผู้ใช้ไปที่ช่องแรก
+ * @param {Object[]} missing ผลจาก missingFields
+ */
+function showFormProblems(missing) {
+  clearFormProblems();
+
+  for (var i = 0; i < missing.length; i++) {
+    var box = document.getElementById(missing[i].id);
+    if (!box) continue;
+
+    box.classList.add('field-error');
+    var note = document.createElement('div');
+    note.className = 'field-msg';
+    note.textContent = missing[i].text;
+    box.parentNode.insertBefore(note, box.nextSibling);
+  }
+
+  showMessage('ยังกรอกไม่ครบ ' + missing.length + ' ช่อง — ช่องที่ต้องกรอกถูกทำเครื่องหมายไว้แล้ว ' +
+    'ข้อมูลที่กรอกไปแล้วยังอยู่ครบ ไม่ได้ถูกล้าง', 'warn');
+
+  var first = document.getElementById(missing[0].id);
+  if (!first) return;
+  first.scrollIntoView({ block: 'center' });
+  try {
+    first.focus();
+  } catch (e) {
+    // บางช่องโฟกัสไม่ได้ (เช่นกล่องติ๊กหลายอัน) เลื่อนจอไปให้เห็นก็พอแล้ว
+  }
+}
+
+/* ---------------------------------------------------------------------------
+ * สิ่งที่แนบ (SPEC 9.4, 14, 16)
+ * --------------------------------------------------------------------------- */
+
+/** วาดส่วนไฟล์แนบทั้งการ์ด — ข้อจำกัด รายการหัวข้อ และไฟล์ที่แนบไว้แล้ว */
+function renderAttachments() {
+  // ข้อจำกัดต้องบอกเป็นตัวเลขชัด ๆ ก่อนผู้ใช้เลือกไฟล์ ไม่ใช่รู้ตอนอัปโหลดล้มเหลวแล้ว
+  document.getElementById('attachLimits').textContent =
+    'ไฟล์ละไม่เกิน ' + UPLOAD.maxLabel + ' · นามสกุลที่แนบได้ ' + UPLOAD.extensions.join(', ') +
+    ' · รูปภาพจะถูกย่อให้ด้านยาวไม่เกิน ' + UPLOAD.imageMaxSide + ' px ก่อนส่งเสมอ ' +
+    'เพื่อประหยัดพื้นที่ ส่วนไฟล์เอกสารส่งตามต้นฉบับ';
+
+  /*
+   * ลำดับที่ผู้ใช้เห็นต่างกันสองกรณี และต้องบอกให้ตรงกับที่จะเกิดขึ้นจริง
+   *   ใบใหม่  — ยังไม่มีเลขที่ใบงาน ไฟล์จึงตามไปหลังกดส่งขออนุมัติ
+   *   ใบที่ถูกตีกลับ — มีเลขที่แล้ว กดอัปโหลดแยกได้ทันทีโดยไม่ต้องส่งใหม่
+   */
+  document.getElementById('attachOrder').textContent = state.woId
+    ? ('ใบงานนี้มีเลขที่แล้ว เลือกไฟล์แล้วกดอัปโหลดได้ทันที · ' +
+       'ไฟล์ที่ยังค้างอยู่ในรายการจะถูกส่งให้เองตอนกดส่งขออนุมัติ')
+    : ('เลือกไฟล์ให้ครบทุกหัวข้อก่อน แล้วกดส่งขออนุมัติครั้งเดียว — ' +
+       'ระบบจะสร้างใบงาน อัปโหลดไฟล์ทั้งชุด แล้วออกใบสั่งงานให้ตามลำดับนั้น');
+
+  renderTopicOptions();
+  refreshUploadButton();
+  renderFileList();
+}
+
+/**
+ * ปุ่ม "อัปโหลดไฟล์ที่เลือกไว้" ขึ้นเฉพาะตอนที่กดแล้วเกิดอะไรขึ้นได้จริง
+ *
+ * ต้องมีทั้งไฟล์ในตะกร้าและเลขที่ใบงาน · ใบใหม่ที่ยังไม่มีเลขที่ไม่ต้องมีปุ่มนี้
+ * เพราะชื่อไฟล์ขึ้นต้นด้วยเลขที่ใบงานเสมอ (SPEC 14.1) ระบบจะส่งให้เองหลังสร้างใบงาน
+ */
+function refreshUploadButton() {
+  var button = document.getElementById('btnUpload');
+  if (!button) return;
+  button.hidden = !(basket && basket.count() && state.woId);
+}
+
+/** รายการหัวข้อให้เลือก — มาจากแท็บ Attachment_Topic เท่านั้น ห้ามพิมพ์เอง (SPEC 14.2) */
+function renderTopicOptions() {
+  var box = document.getElementById('attachTopic');
+  if (!state.attachmentTopics.length) {
+    box.innerHTML = '<option value="">ยังไม่มีหัวข้อให้เลือก</option>';
+    return;
+  }
+  var html = '';
+  for (var i = 0; i < state.attachmentTopics.length; i++) {
+    var topic = state.attachmentTopics[i];
+    html += '<option value="' + escapeHtml(topic.topicId) + '">' + escapeHtml(topic.name) +
+      (topic.required ? ' (บังคับ)' : '') + '</option>';
+  }
+  box.innerHTML = html;
+}
+
+/**
+ * เอาไฟล์ที่เพิ่งเลือกใส่ตะกร้า พร้อมหัวข้อที่เลือกไว้ตอนนั้น
+ *
+ * เลือกทีละหัวข้อแต่ส่งทีเดียว — ผู้ใช้จึงเลือกหัวข้อ เลือกไฟล์ กดเพิ่ม แล้ววนใหม่
+ * จนครบทุกหัวข้อ โดยเห็นรายการทั้งหมดพร้อมหัวข้อของแต่ละไฟล์ก่อนกดส่ง
+ */
+function stageChosenFiles() {
+  var input = document.getElementById('attachInput');
+  var select = document.getElementById('attachTopic');
+  var topicId = select.value;
+
+  if (!topicId) {
+    showMessage('เลือกหัวข้อของไฟล์ก่อน แล้วค่อยกดเพิ่มเข้ารายการ', 'warn');
+    return;
+  }
+  if (!input.files || !input.files.length) {
+    showMessage('ยังไม่ได้เลือกไฟล์ กรุณากดเลือกไฟล์ก่อน', 'warn');
+    return;
+  }
+
+  var topicName = select.options[select.selectedIndex].textContent;
+  var outcome = basket.add(input.files, {
+    topicName: topicName,
+    context: { scope: 'WO', topicId: topicId }
+  });
+
+  input.value = '';   // ล้างช่องเลือกไฟล์ เพื่อให้เลือกหัวข้อถัดไปได้ทันทีโดยไม่สับสน
+
+  // ไฟล์ที่ใหญ่เกินเพดานถูกบอกตั้งแต่ตอนนี้ ไม่ใช่ตอนส่งแล้วล้ม (SPEC 21)
+  var rejected = rejectedFilesMessage(outcome.rejected);
+  if (rejected) { showMessage(rejected, 'warn'); return; }
+  clearMessage();
+}
+
+/**
+ * ส่งไฟล์ในตะกร้าขึ้นระบบ
+ *
+ * @param {string} [onlyKey] ส่งเฉพาะไฟล์เดียว (ปุ่มลองใหม่ของแถวนั้น)
+ * @return {Promise<Object>} ผลการส่ง {ok, failed}
+ */
+function uploadBasket(onlyKey) {
+  if (!state.woId || !basket.count()) return Promise.resolve({ ok: [], failed: [] });
+
+  var progress = document.getElementById('attachProgress');
+
+  return basket.send({
+    only: onlyKey,
+    // ต้องบอกว่ากำลังไฟล์ที่เท่าไรจากทั้งหมด เพราะข้าม 2 ต่อแล้วจะช้า
+    onProgress: function (index, total, name) {
+      progress.textContent = 'กำลังอัปโหลดไฟล์ที่ ' + index + ' จาก ' + total + ' — ' + name;
+    },
+    // เลขที่ใบงานเพิ่งเกิดขึ้นตอนกดส่ง จึงต้องอ่านตอนส่ง ไม่ใช่ตอนใส่ตะกร้า
+    contextOf: function (one) {
+      return { woId: state.woId, scope: one.context.scope, topicId: one.context.topicId };
+    }
+  }).then(function (outcome) {
+    progress.textContent = outcome.failed.length
+      ? ('อัปโหลดสำเร็จ ' + outcome.ok.length + ' ไฟล์ · ไม่สำเร็จ ' + outcome.failed.length +
+         ' ไฟล์ · ไฟล์ที่พลาดยังอยู่ในรายการ กดลองใหม่เฉพาะตัวนั้นได้')
+      : ('อัปโหลดครบ ' + outcome.ok.length + ' ไฟล์แล้ว');
+    return refreshFiles().then(function () { return outcome; });
+  }).then(function (outcome) {
+    refreshUploadButton();
+    return outcome;
+  });
+}
+
+/**
+ * กดอัปโหลดเองจากปุ่มของการ์ด — ต่างจากตอนที่ save() เป็นคนเรียก
+ *
+ * แยกออกมาเพราะสถานะ "กำลังทำงาน" ต้องมีเจ้าของคนเดียว · ถ้า uploadBasket()
+ * ปิดสถานะนั้นเอง การอัปโหลดที่ save() เรียกจะปลดปุ่มทั้งหน้าตั้งแต่ยังส่งใบงานไม่เสร็จ
+ *
+ * @param {string} [onlyKey] ส่งเฉพาะไฟล์เดียว
+ */
+function uploadAlone(onlyKey) {
+  clearMessage();
+  setBusy(true);
+  uploadBasket(onlyKey).then(function () { setBusy(false); });
+}
+
+/**
+ * ออกใบสั่งงานให้ถ้ายังไม่มี — ตาข่ายรองหลังไฟล์ขึ้นครบ (SPEC 16.1)
+ *
+ * ไม่ทำให้การบันทึกล้มถ้าออกเอกสารไม่สำเร็จ ใบงานถูกสร้างไปแล้วและต้องยังอยู่
+ * ถ้าพลาดจริง หน้าอนุมัติจะลองให้ใหม่ตอนผู้อนุมัติเปิดดู
+ *
+ * @return {Promise}
+ */
+function issueReportIfMissing() {
+  if (!state.woId || state.reportUrl) return Promise.resolve();
+  return callApi('api_ensureWoReport', [state.woId])
+    .then(function (data) {
+      if (data && data.url) {
+        state.reportUrl = data.url;
+        renderReport();
+      }
+    })
+    .catch(function () {
+      // เงียบไว้โดยตั้งใจ — ผู้ใช้ไม่ได้สั่งเอง และใบงานถูกบันทึกเรียบร้อยแล้ว
+    });
+}
+
+/** รายการไฟล์ที่แนบไว้แล้ว พร้อมสถานะว่ายังขาดหัวข้อบังคับใดบ้าง */
+function renderFileList() {
+  var box = document.getElementById('attachList');
+  var html = '';
+
+  if (state.missingTopics.length) {
+    html += '<div class="note-box warn"><b>ยังแนบไฟล์ที่บังคับไม่ครบ</b><br>' +
+      'ขาดหัวข้อ: ' + escapeHtml(state.missingTopics.join(', ')) +
+      '<br>ใบงานจะส่งขออนุมัติไม่ได้จนกว่าจะแนบครบ</div>';
+  }
+
+  if (!state.files.length) {
+    // สถานะว่างเป็นเรื่องปกติ ต้องบอกด้วยว่าปกติจะมีข้อมูลเมื่อไร (SPEC 17.3)
+    html += emptyHtml('ยังไม่มีไฟล์แนบในใบงานนี้',
+      'ไฟล์จะขึ้นที่นี่หลังเลือกหัวข้อแล้วกดอัปโหลด');
+    box.innerHTML = html;
+    return;
+  }
+
+  html += '<div class="table-wrap"><table class="file-list">' +
+    '<tr><th>ชื่อไฟล์ในระบบ</th><th>ชื่อเดิมของไฟล์</th>' +
+    '<th>ขนาด</th><th>เมื่อ</th><th></th></tr>';
+  for (var i = 0; i < state.files.length; i++) {
+    var file = state.files[i];
+    html += '<tr>' +
+      '<td>' + docButtonHtml({ woId: state.woId, kind: DOC_KIND.FILE,
+        ref: file.fileId, label: file.savedName }) + '</td>' +
+      '<td>' + escapeHtml(file.originalName) + '</td>' +
+      '<td>' + escapeHtml(fileSizeLabel(file.size)) + '</td>' +
+      '<td>' + escapeHtml(file.display.uploadedDate) + '</td>' +
+      '<td><button type="button" class="neutral small remove-file" data-file="' +
+      escapeHtml(file.fileId) + '">ลบ</button></td>' +
+      '</tr>';
+  }
+  html += '</table></div>';
+  box.innerHTML = html;
+
+  bindDocButtons(box);
+
+  var buttons = box.querySelectorAll('.remove-file');
+  for (var b = 0; b < buttons.length; b++) {
+    buttons[b].addEventListener('click', function () { removeAttachment(this.getAttribute('data-file')); });
+  }
+}
+
+/**
+ * อ่านรายการไฟล์และหัวข้อที่ยังขาดใหม่จากเซิร์ฟเวอร์
+ * @return {Promise}
+ */
+function refreshFiles() {
+  if (!state.woId) return Promise.resolve();
+  return callApi('api_listWoFiles', [state.woId])
+    .then(function (data) {
+      state.files = data.files;
+      state.missingTopics = data.missingTopics;
+      // การแนบไฟล์ครั้งแรกแก้แถวใบงานด้วย (เก็บรหัสโฟลเดอร์) ต้องรับค่าใหม่มาถือไว้
+      // ไม่งั้นการกดบันทึกครั้งถัดไปจะถูกปฏิเสธว่ามีคนอื่นแก้ไปก่อน ทั้งที่ไม่มีใครแก้
+      if (data.updatedDate) state.updatedDate = data.updatedDate;
+      renderFileList();
+    })
+    .catch(function (error) { showActionError(error, refreshFiles); });
+}
+
+/**
+ * ลบไฟล์ที่แนบผิด
+ * @param {string} fileId เลขที่ไฟล์ในทะเบียน
+ */
+function removeAttachment(fileId) {
+  setBusy(true);
+  callApi('api_removeFile', [fileId])
+    .then(function (data) {
+      state.files = data.files;
+      return refreshFiles();
+    })
+    .catch(function (error) { showActionError(error, function () { removeAttachment(fileId); }); })
+    .then(function () { setBusy(false); });
+}
+
+/**
+ * ส่งใบงานขออนุมัติ — ปุ่มเดียวของหน้านี้ (SPEC 4.1, 17.2)
+ *
+ * ใบใหม่ไปอยู่ที่ผู้อนุมัติทันที ส่วนใบที่ถูกตีกลับจะถูกแก้แล้วส่งใหม่ในการกดครั้งเดียว
+ */
+function save() {
+  var form = collectForm();
+
+  var missing = missingFields(form);
+  if (missing.length) {
+    showFormProblems(missing);
+    return;      // ไม่แตะค่าที่กรอกไว้เลย ผู้ใช้แก้เฉพาะช่องที่ถูกทำเครื่องหมาย
+  }
+
+  // เวลานัดหมายสลับกันก็ต้องบอกก่อนยิงไปเซิร์ฟเวอร์ แต่ไม่ใช่ช่องที่ "ขาด" จึงแยกออกมา
+  if (form['Start_Date'] && form['End_Date'] && form['End_Date'] < form['Start_Date']) {
+    showFormProblems([{ field: 'End_Date', id: 'endDate',
+      text: 'กำหนดออกงานต้องไม่อยู่ก่อนกำหนดเข้างาน' }]);
+    return;
+  }
+
+  clearFormProblems();
+  clearMessage();
+
+  /*
+   * เตือนเรื่องหัวข้อที่บังคับ **ก่อน** เริ่มส่ง ไม่ใช่บล็อก (SPEC 9.4)
+   *
+   * ด่านจริงอยู่ที่ ACCEPT ตามตารางหัวข้อ 5 และต้องอยู่ที่นั่นต่อไป — ตอน CREATE
+   * ไฟล์ยังไม่ขึ้น และใบใหม่ไม่เคยผ่าน SUBMIT เลย · แต่ราคาของการลืมคือผู้อนุมัติ
+   * ตีกลับ แล้วต้องเดินครบรอบใหม่พร้อมการแจ้งเตือนสองครั้ง แค่เพราะลืมแนบใบเสนอราคา
+   * การถามหนึ่งครั้งตอนที่ยังแก้ได้ถูกกว่านั้นมาก และไม่บล็อกใบเก่าเลย
+   */
+  askAboutMissingTopics().then(function (goOn) {
+    if (goOn) sendForm(form);
+  });
+}
+
+/**
+ * ถามเรื่องหัวข้อบังคับที่ยังไม่มีไฟล์ · ไม่ขาดอะไรก็ไม่ถาม
+ *
+ * ไม่ถามทุกครั้ง เพราะคำเตือนที่ขึ้นทุกครั้งจะไม่มีใครอ่าน แล้วเราจะได้คำเตือน
+ * ที่ทำหน้าที่ตกแต่งหน้าจอ
+ *
+ * @return {Promise<boolean>} true = ไปต่อได้
+ */
+function askAboutMissingTopics() {
+  var missing = missingRequiredNow();
+  if (!missing.length) return Promise.resolve(true);
+
+  return confirmInPage({
+    title: 'ยังไม่ได้แนบเอกสารที่บังคับ',
+    body: '<b>ขาดหัวข้อ: ' + escapeHtml(missing.join(' · ')) + '</b><br>' +
+      'ส่งได้ แต่ผู้อนุมัติจะอนุมัติไม่ได้จนกว่าเอกสารเหล่านี้จะครบ ' +
+      'และจะต้องตีกลับมาให้แก้ ซึ่งต้องเดินครบรอบใหม่ทั้งรอบ',
+    okLabel: 'ส่งโดยที่ยังไม่ครบ',
+    cancelLabel: 'กลับไปแนบไฟล์'
+  });
+}
+
+/**
+ * หัวข้อที่ตั้ง Required ไว้จริง และยังไม่มีไฟล์ — นับรวมไฟล์ที่รออยู่ในตะกร้าด้วย
+ *
+ * ต้องนับตะกร้าด้วย เพราะไฟล์ของใบใหม่ยังไม่ได้ขึ้นตอนกดส่ง · ถ้านับแต่ไฟล์ที่
+ * ขึ้นแล้ว ใบใหม่ทุกใบจะโดนเตือนทุกครั้งแม้เลือกไฟล์ไว้ครบแล้ว
+ *
+ * @return {string[]} ชื่อหัวข้อที่ขาด
+ */
+function missingRequiredNow() {
+  var staged = {};
+  var items = basket ? basket.items() : [];
+  for (var i = 0; i < items.length; i++) staged[String(items[i].context.topicId || '')] = true;
+
+  // ใบที่มีเลขที่แล้ว เซิร์ฟเวอร์บอกมาว่าขาดหัวข้อชื่อไหนบ้าง (คัด Required ให้แล้ว)
+  var stillMissing = {};
+  for (var m = 0; m < state.missingTopics.length; m++) stillMissing[state.missingTopics[m]] = true;
+
+  var out = [];
+  for (var t = 0; t < state.attachmentTopics.length; t++) {
+    var topic = state.attachmentTopics[t];
+    if (!topic.required) continue;
+    if (staged[topic.topicId]) continue;
+    if (state.woId && !stillMissing[topic.name]) continue;   // แนบไว้แล้วก่อนหน้านี้
+    out.push(topic.name);
+  }
+  return out;
+}
+
+/**
+ * ส่งฟอร์มขึ้นระบบ — แยกออกมาเพราะการยืนยันเป็นขั้นที่รอคำตอบของผู้ใช้
+ * @param {Object} form ค่าที่กรอกไว้
+ */
+function sendForm(form) {
+  setBusy(true);
+
+  /*
+   * ใบใหม่: สร้างแล้วไปอยู่ที่ผู้อนุมัติทันที ไม่มีขั้นบันทึกร่าง (SPEC 4.1)
+   * ใบที่ถูกตีกลับ: แก้ก่อนแล้วจึงส่งใหม่ — สองคำสั่ง เพราะ EDIT ไม่เปลี่ยนสถานะ
+   *                 ส่วน SUBMIT เป็นตัวที่พากลับไปรออนุมัติ
+   */
+  /*
+   * ลำดับของใบใหม่ (SPEC 16.1)
+   *   สร้างใบงาน → อัปโหลดไฟล์ทั้งชุด → ออกใบสั่งงาน
+   *
+   * ใบสั่งงานต้องออกทีหลัง เพราะมันต้องบอกได้ว่ามีเอกสารอะไรแนบมาบ้าง ·
+   * ถ้าออกพร้อมการสร้างใบงาน ผู้อนุมัติจะได้กระดาษที่เขียนว่า "ไม่มีเอกสารแนบ"
+   * ทั้งที่ไฟล์กำลังจะขึ้นในอีกไม่กี่วินาที
+   *
+   * จำนวนไฟล์ที่รออยู่ถูกส่งไปกับคำสั่งสร้าง เพื่อให้เซิร์ฟเวอร์รู้ว่าต้องรอ ·
+   * ถ้าไม่ได้เลือกไฟล์ไว้เลย เซิร์ฟเวอร์ออกเอกสารให้ทันทีเหมือนเดิม
+   *
+   * ใบที่ถูกตีกลับกลับกัน — ไฟล์ขึ้นก่อน แล้วค่อยแก้และส่งใหม่ เพราะ SUBMIT
+   * ออกเอกสารฉบับใหม่ให้อยู่แล้ว ไฟล์ที่เพิ่งขึ้นจึงติดไปกับฉบับนั้นพอดี
+   */
+  var waiting = basket ? basket.count() : 0;
+
+  var work = state.woId
+    ? uploadBasket()
+      .then(function () {
+        return callApi('api_editWorkOrder', [state.woId, form, toIso(state.updatedDate)]);
+      })
+      .then(function (result) {
+        applySaved(result);
+        return callApi('api_submitWorkOrder', [state.woId, toIso(state.updatedDate)]);
+      })
+    : callApi('api_createWorkOrder', [form, waiting])
+      .then(applySaved)
+      .then(function () { return uploadBasket(); })
+      .then(issueReportIfMissing);
+
+  work
+    .then(function () {
+      showStatus('PENDING_APPROVE');
+      showMessage('ส่งใบงาน ' + state.woId + ' ให้ผู้อนุมัติแล้ว ระหว่างรออนุมัติจะแก้ไขไม่ได้ ' +
+        'ถ้าต้องแก้ให้ขอผู้อนุมัติตีกลับมาก่อน · แนบไฟล์เพิ่มได้จนกว่าผู้อนุมัติจะกดอนุมัติ', 'ok');
+      document.getElementById('btnSubmit').disabled = true;
+    })
+    .catch(function (error) {
+      // ถ้าติดต่อระบบไม่สำเร็จ ต้องบอกว่ายังไม่ได้บันทึก และให้ปุ่มกดลองเอง
+      // ระบบลองใหม่ให้เองไม่ได้ เพราะคำขอแรกอาจไปถึงแล้วแต่คำตอบหายระหว่างทาง
+      showActionError(error, save);
+    })
+    .then(function () {
+      setBusy(false);
+      applyCustomerLock();
+      refreshResetButton();
+    });
+}
+
+/**
+ * เติมค่าที่เซิร์ฟเวอร์คืนมาหลังบันทึก กลับลงหน้าจอ
+ * @param {Object} result ผลจาก api_createWorkOrder หรือ api_editWorkOrder
+ */
+function applySaved(result) {
+  var wo = result.workOrder || {};
+  state.woId = result.woId || state.woId;
+  state.updatedDate = wo['Updated_Date'] || state.updatedDate;
+
+  setValue('pjId', wo['PJ_ID'] || result.pjId || '');
+  if (wo['Created_By']) setValue('createdBy', wo['Created_By_Name'] || wo['Created_By']);
+  if (wo['Created_Date']) setValue('createdDate', formatDate(wo['Created_Date']));
+  document.getElementById('pageTitle').textContent = 'ใบสั่งงาน ' + state.woId;
+  showStatus(wo['Overall_Status']);
+
+  state.dirty = false;
+  // เพิ่งได้เลขที่ใบงาน การ์ดไฟล์แนบจึงเปิดใช้งานได้แล้ว
+  renderAttachments();
+
+  // ระบบเพิ่งออกใบสั่งงานฉบับแรกให้ตอนบันทึก ลิงก์จึงมากับแถวที่ตอบกลับมาเลย
+  state.reportUrl = wo['Report_URL'] || state.reportUrl;
+  renderReport();
+}
+
+/**
+ * การ์ดใบสั่งงาน PDF (SPEC 16.1)
+ *
+ * ขึ้นเมื่อมีเลขที่ใบงานแล้วเท่านั้น เพราะก่อนหน้านั้นยังไม่มีอะไรให้ออกเอกสาร
+ * ปุ่มสั่งออกใหม่ขึ้นตามสิทธิ์ที่เซิร์ฟเวอร์บอกมา ไม่ใช่ที่หน้าเว็บเดาเอง
+ */
+function renderReport() {
+  var card = document.getElementById('reportCard');
+  card.hidden = !state.woId;
+  if (!state.woId) return;
+
+  var box = document.getElementById('reportLink');
+  /*
+   * ดาวน์โหลดผ่านเซิร์ฟเวอร์ ไม่ใช่ลิงก์ Drive (กฎข้อ 34)
+   * คนที่เปิดใบงานเองก็กดดูเอกสารของใบตัวเองไม่ได้เหมือนกัน ถ้าใช้ลิงก์
+   */
+  box.innerHTML = state.reportUrl
+    ? docButtonHtml({ woId: state.woId, kind: DOC_KIND.REPORT, ref: '',
+        label: 'ใบสั่งงานฉบับล่าสุด (PDF)' })
+    : 'ยังไม่มีเอกสารของใบงานนี้ — อาจเป็นเพราะตอนบันทึกออกเอกสารไม่สำเร็จ ' +
+      'ผู้ดูแลระบบกดออกใหม่ได้จากปุ่มด้านล่าง';
+  bindDocButtons(box);
+
+  document.getElementById('reportActions').hidden = !state.canGenerateReport;
+}
+
+/** สั่งออกใบสั่งงานฉบับใหม่ — ฉบับเดิมถูกเก็บเข้า _archive ให้เอง */
+function generateReport() {
+  clearMessage();
+  setBusy(true);
+
+  callApi('api_generateReport', [state.woId])
+    .then(function (result) {
+      state.reportUrl = result.url;
+      renderReport();
+      showMessage('ออกใบสั่งงานฉบับที่ ' + result.version + ' เรียบร้อยแล้ว ' +
+        'ฉบับก่อนหน้าถูกเก็บไว้ในโฟลเดอร์ _archive', 'ok');
+    })
+    .catch(function (error) { showActionError(error, generateReport); })
+    .then(function () { setBusy(false); });
+}
+</script>
+</body>
+</html>

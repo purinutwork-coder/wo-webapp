@@ -1,0 +1,335 @@
+<script>
+/*
+  ui_Auth.html — แผงเข้าสู่ระบบที่วาดทับหน้าเดิม ใช้ร่วมกันทุกหน้า (SPEC 17.3)
+
+  ทำไมต้องวาดทับ ไม่ใช่พาไปหน้าเข้าสู่ระบบ
+  ------------------------------------------------------------------
+  หน้าเว็บของ Apps Script ถูกวางไว้ในกรอบ (iframe) ที่ยอมให้เปลี่ยนหน้าต่างชั้นนอกได้
+  "เฉพาะตอนที่ผู้ใช้กดจริงเท่านั้น" การสั่งเปลี่ยนหน้าเองตอนเปิดหน้าหรือตอนโทเคนหมดอายุ
+  จึงถูกเบราว์เซอร์บล็อกเสมอ ไม่ว่าจะเขียนด้วยวิธีไหน แล้วผู้ใช้ค้างอยู่กับที่โดยไม่มีอะไรบอก
+  ข้อความจริงที่เบราว์เซอร์ฟ้องคือ
+
+      Unsafe attempt to initiate navigation for frame ... sandboxed with
+      'allow-top-navigation-by-user-activation' flag, but has no user activation
+
+  ทางออกคือไม่ต้องไปไหนเลย — วาดแผงเข้าสู่ระบบทับหน้าที่ผู้ใช้ยืนอยู่
+  พอล็อกอินสำเร็จก็เก็บแผงแล้วทำงานต่อจากตรงนั้น ซึ่งเร็วกว่าด้วย เพราะไม่ต้องโหลดหน้าใหม่
+
+  แผงนี้ทำสองขั้นในตัวเอง — เข้าสู่ระบบ และบังคับตั้งรหัสใหม่เมื่อยังใช้รหัสชั่วคราวอยู่
+  สองขั้นต้องต่อกันทันที ถ้าแยกจะมีช่วงที่ผู้ใช้หลุดไปทำอย่างอื่นทั้งที่ยังใช้รหัสชั่วคราว
+*/
+
+/** ความยาวรหัสผ่านขั้นต่ำ — ต้องตรงกับ PASSWORD_MIN_LENGTH ฝั่งเซิร์ฟเวอร์ */
+var MIN_PASSWORD_LENGTH = 8;
+
+/** แผงที่สร้างไว้แล้ว และสถานะของมัน */
+var AUTH_PANEL_ = { root: null, open: false };
+
+/**
+ * ขอให้ผู้ใช้เข้าสู่ระบบ โดยไม่พาออกจากหน้าที่ยืนอยู่ (SPEC 17.3)
+ *
+ * เรียกได้ทั้งตอนเปิดหน้าแล้วยังไม่ได้ล็อกอิน ตอนโทเคนหมดอายุกลางคัน และตอนกดออกจากระบบ
+ * ทั้งสามกรณีจบเหมือนกันคือแผงขึ้นมาทับ ผู้ใช้กรอกแล้วทำงานต่อที่เดิม
+ *
+ * @param {string} [reason] เหตุผลที่ต้องเข้าสู่ระบบอีกครั้ง แสดงไว้บนแผง
+ */
+function requireLogin(reason) {
+  /*
+   * ถึงตรงนี้แปลว่าโทเคนที่ถืออยู่ใช้ไม่ได้แล้ว ต้องลบทิ้งทันที
+   * ถ้าปล่อยไว้ คำขอถัดไปจะส่งโทเคนเสียไปซ้ำ ๆ โดยไม่มีประโยชน์
+   */
+  saveToken('');
+
+  var panel = authPanel_();
+  if (AUTH_PANEL_.open) {
+    // ขึ้นอยู่แล้ว — คำขอหลายตัวที่ค้างอยู่อาจตกพร้อมกัน ห้ามวาดซ้อนหรือล้างที่ผู้ใช้พิมพ์ไว้
+    return;
+  }
+
+  AUTH_PANEL_.open = true;
+  panel.style.display = 'block';
+  showAuthStep_('login');
+  if (reason) authMessage_(reason, 'warn');
+  else authClearMessage_();
+
+  document.getElementById('authUsername').focus();
+}
+
+/**
+ * เก็บแผงแล้วทำงานต่อจากที่ค้างไว้
+ *
+ * กลับมาที่หน้าเดิมเสมอ ไม่ใช่เด้งไปหน้าแรก — ผู้ใช้กำลังทำอะไรอยู่ก็ควรได้ทำต่อ
+ *   หน้าที่ยังไม่เคยได้ข้อมูลเลย  เริ่มหน้าใหม่ทั้งหน้า (ปุ่มยังไม่ถูกผูก จึงไม่ซ้ำซ้อน)
+ *   หน้าที่ได้ข้อมูลไปแล้ว        โหลดข้อมูลใหม่ ถ้าหน้านั้นบอกวิธีไว้
+ *   หน้าที่กำลังกรอกฟอร์มค้างอยู่  ไม่แตะอะไรเลย เพราะการโหลดใหม่จะล้างสิ่งที่พิมพ์ไป
+ */
+function closeAuthPanel_() {
+  AUTH_PANEL_.open = false;
+  if (AUTH_PANEL_.root) AUTH_PANEL_.root.style.display = 'none';
+  resumeAfterLogin();
+}
+
+/**
+ * แผงเข้าสู่ระบบของหน้านี้ สร้างครั้งเดียวแล้วใช้ซ้ำ
+ * @return {Element}
+ */
+function authPanel_() {
+  if (AUTH_PANEL_.root) return AUTH_PANEL_.root;
+
+  var root = document.createElement('div');
+  root.id = 'authOverlay';
+  root.className = 'auth-overlay';
+  root.style.display = 'none';
+  root.innerHTML = authPanelHtml_();
+  document.body.appendChild(root);
+  AUTH_PANEL_.root = root;
+
+  document.getElementById('authLogin').addEventListener('click', doLogin);
+  document.getElementById('authChange').addEventListener('click', doChangePassword);
+
+  // กด Enter ในช่องสุดท้ายให้เท่ากับกดปุ่ม เพราะคนส่วนใหญ่ทำแบบนั้น
+  authOnEnter_('authPassword', doLogin);
+  authOnEnter_('authConfirmPassword', doChangePassword);
+
+  // บอกทันทีว่าเงื่อนไขข้อไหนผ่านแล้ว ไม่ต้องรอให้กดปุ่มแล้วค่อยบอกว่าผิด
+  var watched = ['authCurrentPassword', 'authNewPassword', 'authConfirmPassword'];
+  for (var i = 0; i < watched.length; i++) {
+    document.getElementById(watched[i]).addEventListener('input', refreshPasswordRules);
+  }
+
+  return root;
+}
+
+/**
+ * โครงของแผง — ข้อความล้วน ไม่มีค่าจากผู้ใช้หรือจากเซิร์ฟเวอร์ปนอยู่เลย
+ * @return {string} HTML
+ */
+function authPanelHtml_() {
+  return '' +
+    '<div class="auth-wrap">' +
+      '<div class="auth-card">' +
+        '<h1 class="auth-title">ระบบใบสั่งงาน</h1>' +
+
+        // ที่ของข้อความอยู่ตรงนี้เสมอ ไม่ว่าจะมีข้อความหรือไม่ ของอื่นจึงไม่ขยับ
+        '<div id="authMessage" class="msg auth-msg"></div>' +
+
+        '<section id="authLoginStep">' +
+          '<p class="auth-lead">กรอกชื่อผู้ใช้และรหัสผ่านที่ได้รับจากผู้ดูแลระบบ</p>' +
+          '<label class="auth-label" for="authUsername">ชื่อผู้ใช้</label>' +
+          '<input class="auth-input" type="text" id="authUsername" ' +
+            'autocomplete="username" autocapitalize="none" spellcheck="false">' +
+          '<label class="auth-label" for="authPassword">รหัสผ่าน</label>' +
+          '<input class="auth-input" type="password" id="authPassword" autocomplete="current-password">' +
+          '<button type="button" id="authLogin" class="auth-button">เข้าสู่ระบบ</button>' +
+          '<p class="auth-foot">' +
+            'ระบบนี้ใช้ชื่อผู้ใช้และรหัสผ่านของบริษัทเอง ไม่ต้องใช้บัญชี Google<br>' +
+            'ลืมรหัสผ่าน กรุณาติดต่อผู้ดูแลระบบให้ตั้งรหัสชั่วคราวให้ใหม่' +
+          '</p>' +
+        '</section>' +
+
+        '<section id="authChangeStep" hidden>' +
+          '<p class="auth-lead"><b>ตั้งรหัสผ่านใหม่ก่อนใช้งาน</b><br>' +
+            'รหัสที่ได้รับมาเป็นรหัสชั่วคราวซึ่งผ่านมือคนอื่นมาแล้ว จึงใช้เป็นรหัสถาวรไม่ได้</p>' +
+          '<label class="auth-label" for="authCurrentPassword">รหัสผ่านปัจจุบัน (รหัสชั่วคราว)</label>' +
+          '<input class="auth-input" type="password" id="authCurrentPassword" autocomplete="current-password">' +
+          '<label class="auth-label" for="authNewPassword">รหัสผ่านใหม่</label>' +
+          '<input class="auth-input" type="password" id="authNewPassword" autocomplete="new-password">' +
+          '<label class="auth-label" for="authConfirmPassword">พิมพ์รหัสผ่านใหม่อีกครั้ง</label>' +
+          '<input class="auth-input" type="password" id="authConfirmPassword" autocomplete="new-password">' +
+
+          // บอกเงื่อนไขไว้ตั้งแต่แรก แล้วขึ้นเครื่องหมายถูกทีละข้อ ไม่ใช่รอให้ผิดก่อนค่อยบอก
+          '<ul class="auth-rules">' +
+            '<li id="authRuleLength">ยาวอย่างน้อย ' + MIN_PASSWORD_LENGTH + ' ตัวอักษร</li>' +
+            '<li id="authRuleDifferent">ไม่ซ้ำกับรหัสเดิม</li>' +
+            '<li id="authRuleMatch">สองช่องตรงกัน</li>' +
+          '</ul>' +
+          '<button type="button" id="authChange" class="auth-button">บันทึกรหัสผ่านใหม่</button>' +
+        '</section>' +
+      '</div>' +
+    '</div>';
+}
+
+/**
+ * ผูกปุ่ม Enter ให้ช่องกรอกหนึ่งช่อง
+ * @param {string} id รหัสของช่อง
+ * @param {function()} action สิ่งที่จะทำ
+ */
+function authOnEnter_(id, action) {
+  document.getElementById(id).addEventListener('keydown', function (event) {
+    if (event.key === 'Enter') action();
+  });
+}
+
+/**
+ * สลับระหว่างขั้นเข้าสู่ระบบกับขั้นตั้งรหัสใหม่
+ * @param {string} step 'login' | 'change'
+ */
+function showAuthStep_(step) {
+  document.getElementById('authLoginStep').hidden = (step !== 'login');
+  document.getElementById('authChangeStep').hidden = (step !== 'change');
+}
+
+/**
+ * ข้อความบนแผง — แยกจากแถบข้อความของหน้า เพราะแถบนั้นอยู่ใต้แผงและผู้ใช้มองไม่เห็น
+ * @param {string} text ข้อความภาษาไทย
+ * @param {string} kind 'error' | 'ok' | 'warn'
+ */
+function authMessage_(text, kind) {
+  var box = document.getElementById('authMessage');
+  if (!box) return;
+  box.textContent = text;
+  setMessageKind_(box, kind || 'error');
+}
+
+/** ล้างข้อความบนแผง โดยยังจองที่ไว้เหมือนเดิม */
+function authClearMessage_() {
+  var box = document.getElementById('authMessage');
+  if (!box) return;
+  box.textContent = '';
+  setMessageKind_(box, '');
+}
+
+/**
+ * ปิดปุ่มของแผงระหว่างรอคำตอบ (SPEC 17.3)
+ * ปิดเฉพาะปุ่มของแผง ไม่ยุ่งกับปุ่มของหน้าที่อยู่ข้างใต้ ซึ่งมีสถานะของตัวเองอยู่แล้ว
+ * @param {boolean} busy true = กำลังรอคำตอบ
+ */
+function authBusy_(busy) {
+  var ids = ['authLogin', 'authChange'];
+  for (var i = 0; i < ids.length; i++) {
+    var button = document.getElementById(ids[i]);
+    if (button) button.disabled = !!busy;
+  }
+}
+
+/** ส่งชื่อผู้ใช้และรหัสผ่านไปตรวจ */
+function doLogin() {
+  var username = document.getElementById('authUsername').value.trim();
+  var password = document.getElementById('authPassword').value;
+
+  if (!username || !password) {
+    authMessage_('กรุณากรอกทั้งชื่อผู้ใช้และรหัสผ่าน', 'warn');
+    return;
+  }
+
+  authClearMessage_();
+  authBusy_(true);
+
+  callApi('api_login', [username, password])
+    .then(function (result) {
+      saveToken(result.token);
+
+      // รหัสชั่วคราวใช้เป็นรหัสถาวรไม่ได้ ต้องเปลี่ยนก่อนถึงจะทำอย่างอื่นได้
+      if (result.mustChangePassword) {
+        startChangeStep_(result.user);
+        return;
+      }
+      closeAuthPanel_();
+    })
+    .catch(function (error) { authMessage_(error.message, 'error'); })
+    .then(function () { authBusy_(false); });
+}
+
+/**
+ * เปลี่ยนแผงไปขั้นตั้งรหัสใหม่
+ * @param {Object} user ผู้ใช้ที่เพิ่งล็อกอินสำเร็จ
+ */
+function startChangeStep_(user) {
+  showAuthStep_('change');
+
+  // เติมรหัสชั่วคราวที่เพิ่งพิมพ์ให้เลย ผู้ใช้จะได้ไม่ต้องพิมพ์ซ้ำ
+  document.getElementById('authCurrentPassword').value = document.getElementById('authPassword').value;
+  document.getElementById('authPassword').value = '';
+
+  authMessage_('สวัสดี ' + (user.displayName || user.username) +
+    ' — กรุณาตั้งรหัสผ่านใหม่ก่อนเริ่มใช้งาน', 'warn');
+
+  refreshPasswordRules();
+  document.getElementById('authNewPassword').focus();
+}
+
+/**
+ * สถานะของเงื่อนไขรหัสผ่านใหม่ทั้งสามข้อ
+ * @return {Object} {length, different, match, allOk}
+ */
+function passwordRules() {
+  var current = document.getElementById('authCurrentPassword').value;
+  var next = document.getElementById('authNewPassword').value;
+  var confirm = document.getElementById('authConfirmPassword').value;
+
+  var rules = {
+    length: next.length >= MIN_PASSWORD_LENGTH,
+    different: next.length > 0 && next !== current,
+    match: next.length > 0 && next === confirm
+  };
+  rules.allOk = rules.length && rules.different && rules.match;
+  return rules;
+}
+
+/** ทำเครื่องหมายว่าเงื่อนไขข้อไหนผ่านแล้ว */
+function refreshPasswordRules() {
+  var rules = passwordRules();
+  markRule_('authRuleLength', rules.length);
+  markRule_('authRuleDifferent', rules.different);
+  markRule_('authRuleMatch', rules.match);
+}
+
+/**
+ * ทำเครื่องหมายผ่าน/ยังไม่ผ่าน ให้เงื่อนไขหนึ่งข้อ
+ * @param {string} id รหัสของรายการ
+ * @param {boolean} ok ผ่านแล้วหรือยัง
+ */
+function markRule_(id, ok) {
+  var item = document.getElementById(id);
+  if (item) item.className = ok ? 'ok' : '';
+}
+
+/** บันทึกรหัสผ่านใหม่ แล้วทำงานต่อในหน้าเดิม */
+function doChangePassword() {
+  var rules = passwordRules();
+
+  // ตรวจฝั่งนี้เพื่อให้ผู้ใช้รู้ทันที ส่วนด่านที่นับจริงอยู่ฝั่งเซิร์ฟเวอร์เสมอ
+  if (!rules.length) {
+    authMessage_('รหัสผ่านใหม่ต้องยาวอย่างน้อย ' + MIN_PASSWORD_LENGTH + ' ตัวอักษร', 'warn');
+    return;
+  }
+  if (!rules.different) {
+    authMessage_('รหัสผ่านใหม่ต้องไม่ซ้ำกับรหัสเดิม', 'warn');
+    return;
+  }
+  if (!rules.match) {
+    authMessage_('รหัสผ่านใหม่สองช่องไม่ตรงกัน กรุณาพิมพ์ใหม่อีกครั้ง', 'warn');
+    return;
+  }
+
+  authClearMessage_();
+  authBusy_(true);
+
+  callApi('api_changePassword', [
+    document.getElementById('authCurrentPassword').value,
+    document.getElementById('authNewPassword').value
+  ])
+    .then(function () {
+      /*
+       * เดิมตรงนี้สั่งเปลี่ยนหน้าไปหน้าแรก แล้วได้จอขาวทุกครั้ง
+       * เพราะเป็นการเปลี่ยนหน้าเองโดยผู้ใช้ไม่ได้กดลิงก์ ซึ่งกรอบของ Apps Script ไม่ยอมให้ทำ
+       * ตอนนี้แค่เก็บแผงแล้วให้หน้าเดิมทำงานต่อ ผู้ใช้จึงอยู่ที่เดิมและใช้งานได้ทันที
+       */
+      authClearAllFields_();
+      closeAuthPanel_();
+    })
+    .catch(function (error) { authMessage_(error.message, 'error'); })
+    .then(function () { authBusy_(false); });
+}
+
+/** ล้างทุกช่องของแผง ไม่ให้รหัสผ่านค้างอยู่ในหน้าหลังใช้งานเสร็จ */
+function authClearAllFields_() {
+  var ids = ['authUsername', 'authPassword', 'authCurrentPassword',
+    'authNewPassword', 'authConfirmPassword'];
+  for (var i = 0; i < ids.length; i++) {
+    var field = document.getElementById(ids[i]);
+    if (field) field.value = '';
+  }
+  refreshPasswordRules();
+}
+</script>

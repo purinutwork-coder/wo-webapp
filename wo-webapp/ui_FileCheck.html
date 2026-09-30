@@ -1,0 +1,455 @@
+<!DOCTYPE html>
+<html lang="th">
+<head>
+  <base target="_top">
+  <meta charset="utf-8">
+  <?!= include('ui_Style') ?>
+</head>
+<body>
+<div id="pageData"
+  data-wo-id="<?= woId ?>" data-dept="<?= dept ?>" data-view="<?= view ?>" data-route="<?= route ?>"
+  data-base-url="<?= baseUrl ?>" data-home-url="<?= homeUrl ?>"
+  data-bootstrap="<?= bootstrapJson ?>" hidden></div>
+
+<div class="app" id="app">
+  <aside class="side" id="side">
+    <a class="side-head" id="brandLink" href="#">
+      <span class="side-mark" aria-hidden="true">
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+          stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M3 11l9-7 9 7"/><path d="M5 10v10h14V10"/><path d="M10 20v-6h4v6"/>
+        </svg>
+      </span>
+      <span class="side-title">ระบบใบสั่งงาน<small>กลับหน้าติดตามใบงาน</small></span>
+    </a>
+    <nav class="side-nav" id="navBar" aria-label="เมนูหลัก"></nav>
+    <div class="side-foot" id="navFoot"></div>
+  </aside>
+  <button type="button" class="scrim" id="scrim" aria-label="ปิดเมนู" hidden></button>
+
+  <div class="main-col">
+    <header class="topbar">
+      <button type="button" class="icon-btn btn-menu" id="btnMenu" aria-label="เปิดเมนู">
+        <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+          stroke-width="1.8" stroke-linecap="round"><path d="M4 7h16"/><path d="M4 12h16"/><path d="M4 17h16"/></svg>
+      </button>
+      <button type="button" class="icon-btn btn-collapse" id="btnCollapse" aria-label="พับหรือกางแถบเมนู">
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+          stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M4 5h16"/><path d="M4 12h10"/><path d="M4 19h16"/><path d="M19 9l3 3-3 3"/></svg>
+      </button>
+      <h1 id="pageTitle">ตรวจว่าเบราว์เซอร์เปิดไฟล์จากไบต์ได้หรือไม่</h1>
+      <span class="who" id="whoami">กำลังตรวจสอบผู้ใช้…</span>
+    </header>
+
+    <main>
+  <div id="message" class="msg"></div>
+
+  <section class="card">
+    <h2>เครื่องมือวัด</h2>
+    <div class="hint" id="toolNote">
+      หน้านี้ไม่ใช่หน้าใช้งาน · มีไว้ตอบคำถามเดียวว่าเบราว์เซอร์ตัวนี้เปิดไฟล์
+      ที่ส่งมาเป็นไบต์ได้ด้วยวิธีไหนบ้าง · <b>ต้องรันทั้งบนคอมพิวเตอร์และบนมือถือ</b>
+      เพราะสองที่นี้ต่างกันจริง แล้วคัดลอกผลทั้งหมดส่งกลับไป
+    </div>
+
+    <div class="row">
+      <div>
+        <label for="woId">เลขที่ใบงานที่จะใช้ทดสอบ</label>
+        <input type="text" id="woId" placeholder="เช่น WO-2609-0005">
+      </div>
+      <div>
+        <label for="pickFile">ไฟล์ที่จะใช้ทดสอบ</label>
+        <select id="pickFile"><option value="">— ใส่เลขที่ใบงานแล้วกดโหลดรายการไฟล์ —</option></select>
+      </div>
+    </div>
+
+    <div class="actions">
+      <button type="button" id="btnLoadFiles" class="ghost small">โหลดรายการไฟล์ของใบงานนี้</button>
+      <button type="button" id="btnRun">เริ่มวัด</button>
+      <button type="button" id="btnCopy" class="neutral small" hidden>คัดลอกผลทั้งหมด</button>
+    </div>
+  </section>
+
+  <section class="card">
+    <h2>ผลการวัด</h2>
+    <div id="result"><div class="hint">ยังไม่ได้วัด</div></div>
+  </section>
+
+  <!-- ที่สำหรับลองเปิดไฟล์จริง · ต้องอยู่ในหน้าจริง ไม่ใช่กรอบที่ซ่อนไว้
+       เพราะกรอบที่ display:none ในบางเบราว์เซอร์ไม่โหลดเนื้อเลย แล้วผลจะโกหก -->
+  <section class="card">
+    <h2>ของจริงที่ลองเปิด</h2>
+    <div class="hint">
+      ถ้ากรอบข้างล่างแสดงเอกสารได้ แปลว่าวิธีนั้นใช้ได้จริงบนเครื่องนี้ ·
+      ถ้าเห็นเป็นพื้นที่ว่างเปล่า แปลว่า "ได้แต่ว่างเปล่า" ซึ่งคนละเรื่องกับ "ได้"
+    </div>
+    <div id="stage"></div>
+  </section>
+    </main>
+  </div>
+</div>
+
+<?!= include('ui_Script') ?>
+<?!= include('ui_Nav') ?>
+<?!= include('ui_Auth') ?>
+<script>
+/*
+  เครื่องมือวัดว่าเบราว์เซอร์เปิดไฟล์จากไบต์ได้ด้วยวิธีไหน (CLAUDE.md ข้อ 34)
+
+  ทำไมต้องวัดก่อนสร้าง: หน้าเว็บของ HtmlService ถูกใส่ไว้ในกรอบที่มีข้อจำกัด
+  ซึ่งมักปิดการดาวน์โหลดและอาจปิดการเปิด blob · ที่รู้แน่คือรูปผ่าน data URL
+  ทำงานได้ เพราะหน้าอนุมัติใช้อยู่แล้ว แต่รูปกับ PDF ไม่ใช่เรื่องเดียวกันสำหรับเบราว์เซอร์
+
+  สิ่งที่หน้านี้ต้องไม่ทำคือรายงานว่า "ได้" ทั้งที่ผู้ใช้เห็นหน้าขาว (กฎข้อ 32)
+  จึงต้องแยกสามผลเสมอ: ได้ · ได้แต่ว่างเปล่า · ไม่ได้
+*/
+
+/* คีย์ที่หน้านี้ต้องใช้จากก้อนข้อมูลที่เซิร์ฟเวอร์ส่งมา (SPEC 17.3) */
+var PAGE_NEEDS = ['upload'];
+
+/**
+ * พิมพ์เพดานขนาดไฟล์ · **อ่านค่าไม่ได้ต้องพิมพ์ว่าอ่านไม่ได้ ห้ามพิมพ์ช่องว่าง**
+ *
+ * รายงานที่ตัวเลขหายไปเฉย ๆ ทำให้คนอ่านเชื่อว่าไม่มีเพดาน ซึ่งเป็นคนละเรื่องกับ
+ * "อ่านค่าไม่ได้" โดยสิ้นเชิง (กฎข้อ 32)
+ */
+function showLimit() {
+  document.getElementById('toolNote').insertAdjacentHTML('beforeend',
+    '<br>เพดานขนาดไฟล์ที่ระบบตั้งไว้ตอนนี้: <b>' + escapeHtml(uploadLimitLabel()) + '</b>');
+}
+
+/**
+ * ข้อความเพดานขนาดไฟล์ที่พูดความจริงเสมอ
+ * @return {string}
+ */
+function uploadLimitLabel() {
+  if (!UPLOAD || !UPLOAD.maxBytes) return 'อ่านค่าไม่ได้ — หน้านี้ยังไม่ได้รับข้อจำกัดจากเซิร์ฟเวอร์';
+  return UPLOAD.maxLabel + ' ต่อไฟล์ (' + UPLOAD.maxBytes + ' ไบต์)';
+}
+
+/** ขนาดที่ใช้วัดเวลาขนไบต์ (กิโลไบต์) — ตัวสุดท้ายคือเพดานที่ระบบตั้งไว้ */
+var PROBE_SIZES_KB = [200, 1024, 5120];
+
+var state = { lines: [], files: [] };
+
+document.addEventListener('DOMContentLoaded', function () {
+  initNav('filecheck');
+
+  document.getElementById('woId').value = pageData('wo-id') || '';
+  document.getElementById('btnLoadFiles').addEventListener('click', loadFiles);
+  document.getElementById('btnRun').addEventListener('click', runAll);
+  document.getElementById('btnCopy').addEventListener('click', copyAll);
+
+  /*
+   * ต้องใช้ startPage ไม่ใช่ bootPage
+   *
+   * bootPage เรียกฟังก์ชันที่ส่งเข้าไปโดยไม่ส่งอาร์กิวเมนต์อะไรเลย · ฉบับก่อนหน้านี้
+   * อ่าน boot.upload จากค่าที่ไม่มีอยู่จริง แล้วโยนข้อผิดพลาดเงียบ ๆ ตั้งแต่ก่อนถึง
+   * บรรทัดที่ตั้งเพดาน · ผลคือรายงานพิมพ์ว่า "เพดานที่ตั้งไว้ :  ต่อไฟล์" — ตัวเลขหาย
+   * แล้วคนอ่านเชื่อว่าไม่มีเพดาน · startPage เป็นตัวที่ส่งข้อจำกัดถึงทุกหน้าอยู่แล้ว
+   */
+  startPage('result', PAGE_NEEDS).then(function () { showLimit(); });
+});
+
+/** โหลดรายชื่อไฟล์แนบของใบงาน เพื่อให้เลือกไฟล์จริงมาทดสอบ */
+function loadFiles() {
+  var woId = document.getElementById('woId').value.trim();
+  if (!woId) { showMessage('ใส่เลขที่ใบงานก่อน', 'warn'); return; }
+
+  clearMessage();
+  setBusy(true);
+  callApi('api_listWoAttachments', [woId])
+    .then(function (data) {
+      state.files = [];
+      for (var g = 0; g < data.groups.length; g++) {
+        for (var f = 0; f < data.groups[g].files.length; f++) {
+          state.files.push(data.groups[g].files[f]);
+        }
+      }
+      var html = '<option value="">ใบสั่งงาน (Work Order Report)</option>';
+      for (var i = 0; i < state.files.length; i++) {
+        html += '<option value="' + escapeHtml(state.files[i].fileId) + '">' +
+          escapeHtml(state.files[i].savedName) + ' · ' +
+          escapeHtml(fileSizeLabel(state.files[i].size)) + '</option>';
+      }
+      document.getElementById('pickFile').innerHTML = html;
+      showMessage('พบไฟล์แนบ ' + state.files.length + ' ไฟล์ · ' +
+        (data.reportUrl ? 'ใบงานนี้มีใบสั่งงานแล้ว' : 'ใบงานนี้ยังไม่มีใบสั่งงาน'), 'ok');
+    })
+    .catch(function (error) { showMessage(error.message, 'error'); })
+    .then(function () { setBusy(false); });
+}
+
+/** เขียนบรรทัดลงรายงาน — เก็บไว้ให้คัดลอกด้วย ไม่ใช่แค่แสดง */
+function say(text) {
+  state.lines.push(text);
+  document.getElementById('result').innerHTML =
+    '<pre class="probe-out">' + escapeHtml(state.lines.join('\n')) + '</pre>';
+}
+
+/** วัดทั้งชุด */
+function runAll() {
+  var woId = document.getElementById('woId').value.trim();
+  if (!woId) { showMessage('ใส่เลขที่ใบงานก่อน', 'warn'); return; }
+
+  state.lines = [];
+  document.getElementById('stage').innerHTML = '';
+  document.getElementById('btnCopy').hidden = true;
+  clearMessage();
+  setBusy(true);
+
+  say('===== ผลการวัดการเปิดไฟล์ =====');
+  say('เวลา       : ' + new Date().toString());
+  say('เบราว์เซอร์ : ' + navigator.userAgent);
+  say('ขนาดจอ     : ' + window.innerWidth + ' x ' + window.innerHeight);
+  say('เพดานที่ตั้งไว้ : ' + uploadLimitLabel());
+  say('');
+
+  fetchDoc(woId, document.getElementById('pickFile').value)
+    .then(function (doc) {
+      if (!doc) return null;
+      return renderWays(doc);
+    })
+    .then(function () { return timeSizes(); })
+    .then(function () {
+      say('');
+      say('===== จบการวัด =====');
+      document.getElementById('btnCopy').hidden = false;
+      setBusy(false);
+    })
+    .catch(function (error) {
+      say('!! การวัดหยุดกลางคัน: ' + error.message);
+      setBusy(false);
+    });
+}
+
+/**
+ * ขอไบต์ของเอกสารจริงมาหนึ่งใบ พร้อมจับเวลา
+ * @param {string} woId เลขที่ใบงาน
+ * @param {string} fileId เลขที่ไฟล์ · ว่าง = ใบสั่งงาน
+ * @return {Promise<Object|null>}
+ */
+function fetchDoc(woId, fileId) {
+  say('--- ขอไบต์ของเอกสารจริงจากเซิร์ฟเวอร์ ---');
+  var began = Date.now();
+
+  return callApi('api_woDocument', [woId, fileId ? DOC_KIND.FILE : DOC_KIND.REPORT, fileId])
+    .then(function (doc) {
+      var took = Date.now() - began;
+      if (!doc.found) {
+        say('!! เซิร์ฟเวอร์ไม่คืนไฟล์ให้ (' + took + ' ms) — ตรวจเลขที่ใบงานและสิทธิ์ ADMIN');
+        return null;
+      }
+      say('ได้ไฟล์    : ' + doc.name);
+      say('ชนิด       : ' + doc.mimeType);
+      say('ขนาดจริง   : ' + doc.size + ' ไบต์ (' + fileSizeLabel(doc.size) + ')');
+      say('ความยาว data URL : ' + doc.dataUrl.length + ' ตัวอักษร ' +
+        '(base64 โตขึ้นราวหนึ่งในสาม)');
+      say('เวลาเดินทาง : ' + took + ' ms');
+      say('');
+      return doc;
+    })
+    .catch(function (error) {
+      say('!! ขอไบต์ไม่สำเร็จ: ' + error.message);
+      return null;
+    });
+}
+
+/**
+ * ลองเปิดเอกสารสี่ทาง แล้วบอกทีละทางว่าได้ ไม่ได้ หรือได้แต่ว่างเปล่า
+ * @param {Object} doc เอกสารที่ได้มา
+ * @return {Promise}
+ */
+function renderWays(doc) {
+  say('--- ลองเปิดสี่ทาง ---');
+
+  var blobUrl = '';
+  try {
+    blobUrl = URL.createObjectURL(base64ToBlob(doc.dataUrl, doc.mimeType));
+    say('สร้าง blob URL ได้: ' + blobUrl.substring(0, 40) + '…');
+  } catch (e) {
+    say('!! สร้าง blob URL ไม่ได้เลย: ' + e.message);
+  }
+  say('');
+
+  return tryFrame('1. iframe src=blob:', blobUrl)
+    .then(function () { return tryFrame('2. iframe src=data:', doc.dataUrl); })
+    .then(function () { return tryDownload(blobUrl, doc.name); })
+    .then(function () { return tryOpen(blobUrl); })
+    .then(function () {
+      /*
+       * ห้ามคืน blob URL ทิ้งทันที กรอบยังถืออยู่ · ปล่อยไว้จนกว่าผู้ใช้จะออกจากหน้า
+       * ซึ่งเป็นการยอมให้หน่วยความจำค้างนิดหน่อย แลกกับผลการวัดที่เชื่อได้
+       */
+    });
+}
+
+/**
+ * ใส่ที่อยู่ลงในกรอบแล้วดูว่าเนื้อขึ้นจริงไหม
+ *
+ * **แยก "ได้" ออกจาก "ได้แต่ว่างเปล่า" ให้ได้** คือหัวใจของเครื่องมือนี้ ·
+ * กรอบที่โหลดสำเร็จแล้วแสดงหน้าขาวจะยิง onload เหมือนกันทุกประการกับกรอบที่แสดงเอกสาร
+ * สิ่งเดียวที่ต่างคือความสูงของเนื้อข้างใน ซึ่งอ่านได้บ้างไม่ได้บ้างเพราะคนละต้นทาง
+ * เมื่ออ่านไม่ได้ ต้องบอกว่า "อ่านไม่ได้ ต้องดูด้วยตา" ไม่ใช่เดาว่าได้
+ *
+ * @param {string} label ชื่อของวิธี
+ * @param {string} url ที่อยู่ที่จะใส่ในกรอบ
+ * @return {Promise}
+ */
+function tryFrame(label, url) {
+  if (!url) { say(label + ' → ไม่ได้ · ไม่มีที่อยู่ให้ลอง'); return Promise.resolve(); }
+
+  return new Promise(function (resolve) {
+    var wrap = document.createElement('div');
+    wrap.className = 'probe-stage';
+    wrap.innerHTML = '<div class="hint">' + escapeHtml(label) + '</div>';
+
+    var frame = document.createElement('iframe');
+    frame.className = 'probe-frame';
+    var settled = false;
+
+    function finish(text) {
+      if (settled) return;
+      settled = true;
+      say(label + ' → ' + text);
+      resolve();
+    }
+
+    frame.addEventListener('load', function () {
+      var inside = '';
+      try {
+        var doc = frame.contentDocument;
+        inside = doc ? String(doc.body ? doc.body.innerHTML.length : 0) : '';
+      } catch (e) {
+        inside = '';   // คนละต้นทาง อ่านข้างในไม่ได้ ซึ่งเป็นเรื่องปกติของ blob
+      }
+      finish(inside === ''
+        ? 'กรอบโหลดแล้ว แต่อ่านเนื้อข้างในไม่ได้ (คนละต้นทาง) — **ต้องดูด้วยตาว่าเห็นเอกสารหรือเห็นพื้นที่ว่าง**'
+        : 'กรอบโหลดแล้ว · เนื้อข้างในยาว ' + inside + ' ตัวอักษร' +
+          (Number(inside) > 0 ? '' : ' → ได้แต่ว่างเปล่า'));
+    });
+    frame.addEventListener('error', function () { finish('ไม่ได้ · กรอบแจ้ง error'); });
+
+    // กรอบที่ไม่ยิงอะไรเลยคือผลอย่างหนึ่ง ไม่ใช่เหตุให้หน้าค้างตลอดกาล (กฎข้อ 33)
+    setTimeout(function () { finish('ไม่ได้ · รอ 8 วินาทีแล้วกรอบไม่ตอบอะไรเลย'); }, 8000);
+
+    wrap.appendChild(frame);
+    document.getElementById('stage').appendChild(wrap);
+    try {
+      frame.src = url;
+    } catch (e) {
+      finish('ไม่ได้ · ใส่ที่อยู่ลงกรอบไม่ได้: ' + e.message);
+    }
+  });
+}
+
+/**
+ * สั่งดาวน์โหลดผ่านลิงก์ที่มี download
+ * @param {string} blobUrl ที่อยู่ของ blob
+ * @param {string} name ชื่อไฟล์
+ * @return {Promise}
+ */
+function tryDownload(blobUrl, name) {
+  var label = '3. a download';
+  if (!blobUrl) { say(label + ' → ไม่ได้ · ไม่มี blob ให้ลอง'); return Promise.resolve(); }
+
+  try {
+    var link = document.createElement('a');
+    link.href = blobUrl;
+    link.download = name || 'เอกสาร.pdf';
+    link.textContent = 'ดาวน์โหลด ' + (name || 'เอกสาร');
+    document.getElementById('stage').appendChild(link);
+    link.click();
+    /*
+     * เบราว์เซอร์ไม่บอกกลับมาว่าดาวน์โหลดเริ่มหรือไม่ · สิ่งเดียวที่โค้ดรู้คือ
+     * "สั่งไปแล้วไม่มี error" ซึ่งไม่ใช่คำตอบเดียวกับ "ไฟล์ลงเครื่องแล้ว"
+     * จึงต้องบอกตรง ๆ ว่าต้องให้คนดู ไม่ใช่รายงานว่าสำเร็จ
+     */
+    say(label + ' → สั่งกดแล้วไม่มี error — **ต้องดูเองว่าไฟล์ลงเครื่องหรือไม่** ' +
+      'ถ้าไม่ลง แปลว่ากรอบของ Apps Script ปิดการดาวน์โหลดไว้ · ' +
+      'มีลิงก์ให้กดเองอยู่ในกล่อง "ของจริงที่ลองเปิด" ด้านล่าง');
+  } catch (e) {
+    say(label + ' → ไม่ได้ · ' + e.message);
+  }
+  return Promise.resolve();
+}
+
+/**
+ * เปิดแท็บใหม่ด้วย blob
+ * @param {string} blobUrl ที่อยู่ของ blob
+ * @return {Promise}
+ */
+function tryOpen(blobUrl) {
+  var label = '4. window.open(blob)';
+  if (!blobUrl) { say(label + ' → ไม่ได้ · ไม่มี blob ให้ลอง'); return Promise.resolve(); }
+
+  try {
+    var win = window.open(blobUrl, '_blank');
+    say(label + (win
+      ? ' → เปิดแท็บได้ · **ต้องดูเองว่าแท็บนั้นแสดงเอกสารหรือหน้าขาว**'
+      : ' → ไม่ได้ · เบราว์เซอร์คืนค่าว่าง (ถูกบล็อกป๊อปอัป หรือกรอบไม่อนุญาต)'));
+  } catch (e) {
+    say(label + ' → ไม่ได้ · ' + e.message);
+  }
+  return Promise.resolve();
+}
+
+/**
+ * วัดเวลาขนไบต์ที่ขนาดต่าง ๆ
+ *
+ * ก้อนพวกนี้ไม่ใช่ PDF และไม่ได้อ้างว่าเป็น · ตอบคำถามเดียวคือไบต์ขนาดนี้
+ * เดินทางผ่าน google.script.run ใช้เวลาเท่าไร ซึ่งเป็นคนละคำถามกับการแสดงผล
+ *
+ * @return {Promise}
+ */
+function timeSizes() {
+  say('');
+  say('--- เวลาขนไบต์ (ก้อนวัดเวลา ไม่ใช่ PDF) ---');
+
+  var chain = Promise.resolve();
+  PROBE_SIZES_KB.forEach(function (kb) {
+    chain = chain.then(function () {
+      var began = Date.now();
+      return callApi('api_probePaddingBytes', [kb])
+        .then(function (data) {
+          var took = Date.now() - began;
+          say(fileSizeLabel(data.size) + ' → ' + took + ' ms · ' +
+            'data URL ยาว ' + data.dataUrl.length + ' ตัวอักษร');
+        })
+        .catch(function (error) {
+          say(kb + ' KB → ไม่สำเร็จ: ' + error.message);
+        });
+    });
+  });
+  return chain;
+}
+
+/**
+ * แปลง data URL เป็น Blob
+ * @param {string} dataUrl ข้อความ data URL
+ * @param {string} mimeType ชนิดไฟล์
+ * @return {Blob}
+ */
+function base64ToBlob(dataUrl, mimeType) {
+  var base64 = dataUrl.substring(dataUrl.indexOf(',') + 1);
+  var raw = atob(base64);
+  var bytes = new Uint8Array(raw.length);
+  for (var i = 0; i < raw.length; i++) bytes[i] = raw.charCodeAt(i);
+  return new Blob([bytes], { type: mimeType || 'application/octet-stream' });
+}
+
+/** คัดลอกผลทั้งหมดไปคลิปบอร์ด เพื่อให้ส่งกลับมาได้ง่าย */
+function copyAll() {
+  var text = state.lines.join('\n');
+  if (navigator.clipboard && navigator.clipboard.writeText) {
+    navigator.clipboard.writeText(text)
+      .then(function () { showMessage('คัดลอกแล้ว วางในข้อความตอบได้เลย', 'ok'); })
+      .catch(function () { showMessage('คัดลอกอัตโนมัติไม่ได้ ให้ลากเลือกข้อความแล้วคัดลอกเอง', 'warn'); });
+    return;
+  }
+  showMessage('เบราว์เซอร์นี้คัดลอกอัตโนมัติไม่ได้ ให้ลากเลือกข้อความแล้วคัดลอกเอง', 'warn');
+}
+</script>
+</body>
+</html>

@@ -1,0 +1,17 @@
+{
+  "scriptId": "1dRBm3bXYJS-KrKLCihung07xORmvu7bKrQHcgkB-4bb6EqxsSOJdYQMZ",
+  "rootDir": "",
+  "scriptExtensions": [
+    ".js",
+    ".gs"
+  ],
+  "htmlExtensions": [
+    ".html"
+  ],
+  "jsonExtensions": [
+    ".json"
+  ],
+  "filePushOrder": [],
+  "skipSubdirectories": false,
+  "projectId": "web-app-510008"
+}

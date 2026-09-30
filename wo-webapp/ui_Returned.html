@@ -1,0 +1,168 @@
+<!DOCTYPE html>
+<html lang="th">
+<head>
+  <base target="_top">
+  <meta charset="utf-8">
+  <?!= include('ui_Style') ?>
+</head>
+<body>
+<div id="pageData"
+  data-wo-id="<?= woId ?>" data-dept="<?= dept ?>" data-view="<?= view ?>" data-route="<?= route ?>"
+  data-base-url="<?= baseUrl ?>" data-home-url="<?= homeUrl ?>"
+  data-bootstrap="<?= bootstrapJson ?>" hidden></div>
+
+<div class="app" id="app">
+  <aside class="side" id="side">
+    <a class="side-head" id="brandLink" href="#">
+      <span class="side-mark" aria-hidden="true">
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+          stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M3 11l9-7 9 7"/><path d="M5 10v10h14V10"/><path d="M10 20v-6h4v6"/>
+        </svg>
+      </span>
+      <span class="side-title">ระบบใบสั่งงาน<small>กลับหน้าติดตามใบงาน</small></span>
+    </a>
+    <nav class="side-nav" id="navBar" aria-label="เมนูหลัก"></nav>
+    <div class="side-foot" id="navFoot"></div>
+  </aside>
+  <button type="button" class="scrim" id="scrim" aria-label="ปิดเมนู" hidden></button>
+
+  <div class="main-col">
+    <header class="topbar">
+      <button type="button" class="icon-btn btn-menu" id="btnMenu" aria-label="เปิดเมนู">
+        <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+          stroke-width="1.8" stroke-linecap="round"><path d="M4 7h16"/><path d="M4 12h16"/><path d="M4 17h16"/></svg>
+      </button>
+      <button type="button" class="icon-btn btn-collapse" id="btnCollapse" aria-label="พับหรือกางแถบเมนู">
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+          stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M4 5h16"/><path d="M4 12h10"/><path d="M4 19h16"/><path d="M19 9l3 3-3 3"/></svg>
+      </button>
+      <h1 id="pageTitle">ใบงานที่ถูกตีกลับ</h1>
+      <span class="who" id="whoami">กำลังตรวจสอบผู้ใช้…</span>
+    </header>
+
+    <main>
+  <div id="message" class="msg"></div>
+  <div class="actions">
+    <button type="button" id="btnRefresh" class="ghost small">โหลดรายการใหม่</button>
+  </div>
+  <div id="list"><div class="loading">กำลังโหลดรายการ…</div></div>
+    </main>
+  </div>
+</div>
+
+<?!= include('ui_Script') ?>
+<?!= include('ui_Nav') ?>
+<?!= include('ui_Auth') ?>
+<script>
+/*
+  หน้ารายการใบงานที่ถูกตีกลับ (SPEC 17.2)
+
+  เป็นทางเดียวที่ผู้เปิดใบงานจะรู้ว่ามีใบถูกตีกลับรออยู่ จนกว่าจะมีหน้า Home เต็มรูปแบบ
+  และ Telegram · ถ้าไม่มีหน้านี้ ใบที่ถูกตีกลับจะค้างเงียบ ๆ โดยไม่มีใครรู้
+
+  เรียงใบที่ถูกตีกลับนานที่สุดไว้บนสุด (เซิร์ฟเวอร์เรียงมาให้แล้ว) ตั้งใจให้ผิดจากหน้าอื่น
+  เพราะใบที่ค้างนานที่สุดคือใบที่เสี่ยงถูกลืมที่สุด
+*/
+
+/* คีย์ที่หน้านี้ต้องใช้จากก้อนข้อมูลที่เซิร์ฟเวอร์ส่งมา (SPEC 17.3) */
+var PAGE_NEEDS = ['rows'];
+
+var state = { rows: [] };
+
+document.addEventListener('DOMContentLoaded', function () {
+  initNav('returned');
+  // บอกไว้ว่าถ้าต้องล็อกอินกลางคัน แล้วล็อกอินเสร็จ ให้กลับมาทำอะไรต่อ (SPEC 17.3)
+  bootPage(loadPage, loadList);
+});
+
+/** เปิดหน้า — ตรวจสิทธิ์ ผูกปุ่ม แล้ววาดรายการรอบแรก */
+function loadPage() {
+  // ทุกกล่องที่ขึ้นว่ากำลังโหลด ต้องจบลงด้วยอะไรสักอย่างเสมอ (SPEC 17.3)
+  var doneLoading = guardLoading('list');
+
+  // ตรวจสิทธิ์ให้ผ่านก่อน แล้วค่อยขอรายการ (SPEC 17.3)
+  startPage('list', PAGE_NEEDS).then(function (started) {
+    if (!started.allowed) { doneLoading(); return; }
+
+    document.getElementById('btnRefresh').addEventListener('click', loadList);
+
+    // ข้อมูลรอบแรกมากับคำขอเดียวกันแล้ว ไม่ต้องยิงถามซ้ำ (SPEC 17.3)
+    apply(started.boot);
+    doneLoading();
+  });
+}
+
+/**
+ * รับรายการมาแสดง ใช้ร่วมกันทั้งข้อมูลรอบแรกและที่โหลดใหม่ภายหลัง
+ * @param {Object} data ผลจาก api_listReturnedWorkOrders
+ */
+function apply(data) {
+  state.rows = data.rows || [];
+  render();
+}
+
+/** โหลดรายการใหม่ */
+function loadList() {
+  setBusy(true);
+  callApi('api_listReturnedWorkOrders', [])
+    .then(apply)
+    .catch(function (error) { showActionError(error, loadList); })
+    .then(function () { setBusy(false); });
+}
+
+/** วาดรายการทั้งหมด */
+function render() {
+  var box = document.getElementById('list');
+
+  if (!state.rows.length) {
+    // สถานะว่างเป็นเรื่องปกติ ต้องบอกด้วยว่าปกติจะมีข้อมูลเมื่อไร (SPEC 17.3)
+    box.innerHTML = emptyHtml('ยังไม่มีใบงานที่ถูกตีกลับ',
+      'ใบงานจะขึ้นที่นี่เมื่อผู้อนุมัติหรือแผนกตีกลับมาให้แก้ไข');
+    return;
+  }
+
+  var html = '<div class="note-box info">มีใบงานรอแก้ไข ' + state.rows.length + ' ใบ · ' +
+    'ใบที่ถูกตีกลับนานที่สุดอยู่บนสุด</div>';
+
+  for (var i = 0; i < state.rows.length; i++) html += rowHtml(state.rows[i]);
+  box.innerHTML = html;
+}
+
+/**
+ * การ์ดของใบงานหนึ่งใบ
+ * @param {Object} row ข้อมูลจากเซิร์ฟเวอร์
+ * @return {string} HTML
+ */
+function rowHtml(row) {
+  var editUrl = NAV.base
+    ? (NAV.base + '?page=create&wo=' + encodeURIComponent(row.woId)) : '';
+
+  return '<div class="wo-item">' +
+    '<h3>' + escapeHtml(row.woId) + ' · ' + escapeHtml(row.customerName) + '</h3>' +
+
+    '<div class="note-box stop"><b>เหตุผลที่ถูกตีกลับ</b><br>' +
+    escapeHtml(row.returnReason || 'ไม่ได้ระบุเหตุผลไว้') + '</div>' +
+
+    '<dl>' +
+    '<dt>ตีกลับโดย</dt><dd>' + escapeHtml(row.returnedBy || '-') + '</dd>' +
+    '<dt>เมื่อ</dt><dd>' + escapeHtml(row.display.returnedDate) + '</dd>' +
+    '<dt>ถูกตีกลับมาแล้ว</dt><dd>' + row.returnCount + ' ครั้ง</dd>' +
+    '<dt>สถานที่</dt><dd>' + escapeHtml(row.location || '-') + '</dd>' +
+    '<dt>โครงการ</dt><dd>' + escapeHtml(row.project || '-') + '</dd>' +
+    '<dt>สายงาน</dt><dd>' + escapeHtml(labelOf('assignment', row.assignmentType)) + '</dd>' +
+    '<dt>ลักษณะงาน</dt><dd>' + escapeHtml(row.jobDescription || '-') + '</dd>' +
+    '<dt>ผู้แจ้งงาน</dt><dd>' + escapeHtml(row.createdBy || '-') + '</dd>' +
+    '<dt>วันที่แจ้ง</dt><dd>' + escapeHtml(row.display.createdDate) + '</dd>' +
+    '</dl>' +
+
+    (editUrl
+      ? '<div class="actions"><a class="btn-link" href="' + escapeHtml(editUrl) +
+        '">แก้ไขแล้วส่งอนุมัติใหม่</a></div>'
+      : '') +
+    '</div>';
+}
+</script>
+</body>
+</html>
