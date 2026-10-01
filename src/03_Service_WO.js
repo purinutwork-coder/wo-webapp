@@ -1413,7 +1413,7 @@ function filterCustomers_(rows, query, limit) {
  * @return {Object[]} ใบงานที่รออนุมัติ เรียงจากใหม่ไปเก่า
  */
 async function listPendingApprovals(user, onlyRoute) {
-  return await pendingApprovalsPage_(user, onlyRoute).rows;
+  return (await pendingApprovalsPage_(user, onlyRoute)).rows;
 }
 
 /**

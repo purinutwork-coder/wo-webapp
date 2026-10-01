@@ -198,7 +198,7 @@ async function taskReportView(taskId) {
 
   /* ---------- ที่ที่แนบได้ — ขั้นตอน งวด หรือตัวงานเอง ---------- */
   var slots = [];
-  var steps = await listStepsByTask(taskId).slice();
+  var steps = (await listStepsByTask(taskId)).slice();
   steps.sort(function (a, b) { return Number(a['Step_No'] || 0) - Number(b['Step_No'] || 0); });
 
   for (var s = 0; s < steps.length; s++) {

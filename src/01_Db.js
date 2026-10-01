@@ -1539,7 +1539,7 @@ async function db_probeTiming_(kind, arg) {
         status = all.length ? all[0].status : 0;
       } else {
         for (var s = 0; s < requests.length; s++) {
-          status = await httpSend_(requests[s]).status;
+          status = (await httpSend_(requests[s])).status;
         }
       }
     } catch (e) {

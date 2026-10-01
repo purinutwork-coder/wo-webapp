@@ -284,7 +284,7 @@ function classify(error) {
  * ทางเข้า
  * --------------------------------------------------------------------------- */
 
-function runOne(mode, name) {
+async function runOne(mode, name) {
   var built = buildContext(mode);
   var fn = built.ctx[name];
   if (typeof fn !== 'function') {
@@ -293,15 +293,11 @@ function runOne(mode, name) {
 
   var startedAt = Date.now();
   try {
-    var out = fn();
-    // ฟังก์ชันที่คืน Promise ในโหมด fetch คือร่องรอยของ async ที่ลามขึ้นมา
-    if (out && typeof out.then === 'function') {
-      return {
-        mode: mode, name: name, ok: false, kind: 'async',
-        reason: 'คืน Promise — httpSend_ ที่เป็น async ลามขึ้นมาถึงฟังก์ชันนี้แล้ว',
-        ms: Date.now() - startedAt, http: built.counters.http
-      };
-    }
+    /*
+     * รอผลเสมอ · หลังเติม await ทั้งโปรเจกต์ ฟังก์ชันกลุ่มเป็น async หมดแล้ว
+     * การไม่รอจะได้ Promise มานับเป็นผล ซึ่งเป็นอาการเดียวกับที่เราเพิ่งไล่แก้
+     */
+    var out = await fn();
     return {
       mode: mode, name: name, ok: true, result: out,
       ms: Date.now() - startedAt, http: built.counters.http,
@@ -317,7 +313,7 @@ function runOne(mode, name) {
   }
 }
 
-function main() {
+async function main() {
   /*
    * โหมด fetch ทำให้ `httpSend_` เป็น async · ของที่โยนข้างในจึงกลายเป็น
    * unhandled rejection ที่ **ฆ่าทั้งรอบหลังสรุปพิมพ์เสร็จแล้ว** แทนที่จะถูกนับ
@@ -376,9 +372,11 @@ function main() {
 
   var modes = (mode === 'both') ? ['urlfetchapp', 'fetch'] : [mode];
   var rows = [];
-  modes.forEach(function (m) {
-    names.forEach(function (n) { rows.push(runOne(m, n)); });
-  });
+  for (var mi = 0; mi < modes.length; mi++) {
+    for (var ni = 0; ni < names.length; ni++) {
+      rows.push(await runOne(modes[mi], names[ni]));
+    }
+  }
 
   console.log('ตัวรัน: ' + RUNNER_NAME + '  ·  ตัวเลขจากตัวรันนี้เทียบกับของจริงตรง ๆ ไม่ได้\n');
 

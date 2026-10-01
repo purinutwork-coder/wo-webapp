@@ -52,7 +52,7 @@ async function writeAudit(entity, id, action, field, fromValue, toValue, remark,
  * @return {Object} แถวที่เขียนจริง
  */
 async function writeAuditRecord(record) {
-  return await writeAuditRecords([record])[0];
+  return (await writeAuditRecords([record]))[0];
 }
 
 /** ลำดับภายในการรันหนึ่งครั้ง — ทำให้บรรทัดที่เกิดในมิลลิวินาทีเดียวกันยังเรียงถูก */

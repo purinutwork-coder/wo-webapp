@@ -818,7 +818,7 @@ async function listTaskPage_(department, options) {
  */
 async function listTodayTasks(department, page) {
   if (!department) return [];
-  return await listTaskPage_(department, { view: TASK_TODAY_VIEW, page: page }).rows;
+  return (await listTaskPage_(department, { view: TASK_TODAY_VIEW, page: page })).rows;
 }
 
 /* ---------------------------------------------------------------------------
@@ -993,9 +993,9 @@ async function taskViewOf_(task, bundle) {
  */
 async function listTasksForDepartment(department, options) {
   options = options || {};
-  return await listTaskPage_(department, {
+  return (await listTaskPage_(department, {
     view:          options.view,
     page:          options.page,
     includeClosed: !!options.includeClosed
-  }).rows;
+  })).rows;
 }

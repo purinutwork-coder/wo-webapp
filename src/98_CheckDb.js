@@ -2533,7 +2533,7 @@ async function wipeWorkOrderData(confirm) {
   var total = 0, problems = [];
   for (var i = 0; i < WIPE_TABLES_.length; i++) {
     var one = WIPE_TABLES_[i];
-    var before = await queryRows_(one.sheet, {}, { limit: 5000 }).length;
+    var before = (await queryRows_(one.sheet, {}, { limit: 5000 })).length;
 
     if (before) {
       var filters = {};
@@ -2545,7 +2545,7 @@ async function wipeWorkOrderData(confirm) {
      * อ่านกลับเพื่อยืนยัน ห้ามเชื่อว่าลบแล้วเพราะคำสั่งไม่โยน error
      * นี่คือกติกาเดียวกับที่ใช้กับการล้างข้อมูลทดสอบ
      */
-    var after = await queryRows_(one.sheet, {}, { limit: 5000 }).length;
+    var after = (await queryRows_(one.sheet, {}, { limit: 5000 })).length;
     total += before - after;
     lines.push('  ' + one.sheet + ': ' + before + ' → ' + after + ' แถว');
     if (after) problems.push(one.sheet + ' เหลือ ' + after + ' แถว');

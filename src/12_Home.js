@@ -523,7 +523,7 @@ async function woListEmptyResult_(q, reason) {
  */
 async function woSystemIsEmpty_() {
   try {
-    return await dashboardTotals_().isEmpty === true;
+    return (await dashboardTotals_()).isEmpty === true;
   } catch (e) {
     return false;   // อ่านยอดไม่ได้ ให้ถือว่ามีข้อมูล เพื่อไม่ชวนให้ไปสร้างใบงานซ้ำ
   }

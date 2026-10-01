@@ -561,7 +561,7 @@ async function deleteRowByKeyInner_(sheetName, keyField, keyValue) {
    */
   var filters = {};
   filters[keyField] = keyValue;
-  var removed = await db_delete_(sheetName, filters).length;
+  var removed = (await db_delete_(sheetName, filters)).length;
   dbInvalidate_(sheetName);
   return removed > 0;
 }
@@ -686,7 +686,7 @@ function isBlankRow_(raw) {
  * @return {Object[]}
  */
 async function queryRows_(sheetName, filters, opts) {
-  return await queryRowsCounted_(sheetName, filters, opts).rows;
+  return (await queryRowsCounted_(sheetName, filters, opts)).rows;
 }
 
 /**

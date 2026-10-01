@@ -233,7 +233,7 @@ async function api_call(action, args, token) {
   try {
     var publicActions = apiPublicActions_();
     if (Object.prototype.hasOwnProperty.call(publicActions, name)) {
-      return publicActions[name].apply(null, list);
+      return await publicActions[name].apply(null, list);
     }
 
     var registry = apiActions_();
@@ -249,7 +249,7 @@ async function api_call(action, args, token) {
     if (!email) return { ok: false, message: NEED_LOGIN_MESSAGE, needLogin: true };
 
     beginRequest_(email, token);
-    return registry[name].apply(null, list);
+    return await registry[name].apply(null, list);
   } finally {
     // ต้องล้างเสมอ ไม่ให้ตัวตนของคำขอหนึ่งค้างไปถึงคำขอถัดไปที่ใช้การรันเดียวกัน
     endRequest_();
@@ -870,7 +870,7 @@ async function api_getWorkOrder(woId) {
     }
 
     return {
-      workOrder: await withDisplayNames_([wo], ['Created_By'])[0],
+      workOrder: (await withDisplayNames_([wo], ['Created_By']))[0],
       tasks: tasks,
       steps: steps,
       location: wo['PJ_ID'] ? await getLocation(wo['PJ_ID']) : null

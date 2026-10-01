@@ -69,9 +69,14 @@ function assertTrue_(condition, label) {
  * @param {function()} fn ฟังก์ชันที่ควรโยน error
  * @param {string} label คำอธิบายข้อทดสอบ
  */
-function assertThrows_(fn, label) {
+async function assertThrows_(fn, label) {
   try {
-    fn();
+    /*
+     * **ต้อง await** · ฟังก์ชัน async ไม่โยน แต่คืน Promise ที่ถูกปฏิเสธ
+     * ถ้าไม่รอ บรรทัดถัดไปจะทำงานทันทีแล้วข้อนี้จะ "ไม่ผ่าน" ทุกครั้งที่ของจริง
+     * ปฏิเสธถูกต้อง ซึ่งกลับหัวความหมายของเทสต์ทั้งข้อ
+     */
+    await fn();
     fail_(label + ' — คาดว่าจะถูกปฏิเสธ แต่ทำรายการผ่าน');
   } catch (e) {
     pass_(label + ' (ปฏิเสธด้วยข้อความ: ' + e.message + ')');
@@ -85,9 +90,9 @@ function assertThrows_(fn, label) {
  * @param {string} expected ข้อความ (หรือบางส่วน) ที่ต้องปรากฏ
  * @param {string} label คำอธิบายข้อทดสอบ
  */
-function assertThrowsMessage_(fn, expected, label) {
+async function assertThrowsMessage_(fn, expected, label) {
   try {
-    fn();
+    await fn();
     fail_(label + ' — คาดว่าจะถูกปฏิเสธ แต่ทำรายการผ่าน');
   } catch (e) {
     if (String(e.message).indexOf(expected) !== -1) {
@@ -125,7 +130,7 @@ function fail_(label) {
  * ทดสอบ recalcFromStatuses_() ครบทั้ง 5 กรณีในตรรกะของ SPEC หัวข้อ 20.4
  * โดยครอบคลุมทั้งงานแผนกเดียว งานร่วม (Service + Project) และงาน Lab
  */
-function test_recalcWoStatus() {
+async function test_recalcWoStatus() {
   beginTest_('recalcWoStatus — SPEC 20.4');
 
   var T = TASK_STATUS;
@@ -181,7 +186,7 @@ function test_recalcWoStatus() {
     'กรณี 5: ยกเลิกแผนกหนึ่ง อีกแผนกยังไม่รับงาน -> คงสถานะเดิม');
 
   // ---- ค่าสถานะที่ไม่รู้จักต้องถูกปฏิเสธ ไม่ใช่เงียบ ๆ ผ่านไป ----
-  assertThrows_(function () { recalcFromStatuses_(['INCOMPLETE'], W.IN_PROGRESS); },
+  await assertThrows_(function () { recalcFromStatuses_(['INCOMPLETE'], W.IN_PROGRESS); },
     'สถานะ Task ที่ไม่รู้จัก (INCOMPLETE ที่ถูกตัดออกจากเอกสารเดิม) ต้องโยน error');
 
   return endTest_();
@@ -194,7 +199,7 @@ function test_recalcWoStatus() {
 /**
  * ทดสอบ Transition ระดับ WorkOrder — เส้นทางปกติและรายการที่ต้องถูกปฏิเสธ
  */
-function test_woTransitions() {
+async function test_woTransitions() {
   beginTest_('Transition ระดับใบงาน — SPEC 5');
 
   var W = WO_STATUS;
@@ -208,10 +213,10 @@ function test_woTransitions() {
   var plan = planStatusChange_(ENTITY.WO, '', ACTION.CREATE, admin, { requiredFieldsOk: true });
   assertEquals_(plan.to, W.PENDING_APPROVE, 'ADMIN สร้างใบงาน -> รออนุมัติทันที');
   assertEquals_(plan.audit.Action, ACTION.CREATE, 'CREATE เขียน Audit_Log ด้วย Action = CREATE');
-  assertThrows_(function () {
+  await assertThrows_(function () {
     planStatusChange_(ENTITY.WO, '', ACTION.CREATE, admin, {});
   }, 'สร้างใบงานโดย Required Fields ไม่ครบ ต้องถูกปฏิเสธ');
-  assertThrows_(function () {
+  await assertThrows_(function () {
     planStatusChange_(ENTITY.WO, '', ACTION.CREATE, service, { requiredFieldsOk: true });
   }, 'แผนก Service สร้างใบงานไม่ได้');
 
@@ -225,12 +230,12 @@ function test_woTransitions() {
   }).to, W.PENDING_APPROVE, 'Submit ใหม่หลังถูกตีกลับ -> PENDING_APPROVE (ต้องอนุมัติซ้ำเสมอ)');
 
   // ไม่มีสถานะร่างแล้ว EDIT และ SUBMIT จึงใช้ได้จาก RETURNED เท่านั้น (SPEC 4.1)
-  assertThrows_(function () {
+  await assertThrows_(function () {
     planStatusChange_(ENTITY.WO, 'WO-2609-0001', ACTION.EDIT, admin, {
       fromStatus: W.PENDING_APPROVE, isOwner: true
     });
   }, 'แก้ไขใบงานที่รออนุมัติอยู่ ต้องถูกปฏิเสธ');
-  assertThrows_(function () {
+  await assertThrows_(function () {
     planStatusChange_(ENTITY.WO, 'WO-2609-0001', ACTION.SUBMIT, admin, {
       fromStatus: W.PENDING_APPROVE, requiredFieldsOk: true, requiredFilesOk: true
     });
@@ -242,12 +247,12 @@ function test_woTransitions() {
   });
   assertEquals_(plan.to, W.RETURNED, 'แก้ไขใบงานที่ถูกตีกลับ -> สถานะคงเดิม');
   assertEquals_(plan.changed, false, 'EDIT ไม่ทำให้สถานะเปลี่ยน -> changed = false');
-  assertThrows_(function () {
+  await assertThrows_(function () {
     planStatusChange_(ENTITY.WO, 'WO-2609-0001', ACTION.EDIT, admin, {
       fromStatus: W.PENDING_APPROVE, isOwner: true
     });
   }, 'แก้ไขใบงานขณะรออนุมัติไม่ได้ (ล็อกการแก้ไข)');
-  assertThrows_(function () {
+  await assertThrows_(function () {
     planStatusChange_(ENTITY.WO, 'WO-2609-0001', ACTION.EDIT, admin, {
       fromStatus: W.RETURNED, isOwner: false
     });
@@ -260,7 +265,7 @@ function test_woTransitions() {
   };
 
   // เงื่อนไขไฟล์แนบย้ายมาอยู่ที่ ACCEPT แล้ว (SPEC 5) — ไม่ครบต้องอนุมัติไม่ได้
-  assertThrows_(function () {
+  await assertThrows_(function () {
     planStatusChange_(ENTITY.WO, 'WO-2609-0001', ACTION.ACCEPT, approver, {
       fromStatus: W.PENDING_APPROVE, route: ROUTE.SP,
       isCreator: false, assignmentType: ASSIGNMENT.SERVICE
@@ -268,19 +273,19 @@ function test_woTransitions() {
   }, 'อนุมัติโดยไฟล์แนบที่บังคับไม่ครบ ต้องถูกปฏิเสธ');
   assertEquals_(planStatusChange_(ENTITY.WO, 'WO-2609-0001', ACTION.ACCEPT, approver, acceptPayload).to,
     W.APPROVED, 'APPROVER_SP อนุมัติงานสาย SP -> APPROVED');
-  assertThrows_(function () {
+  await assertThrows_(function () {
     planStatusChange_(ENTITY.WO, 'WO-2609-0001', ACTION.ACCEPT, approver, {
       fromStatus: W.PENDING_APPROVE, route: ROUTE.SP, isCreator: true,
       assignmentType: ASSIGNMENT.SERVICE, requiredFilesOk: true
     });
   }, 'ผู้อนุมัติที่เป็นผู้สร้างใบงานเอง อนุมัติไม่ได้');
-  assertThrows_(function () {
+  await assertThrows_(function () {
     planStatusChange_(ENTITY.WO, 'WO-2609-0001', ACTION.ACCEPT, approver, {
       fromStatus: W.PENDING_APPROVE, route: ROUTE.SP, isCreator: false,
       assignmentType: ASSIGNMENT.UNSPECIFIED, requiredFilesOk: true
     });
   }, 'อนุมัติโดยยังไม่ระบุแผนกผู้รับงาน ต้องถูกปฏิเสธ');
-  assertThrows_(function () {
+  await assertThrows_(function () {
     planStatusChange_(ENTITY.WO, 'WO-2609-0002', ACTION.ACCEPT, approver, {
       fromStatus: W.PENDING_APPROVE, route: ROUTE.LAB, isCreator: false,
       assignmentType: ASSIGNMENT.LAB, requiredFilesOk: true
@@ -295,7 +300,7 @@ function test_woTransitions() {
   assertEquals_(planStatusChange_(ENTITY.WO, 'WO-2609-0001', ACTION.RETURN, approver, {
     fromStatus: W.PENDING_APPROVE, route: ROUTE.SP, reason: 'ข้อมูลลูกค้าไม่ครบ'
   }).to, W.RETURNED, 'ผู้อนุมัติตีกลับใบงาน -> RETURNED');
-  assertThrows_(function () {
+  await assertThrows_(function () {
     planStatusChange_(ENTITY.WO, 'WO-2609-0001', ACTION.RETURN, approver, {
       fromStatus: W.PENDING_APPROVE, route: ROUTE.SP, reason: '   '
     });
@@ -305,7 +310,7 @@ function test_woTransitions() {
   assertEquals_(planStatusChange_(ENTITY.WO, 'WO-2609-0001', ACTION.CANCEL_WO, admin, {
     fromStatus: W.PENDING_APPROVE, reason: 'ลูกค้ายกเลิกคำสั่ง'
   }).to, W.CANCELLED, 'ADMIN ยกเลิกใบงานที่ยังรออนุมัติ -> CANCELLED');
-  assertThrows_(function () {
+  await assertThrows_(function () {
     planStatusChange_(ENTITY.WO, 'WO-2609-0001', ACTION.CANCEL_WO, admin, {
       fromStatus: W.IN_PROGRESS, reason: 'ลูกค้ายกเลิกคำสั่ง'
     });
@@ -315,12 +320,12 @@ function test_woTransitions() {
   assertEquals_(planStatusChange_(ENTITY.WO, 'WO-2609-0001', ACTION.REOPEN, approver, {
     fromStatus: W.COMPLETED, route: ROUTE.SP, reason: 'ลูกค้าแจ้งกลับว่ายังมีปัญหา'
   }).to, W.IN_PROGRESS, 'ผู้อนุมัติเปิดงานที่ปิดแล้วใหม่ -> IN_PROGRESS');
-  assertThrows_(function () {
+  await assertThrows_(function () {
     planStatusChange_(ENTITY.WO, 'WO-2609-0001', ACTION.REOPEN, admin, {
       fromStatus: W.COMPLETED, route: ROUTE.SP, reason: 'ลูกค้าแจ้งกลับ'
     });
   }, 'ADMIN เปิดงานที่ปิดแล้วใหม่ไม่ได้ ต้องเป็นผู้อนุมัติของสายนั้น');
-  assertThrows_(function () {
+  await assertThrows_(function () {
     planStatusChange_(ENTITY.WO, 'WO-2609-0001', ACTION.REOPEN, approver, {
       fromStatus: W.CANCELLED, route: ROUTE.SP, reason: 'ขอเปิดใหม่'
     });
@@ -336,7 +341,7 @@ function test_woTransitions() {
 /**
  * ทดสอบ Transition ระดับ Department_Task รวมถึงเงื่อนไขการชำระเงินและสิทธิ์ข้ามแผนก
  */
-function test_taskTransitions() {
+async function test_taskTransitions() {
   beginTest_('Transition ระดับงานของแผนก — SPEC 5, 12');
 
   var T = TASK_STATUS;
@@ -369,11 +374,11 @@ function test_taskTransitions() {
   assertEquals_(planStatusChange_(ENTITY.TASK, 'TASK-001', ACTION.TASK_ACCEPT, service,
     payload({ fromStatus: T.PENDING_ACCEPT, paymentRequired: true, paymentStatus: PAYMENT.PAID })).to,
     T.IN_PROGRESS, 'งานที่ต้องชำระก่อนและชำระแล้ว รับงานได้');
-  assertThrows_(function () {
+  await assertThrows_(function () {
     planStatusChange_(ENTITY.TASK, 'TASK-001', ACTION.TASK_ACCEPT, service,
       payload({ fromStatus: T.PENDING_ACCEPT, paymentRequired: true, paymentStatus: PAYMENT.UNPAID }));
   }, 'งานที่ต้องชำระก่อนแต่ยัง UNPAID รับงานไม่ได้');
-  assertThrows_(function () {
+  await assertThrows_(function () {
     planStatusChange_(ENTITY.TASK, 'TASK-001', ACTION.TASK_ACCEPT, project,
       payload({ fromStatus: T.PENDING_ACCEPT, paymentRequired: false }));
   }, 'แผนก Project กดรับงานของแผนก Service ไม่ได้');
@@ -387,15 +392,15 @@ function test_taskTransitions() {
   assertEquals_(planStatusChange_(ENTITY.TASK, 'TASK-001', ACTION.TASK_COMPLETE, service,
     payload({ fromStatus: T.IN_PROGRESS, allStepsDone: true, requiredReportsOk: true })).to,
     T.COMPLETED, 'ปิดงานเมื่อ Step และ Report ครบ -> Task COMPLETED');
-  assertThrows_(function () {
+  await assertThrows_(function () {
     planStatusChange_(ENTITY.TASK, 'TASK-001', ACTION.TASK_COMPLETE, service,
       payload({ fromStatus: T.IN_PROGRESS, allStepsDone: false, requiredReportsOk: true }));
   }, 'ปิดงานทั้งที่ Step ยังไม่ครบ ต้องถูกปฏิเสธ');
-  assertThrows_(function () {
+  await assertThrows_(function () {
     planStatusChange_(ENTITY.TASK, 'TASK-001', ACTION.TASK_COMPLETE, service,
       payload({ fromStatus: T.IN_PROGRESS, allStepsDone: true, requiredReportsOk: false }));
   }, 'ปิดงานทั้งที่ Report ที่บังคับยังไม่ครบ ต้องถูกปฏิเสธ');
-  assertThrows_(function () {
+  await assertThrows_(function () {
     planStatusChange_(ENTITY.TASK, 'TASK-001', ACTION.TASK_COMPLETE, service,
       payload({ fromStatus: T.PENDING_ACCEPT, allStepsDone: true, requiredReportsOk: true }));
   }, 'ปิดงานโดยยังไม่กดรับงาน ต้องถูกปฏิเสธ');
@@ -421,11 +426,11 @@ function test_taskTransitions() {
   assertEquals_(planStatusChange_(ENTITY.TASK, 'TASK-001', ACTION.TASK_CANCEL, admin,
     payload({ fromStatus: T.IN_PROGRESS, reason: 'ยกเลิกตามคำสั่งลูกค้า' })).to,
     T.CANCELLED, 'ADMIN ยกเลิก Task แทนได้');
-  assertThrows_(function () {
+  await assertThrows_(function () {
     planStatusChange_(ENTITY.TASK, 'TASK-001', ACTION.TASK_CANCEL, project,
       payload({ fromStatus: T.IN_PROGRESS, reason: 'ยกเลิก' }));
   }, 'แผนกอื่นยกเลิก Task ของแผนก Service ไม่ได้');
-  assertThrows_(function () {
+  await assertThrows_(function () {
     planStatusChange_(ENTITY.TASK, 'TASK-001', ACTION.TASK_CANCEL, service,
       payload({ fromStatus: T.COMPLETED, reason: 'ขอยกเลิกย้อนหลัง' }));
   }, 'Task ที่ COMPLETED แล้วยกเลิกไม่ได้ (สถานะปลายทาง)');
@@ -806,7 +811,7 @@ function assertNoSlashInColumnNames_() {
 /**
  * เขียนใบงานทดสอบแล้วอ่านกลับ ต้องได้ค่าเดิมทุกฟิลด์ และต้องมีเลขแถวจริงติดมาด้วย
  */
-function test_repo_writeRead() {
+async function test_repo_writeRead() {
   beginTest_('เขียนแล้วอ่านกลับได้ค่าเดิม');
 
   var woId = testWoId_();
@@ -828,7 +833,7 @@ function test_repo_writeRead() {
     'Payment_Status': PAYMENT.UNPAID
   };
 
-  var written = insertWorkOrder(input);
+  var written = await insertWorkOrder(input);
 
   /*
    * เขียนแล้วต้องได้ "ตัวตนของแถว" กลับมา — เจตนาเดิมของข้อนี้ไม่เปลี่ยน
@@ -841,7 +846,7 @@ function test_repo_writeRead() {
     'เขียนแล้วต้องได้คีย์หลักกลับมาในแถวที่คืน');
   assertEquals_(written['WO_ID'], woId, 'และคีย์หลักต้องตรงกับที่เพิ่งเขียนลงไป');
 
-  var readBack = getWorkOrder(woId);
+  var readBack = await getWorkOrder(woId);
   assertTrue_(readBack !== null, 'อ่านใบงานที่เพิ่งเขียนกลับมาได้');
   if (!readBack) return endTest_();
 
@@ -863,8 +868,8 @@ function test_repo_writeRead() {
    * ที่ด่านชื่อคอลัมน์จะได้ทำงาน · assertThrows_ จึงเขียวอยู่ทั้งที่ไม่ได้พิสูจน์
    * สิ่งที่ตั้งใจจะพิสูจน์เลย · ต้องตรวจข้อความด้วย ไม่ใช่ตรวจแค่ว่ามี error
    */
-  assertThrowsMessage_(function () {
-    insertWorkOrder({ 'WO_ID': testWoId_(), 'Customer_Nmae': 'สะกดผิด',
+  await assertThrowsMessage_(async function () {
+    await insertWorkOrder({ 'WO_ID': testWoId_(), 'Customer_Nmae': 'สะกดผิด',
       'Overall_Status': WO_STATUS.PENDING_APPROVE });
   }, 'Customer_Nmae', 'เขียนคอลัมน์ที่ไม่มีในตาราง ต้องถูกปฏิเสธพร้อมบอกชื่อคอลัมน์');
 
@@ -1034,7 +1039,7 @@ function test_repo_fixturesFillRequiredColumns() {
 /**
  * Optimistic Lock ต้องปฏิเสธเมื่อ expectedUpdatedDate ไม่ตรงกับค่าในชีต (SPEC C-3)
  */
-function test_repo_optimisticLock() {
+async function test_repo_optimisticLock() {
   beginTest_('Optimistic Lock — SPEC C-3');
 
   var woId = testWoId_();
@@ -1042,42 +1047,42 @@ function test_repo_optimisticLock() {
    * Overall_Status เป็นคอลัมน์บังคับที่ไม่มีค่าตั้งต้นในฐานข้อมูล · ยุคชีตปล่อยว่างได้
    * แถวที่ขาดไปจึงเขียนลงได้ตลอดมา แต่ Postgres ปฏิเสธด้วย 23502
    */
-  insertWorkOrder({ 'WO_ID': woId, 'Customer_Code': 'CUST-TEST', 'Location': 'จุดที่ 1',
+  await insertWorkOrder({ 'WO_ID': woId, 'Customer_Code': 'CUST-TEST', 'Location': 'จุดที่ 1',
     'Overall_Status': WO_STATUS.PENDING_APPROVE });
 
-  var current = getWorkOrder(woId);
+  var current = await getWorkOrder(woId);
   var stamp = current['Updated_Date'];
   assertTrue_(toDate_(stamp) !== null, 'ใบงานมีค่า Updated_Date ไว้ใช้ตรวจการแก้ซ้อน');
 
   // ค่าที่ผู้ใช้ถืออยู่เก่ากว่าในชีต ต้องถูกปฏิเสธ
   var staleDate = new Date(toDate_(stamp).getTime() - 60000);
-  assertThrows_(function () {
-    updateWorkOrder(woId, { 'Location': 'จุดที่ 2' }, staleDate);
+  await assertThrows_(async function () {
+    await updateWorkOrder(woId, { 'Location': 'จุดที่ 2' }, staleDate);
   }, 'แก้ไขด้วย Updated_Date ที่ไม่ตรง ต้องถูกปฏิเสธ');
 
-  var unchanged = getWorkOrder(woId);
+  var unchanged = await getWorkOrder(woId);
   assertEquals_(unchanged['Location'], 'จุดที่ 1', 'รายการที่ถูกปฏิเสธต้องไม่เขียนทับข้อมูลเดิม');
 
   // ค่าที่ตรงกับในชีต ต้องผ่าน
-  var ok = updateWorkOrder(woId, { 'Location': 'จุดที่ 3' }, stamp);
+  var ok = await updateWorkOrder(woId, { 'Location': 'จุดที่ 3' }, stamp);
   assertEquals_(ok['Location'], 'จุดที่ 3', 'แก้ไขด้วย Updated_Date ที่ถูกต้อง ทำได้ปกติ');
 
   // หลังแก้สำเร็จ ค่าเดิมต้องใช้ไม่ได้อีก เพราะ Updated_Date ถูกประทับใหม่
-  assertThrows_(function () {
-    updateWorkOrder(woId, { 'Location': 'จุดที่ 4' }, stamp);
+  await assertThrows_(async function () {
+    await updateWorkOrder(woId, { 'Location': 'จุดที่ 4' }, stamp);
   }, 'ใช้ Updated_Date ชุดเดิมซ้ำหลังมีการแก้ไขแล้ว ต้องถูกปฏิเสธ');
 
   // ไม่ส่ง expectedUpdatedDate มา = ยอมให้เขียนทับ (ใช้กับงานเบื้องหลังที่ไม่ได้มาจากหน้าจอ)
-  var forced = updateWorkOrder(woId, { 'Location': 'จุดที่ 5' });
+  var forced = await updateWorkOrder(woId, { 'Location': 'จุดที่ 5' });
   assertEquals_(forced['Location'], 'จุดที่ 5', 'ไม่ส่งค่าเทียบมา ระบบยอมให้เขียนทับได้');
 
   // หน้าเว็บส่งค่ากลับมาเป็นข้อความ ISO เพราะ google.script.run ส่ง Date เป็นพารามิเตอร์ไม่ได้
   // เส้นทางนี้จึงต้องใช้งานได้จริงและยังเทียบถึงระดับมิลลิวินาทีเหมือนเดิม
-  var isoStamp = toDate_(getWorkOrder(woId)['Updated_Date']).toISOString();
-  var byIso = updateWorkOrder(woId, { 'Location': 'จุดที่ 6' }, isoStamp);
+  var isoStamp = toDate_((await getWorkOrder(woId))['Updated_Date']).toISOString();
+  var byIso = await updateWorkOrder(woId, { 'Location': 'จุดที่ 6' }, isoStamp);
   assertEquals_(byIso['Location'], 'จุดที่ 6', 'ส่ง Updated_Date เป็นข้อความ ISO แบบที่หน้าเว็บส่งมา ต้องผ่าน');
-  assertThrows_(function () {
-    updateWorkOrder(woId, { 'Location': 'จุดที่ 7' }, isoStamp);
+  await assertThrows_(async function () {
+    await updateWorkOrder(woId, { 'Location': 'จุดที่ 7' }, isoStamp);
   }, 'ข้อความ ISO ชุดเดิมที่ล้าสมัยแล้ว ต้องถูกปฏิเสธเหมือนกัน');
 
   return endTest_();
@@ -1086,22 +1091,22 @@ function test_repo_optimisticLock() {
 /**
  * Audit ต้องเขียนลงไฟล์ที่แยกต่างหาก ไม่ใช่ไฟล์ฐานข้อมูลหลัก (SPEC D-5)
  */
-function test_repo_audit() {
+async function test_repo_audit() {
   beginTest_('Audit เขียนลงไฟล์แยก — SPEC D-5');
 
   assertTrue_(getAuditDb_().getId() !== getDb_().getId(),
     'ไฟล์ Audit_Log ต้องเป็นคนละไฟล์กับฐานข้อมูลหลัก');
 
   var woId = testWoId_();
-  var row = writeAudit(ENTITY.WO, woId, ACTION.CREATE, 'Status', '', WO_STATUS.PENDING_APPROVE, 'บันทึกจากชุดทดสอบ');
+  var row = await writeAudit(ENTITY.WO, woId, ACTION.CREATE, 'Status', '', WO_STATUS.PENDING_APPROVE, 'บันทึกจากชุดทดสอบ');
 
   assertTrue_(!!row['Log_ID'], 'Audit ได้ Log_ID อัตโนมัติ');
   assertEquals_(row['User'], currentUserEmail_(), 'Audit เติมอีเมลผู้ทำรายการให้เอง');
   assertTrue_(toDate_(row['Timestamp']) !== null, 'Audit เติม Timestamp ให้เอง');
 
-  assertEquals_(auditCount_(woId, ENTITY.WO, ACTION.CREATE), 1,
+  assertEquals_(await auditCount_(woId, ENTITY.WO, ACTION.CREATE), 1,
     'อ่านประวัติกลับมาได้ 1 แถวที่เป็น Entity = WO และ Action = CREATE');
-  var created = findAuditRow_(woId, ENTITY.WO, ACTION.CREATE);
+  var created = await findAuditRow_(woId, ENTITY.WO, ACTION.CREATE);
   assertEquals_(created['To_Value'], WO_STATUS.PENDING_APPROVE, 'ค่า To_Value ตรงกับที่บันทึกไป');
   assertEquals_(created['Remark'], 'บันทึกจากชุดทดสอบ', 'บันทึกหมายเหตุไว้ครบ');
 
@@ -1110,7 +1115,7 @@ function test_repo_audit() {
     { email: currentUserEmail_(), role: ROLE.SERVICE, department: DEPT.SERVICE },
     { fromStatus: TASK_STATUS.PENDING_ACCEPT, department: DEPT.SERVICE, route: ROUTE.SP,
       woId: woId, paymentRequired: false });
-  var taskLog = writeAuditRecord(plan.audit);
+  var taskLog = await writeAuditRecord(plan.audit);
   assertEquals_(taskLog['WO_ID'], woId, 'Audit ของ Task มี WO_ID ติดไปด้วย');
   assertEquals_(taskLog['Task_ID'], 'TEST-TASK-1', 'Audit ของ Task บันทึก Task_ID ไว้');
 
@@ -1131,7 +1136,7 @@ function test_repo_audit() {
  *
  * @return {Object} {deleted, perSheet}
  */
-function test_cleanup() {
+async function test_cleanup() {
   beginTest_('ล้างข้อมูลทดสอบ');
 
   var deleted = 0;
@@ -1139,7 +1144,7 @@ function test_cleanup() {
   var dbTargets = [];
 
   // โฟลเดอร์บน Drive ต้องเก็บกวาดก่อนลบแถว เพราะรหัสโฟลเดอร์อยู่ในแถวใบงานที่กำลังจะหายไป
-  var folders = trashTestFolders_();
+  var folders = await trashTestFolders_();
   if (folders) Logger.log('  ย้ายโฟลเดอร์ทดสอบลงถังขยะ ' + folders + ' โฟลเดอร์');
 
   for (var i = 0; i < TEST_SCAN.length; i++) {
@@ -1167,7 +1172,7 @@ function test_cleanup() {
     dbTargets.push({ sheet: sheetName, target: target, field: scanField });
   }
 
-  var fromDb = cleanDbTablesTogether_(dbTargets);
+  var fromDb = await cleanDbTablesTogether_(dbTargets);
   deleted += fromDb.deleted;
   for (var name in fromDb.perSheet) {
     if (!Object.prototype.hasOwnProperty.call(fromDb.perSheet, name)) continue;
@@ -1201,7 +1206,7 @@ function test_cleanup() {
  * @param {Object[]} targets รายการ {sheet, target, field}
  * @return {Object} {deleted, perSheet}
  */
-function cleanDbTablesTogether_(targets) {
+async function cleanDbTablesTogether_(targets) {
   var perSheet = {};
   var deleted = 0;
   if (!targets || !targets.length) return { deleted: deleted, perSheet: perSheet };
@@ -1250,11 +1255,11 @@ function cleanDbTablesTogether_(targets) {
     before.push({ tableKey: merged[b].sheet, filters: requests[b].filters,
       select: merged[b].fields[0], limit: DB_ROWS_PER_ENTITY });
   }
-  var existing = db_fetchAll_(before);
+  var existing = await db_fetchAll_(before);
 
   var removedRows;
   try {
-    removedRows = db_deleteAll_(requests);
+    removedRows = await db_deleteAll_(requests);
   } catch (e) {
     Logger.log('  ล้างข้อมูลทดสอบพร้อมกันหลายตารางไม่สำเร็จ: ' + (e && e.message));
     throw e;
@@ -1291,7 +1296,7 @@ function cleanDbTablesTogether_(targets) {
     checks.push({ tableKey: merged[c].sheet, filters: requests[c].filters, limit: 1 });
   }
 
-  var left = db_fetchAll_(checks);
+  var left = await db_fetchAll_(checks);
   var stillThere = [];
   for (var s = 0; s < merged.length; s++) {
     if (left[s].length) stillThere.push(merged[s].sheet);
@@ -1361,7 +1366,7 @@ function testRowFilter_(one) {
  * @param {Object} [extra] ตัวกรองเพิ่มเติม เช่น {Action: ...}
  * @return {Object[]}
  */
-function testRowsFromDb_(sheetName, field, extra) {
+async function testRowsFromDb_(sheetName, field, extra) {
   var filters = {};
   filters[field] = { op: 'like', value: dbLikeLiteral_(TEST_PREFIX) + '*' };
 
@@ -1370,7 +1375,7 @@ function testRowsFromDb_(sheetName, field, extra) {
       if (Object.prototype.hasOwnProperty.call(extra, key)) filters[key] = extra[key];
     }
   }
-  return queryRows_(sheetName, filters);
+  return await queryRows_(sheetName, filters);
 }
 
 /**
@@ -1384,10 +1389,10 @@ function testRowsFromDb_(sheetName, field, extra) {
  *
  * @return {number} จำนวนโฟลเดอร์ที่ย้ายลงถังขยะ
  */
-function trashTestFolders_() {
+async function trashTestFolders_() {
   var rows;
   try {
-    rows = testRowsFromDb_(SHEET.WORK_ORDER, 'WO_ID');
+    rows = await testRowsFromDb_(SHEET.WORK_ORDER, 'WO_ID');
   } catch (e) {
     return 0;
   }
@@ -1477,7 +1482,7 @@ function hasTestValue_(value) {
  * แล้วล้างแคชอ่านใหม่จากฐานข้อมูล · สองภาพนี้ต้องตรงกันทุกช่อง
  * ถ้าต่างกันแม้ช่องเดียวคือแคชเชื่อถือไม่ได้
  */
-function test_repo_cacheMatchesSheet() {
+async function test_repo_cacheMatchesSheet() {
   beginTest_('ค่าที่แคชไว้ต้องตรงกับที่ฐานข้อมูลเก็บจริง');
 
   var mine = { Row_ID: { op: 'like', value: dbLikeLiteral_(testPrefix_()) + '*' } };
@@ -1502,21 +1507,21 @@ function test_repo_cacheMatchesSheet() {
     /* ---------- เขียนด้วย appendRow_ ---------- */
     // อ่านหนึ่งครั้งก่อน เพื่อให้แคชอุ่นอยู่แล้วตอนเขียน
     // ถ้าแคชยังว่าง การเพิ่มแถวจะไม่ไปแตะแคชเลย แล้วเทสต์จะผ่านโดยไม่ได้พิสูจน์อะไร
-    readAll_(TEST_BULK_TABLE);
+    await readAll_(TEST_BULK_TABLE);
 
     var ids = [];
     for (var i = 0; i < risky.length; i++) {
       // เติมศูนย์นำหน้าให้เรียงลำดับแบบข้อความตรงกับลำดับที่เขียนลงไป
       var id = testPrefix_() + 'M' + ('0' + i).slice(-2);
       ids.push(id);
-      appendRow_(TEST_BULK_TABLE, { 'Row_ID': id, 'Row_Name': risky[i].name,
+      await appendRow_(TEST_BULK_TABLE, { 'Row_ID': id, 'Row_Name': risky[i].name,
         'Sort_Order': risky[i].order, 'Active': risky[i].active });
     }
 
-    var cachedAppend = readAll_(TEST_BULK_TABLE);
+    var cachedAppend = await readAll_(TEST_BULK_TABLE);
     clearRowCache_(TEST_BULK_TABLE);
     clearHeaderCache_(TEST_BULK_TABLE);
-    var freshAppend = readAll_(TEST_BULK_TABLE);
+    var freshAppend = await readAll_(TEST_BULK_TABLE);
 
     assertEquals_(cachedAppend.length, freshAppend.length,
       'จำนวนแถวที่แคชไว้ตรงกับที่อ่านใหม่จากฐานข้อมูล');
@@ -1528,14 +1533,14 @@ function test_repo_cacheMatchesSheet() {
 
     /* ---------- เขียนด้วย updateRow_ ---------- */
     for (var u = 0; u < risky.length; u++) {
-      updateRow_(TEST_BULK_TABLE, 'Row_ID', ids[u],
+      await updateRow_(TEST_BULK_TABLE, 'Row_ID', ids[u],
         { 'Sort_Order': risky[u].order, 'Active': risky[u].active });
     }
 
-    var cachedUpdate = readAll_(TEST_BULK_TABLE);
+    var cachedUpdate = await readAll_(TEST_BULK_TABLE);
     clearRowCache_(TEST_BULK_TABLE);
     clearHeaderCache_(TEST_BULK_TABLE);
-    var freshUpdate = readAll_(TEST_BULK_TABLE);
+    var freshUpdate = await readAll_(TEST_BULK_TABLE);
 
     for (var w = 0; w < risky.length; w++) {
       assertEquals_(cellSignature_(cachedUpdate[w]['Sort_Order']),
@@ -1565,11 +1570,11 @@ function test_repo_cacheMatchesSheet() {
      */
 
   } finally {
-    db_delete_(TEST_BULK_TABLE, mine);
+    await db_delete_(TEST_BULK_TABLE, mine);
     clearRowCache_();
   }
 
-  assertEquals_(db_count_(TEST_BULK_TABLE, mine), 0, 'ต้องไม่เหลือแถวทดสอบไว้เลย');
+  assertEquals_(await db_count_(TEST_BULK_TABLE, mine), 0, 'ต้องไม่เหลือแถวทดสอบไว้เลย');
 
   return endTest_();
 }
@@ -1623,7 +1628,7 @@ function valueOf_(rows, key) {
  * ที่เขียนขึ้นให้ข้อนี้ · เขียนลงตาราง _Test_Bulk ซึ่งมีไว้ให้ชุดทดสอบเท่านั้น
  * ระบบจริงไม่อ่านที่ไหนเลย จึงวางแถว "ของจริง" ปลอมลงไปได้โดยไม่มีผู้ใช้คนไหนเห็น
  */
-function test_repo_cleanupSafety() {
+async function test_repo_cleanupSafety() {
   beginTest_('ลบข้อมูลทดสอบแล้วข้อมูลจริงต้องอยู่ครบ');
 
   /*
@@ -1655,19 +1660,19 @@ function test_repo_cleanupSafety() {
   }
 
   try {
-    db_insert_(TEST_BULK_TABLE, rows);
-    assertEquals_(db_count_(TEST_BULK_TABLE, mineFilter), 3, 'เตรียมแถวทดสอบครบ 3 แถว');
-    assertEquals_(db_count_(TEST_BULK_TABLE, keepFilter), 3, 'เตรียมแถวของจริงครบ 3 แถว');
+    await db_insert_(TEST_BULK_TABLE, rows);
+    assertEquals_(await db_count_(TEST_BULK_TABLE, mineFilter), 3, 'เตรียมแถวทดสอบครบ 3 แถว');
+    assertEquals_(await db_count_(TEST_BULK_TABLE, keepFilter), 3, 'เตรียมแถวของจริงครบ 3 แถว');
 
     /* ---------- ทางที่การล้างของจริงเดิน ต้องลบเฉพาะแถวทดสอบ ---------- */
-    var swept = cleanDbTablesTogether_([
+    var swept = await cleanDbTablesTogether_([
       { sheet: TEST_BULK_TABLE, target: { sheet: TEST_BULK_TABLE }, field: 'Row_ID' }
     ]);
     assertEquals_(swept.deleted, 3, 'ตัวกวาดต้องลบแถวทดสอบ 3 แถว ไม่มากไม่น้อยกว่านี้');
-    assertEquals_(db_count_(TEST_BULK_TABLE, mineFilter), 0, 'ไม่มีแถวทดสอบหลงเหลืออยู่');
+    assertEquals_(await db_count_(TEST_BULK_TABLE, mineFilter), 0, 'ไม่มีแถวทดสอบหลงเหลืออยู่');
 
     /* ---------- ข้อมูลจริงต้องอยู่ครบ ทั้งจำนวน ลำดับ และเนื้อค่า ---------- */
-    var after = db_select_(TEST_BULK_TABLE, { filters: keepFilter, order: 'Row_ID' });
+    var after = await db_select_(TEST_BULK_TABLE, { filters: keepFilter, order: 'Row_ID' });
     // เทียบเป็นข้อความชุดเดียว เพื่อให้เห็นทันทีว่าแถวไหนหายไปเมื่อตัวกรองพลาด
     var ids = [];
     for (var a = 0; a < after.length; a++) ids.push(String(after[a].Row_ID));
@@ -1683,11 +1688,11 @@ function test_repo_cleanupSafety() {
      * นี่คือกรณีที่ตัวกรองหายแล้วเงียบที่สุด — ตารางที่ไม่มีแถวทดสอบเหลือแล้ว
      * ถ้าเงื่อนไขหลุด การลบจะกวาดทั้งตารางโดยที่จำนวน "ลบได้ 3" ก็ยังดูสมเหตุสมผล
      */
-    var again = cleanDbTablesTogether_([
+    var again = await cleanDbTablesTogether_([
       { sheet: TEST_BULK_TABLE, target: { sheet: TEST_BULK_TABLE }, field: 'Row_ID' }
     ]);
     assertEquals_(again.deleted, 0, 'ไม่มีแถวทดสอบให้ลบ ต้องไม่ลบอะไรเลย');
-    assertEquals_(db_count_(TEST_BULK_TABLE, keepFilter), 3,
+    assertEquals_(await db_count_(TEST_BULK_TABLE, keepFilter), 3,
       'กวาดตอนไม่มีอะไรให้ลบ แถวของจริงต้องยังครบ');
 
     /* ---------- แถวที่มี TEST- อยู่กลางค่า ไม่ใช่หัวค่า ต้องไม่ถูกกวาด ---------- */
@@ -1696,14 +1701,14 @@ function test_repo_cleanupSafety() {
      * แต่กวาดโดนแถวของจริงที่บังเอิญมีคำนี้อยู่ข้างใน · ต่างกันแค่ดอกจันตัวเดียว
      */
     var lookalike = keep + 'D-' + TEST_PREFIX + 'INSIDE';
-    db_insert_(TEST_BULK_TABLE, [{ Row_ID: lookalike, Row_Name: 'ของจริงที่มีคำว่า TEST- อยู่ข้างใน',
+    await db_insert_(TEST_BULK_TABLE, [{ Row_ID: lookalike, Row_Name: 'ของจริงที่มีคำว่า TEST- อยู่ข้างใน',
       Sort_Order: 99, Active: true }]);
 
-    var third = cleanDbTablesTogether_([
+    var third = await cleanDbTablesTogether_([
       { sheet: TEST_BULK_TABLE, target: { sheet: TEST_BULK_TABLE }, field: 'Row_ID' }
     ]);
     assertEquals_(third.deleted, 0, 'ค่าที่มี TEST- อยู่กลางข้อความ ไม่ใช่ข้อมูลทดสอบ');
-    assertEquals_(db_count_(TEST_BULK_TABLE, keepFilter), 4,
+    assertEquals_(await db_count_(TEST_BULK_TABLE, keepFilter), 4,
       'แถวที่หน้าตาคล้ายต้องยังอยู่ครบพร้อมของจริงเดิม');
 
     /* ---------- ลบได้ไม่เท่าที่มีอยู่ ต้องดัง ไม่ใช่ผ่านไปเงียบ ๆ ---------- */
@@ -1711,18 +1716,18 @@ function test_repo_cleanupSafety() {
      * เคยเกิดจริง 29-09-2026: รายงานบอก "ลบทั้งหมด 0 แถว" ในรอบที่มีข้อมูลทดสอบอยู่จริง
      * ด่านที่อ่านกลับมาดูว่า "ไม่เหลือแล้ว" ผ่านทั้งกรณีลบสำเร็จและกรณีไม่ได้ลบอะไรเลย
      */
-    assertThrowsMessage_(function () {
-      dbDeleteVerified_(TEST_BULK_TABLE, mineFilter, 'แถวที่ไม่มีอยู่จริง', 5);
+    await assertThrowsMessage_(async function () {
+      await dbDeleteVerified_(TEST_BULK_TABLE, mineFilter, 'แถวที่ไม่มีอยู่จริง', 5);
     }, 'ไม่ครบ', 'บอกว่าจะลบ 5 แถวแต่ลบได้ 0 ต้องฟ้อง ไม่ใช่รายงานว่าสำเร็จ');
 
   } finally {
     // ล้างด้วยตัวกรองคำนำหน้าทั้งสองชุด เพราะแถว KEEP- ไม่มีใครอื่นตามเก็บให้
-    db_delete_(TEST_BULK_TABLE, keepFilter);
-    db_delete_(TEST_BULK_TABLE, mineFilter);
+    await db_delete_(TEST_BULK_TABLE, keepFilter);
+    await db_delete_(TEST_BULK_TABLE, mineFilter);
     clearRowCache_();
   }
 
-  assertEquals_(db_count_(TEST_BULK_TABLE, keepFilter), 0, 'ต้องไม่เหลือแถวของข้อนี้ไว้เลย');
+  assertEquals_(await db_count_(TEST_BULK_TABLE, keepFilter), 0, 'ต้องไม่เหลือแถวของข้อนี้ไว้เลย');
 
   return endTest_();
 }
@@ -1764,8 +1769,8 @@ function nextTestSerial_() {
  * @param {string} woId เลขที่ใบงาน
  * @return {Object} แผนที่ชื่อ Action ไปยังจำนวนบรรทัด
  */
-function auditActionCount_(woId) {
-  var rows = listAuditByWo(woId);
+async function auditActionCount_(woId) {
+  var rows = await listAuditByWo(woId);
   var count = {};
   for (var i = 0; i < rows.length; i++) {
     var action = String(rows[i]['Action'] || '');
@@ -1786,8 +1791,8 @@ function auditActionCount_(woId) {
  * @param {string} action ค่าจาก ACTION
  * @return {number}
  */
-function auditCount_(woId, entity, action) {
-  return findAuditRows_(woId, entity, action).length;
+async function auditCount_(woId, entity, action) {
+  return (await findAuditRows_(woId, entity, action)).length;
 }
 
 /**
@@ -1797,8 +1802,8 @@ function auditCount_(woId, entity, action) {
  * @param {string} action ค่าจาก ACTION
  * @return {Object[]}
  */
-function findAuditRows_(woId, entity, action) {
-  var rows = listAuditByWo(woId);
+async function findAuditRows_(woId, entity, action) {
+  var rows = await listAuditByWo(woId);
   var found = [];
   for (var i = 0; i < rows.length; i++) {
     if (String(rows[i]['Entity']) === entity && String(rows[i]['Action']) === action) found.push(rows[i]);
@@ -1813,8 +1818,8 @@ function findAuditRows_(woId, entity, action) {
  * @param {string} action ค่าจาก ACTION
  * @return {Object}
  */
-function findAuditRow_(woId, entity, action) {
-  var rows = findAuditRows_(woId, entity, action);
+async function findAuditRow_(woId, entity, action) {
+  var rows = await findAuditRows_(woId, entity, action);
   return rows.length ? rows[0] : {};
 }
 
@@ -1823,7 +1828,7 @@ function findAuditRow_(woId, entity, action) {
  * CREATE -> SUBMIT -> ACCEPT -> (สร้าง Task) -> TASK_ACCEPT -> TASK_COMPLETE
  * แล้วตรวจว่า WO ปิดเองโดยไม่มีใครสั่งปิด และมี Audit ครบทุกขั้น
  */
-function test_statemachine_integration_flow() {
+async function test_statemachine_integration_flow() {
   beginTest_('flow เต็มจนปิดงานเอง — SPEC 6.1, 20.3');
 
   var admin    = { email: currentUserEmail_(), role: ROLE.ADMIN };
@@ -1834,7 +1839,7 @@ function test_statemachine_integration_flow() {
   var taskId = testTaskId_('SV');
 
   // 1) CREATE — changeStatus สร้างแถวให้พร้อมสถานะตั้งต้น ไม่มีใครพิมพ์สถานะลงชีตเอง
-  var created = changeStatus(ENTITY.WO, woId, ACTION.CREATE, admin, {
+  var created = await changeStatus(ENTITY.WO, woId, ACTION.CREATE, admin, {
     requiredFieldsOk: true,
     fields: {
       'WO_ID': woId,
@@ -1848,64 +1853,64 @@ function test_statemachine_integration_flow() {
     }
   });
   assertEquals_(created.to, WO_STATUS.PENDING_APPROVE, 'CREATE -> รออนุมัติทันที');
-  assertEquals_(getWorkOrder(woId)['Overall_Status'], WO_STATUS.PENDING_APPROVE,
+  assertEquals_((await getWorkOrder(woId))['Overall_Status'], WO_STATUS.PENDING_APPROVE,
     'สถานะรออนุมัติถูกเขียนลงชีตจริง');
 
   // 2) SUBMIT — ใช้ได้จาก RETURNED เท่านั้น จึงต้องผ่านการตีกลับก่อน
-  changeStatus(ENTITY.WO, woId, ACTION.RETURN, approver, { reason: 'ขอให้แก้ก่อน' });
-  var submitted = changeStatus(ENTITY.WO, woId, ACTION.SUBMIT, admin, { requiredFieldsOk: true });
+  await changeStatus(ENTITY.WO, woId, ACTION.RETURN, approver, { reason: 'ขอให้แก้ก่อน' });
+  var submitted = await changeStatus(ENTITY.WO, woId, ACTION.SUBMIT, admin, { requiredFieldsOk: true });
   assertEquals_(submitted.from, WO_STATUS.RETURNED, 'SUBMIT อ่านสถานะเดิมจากชีตได้เป็น RETURNED');
-  assertEquals_(getWorkOrder(woId)['Overall_Status'], WO_STATUS.PENDING_APPROVE, 'SUBMIT -> PENDING_APPROVE ในชีต');
+  assertEquals_((await getWorkOrder(woId))['Overall_Status'], WO_STATUS.PENDING_APPROVE, 'SUBMIT -> PENDING_APPROVE ในชีต');
 
   // 3) ACCEPT — สายอนุมัติและ "ไม่ใช่ผู้สร้างเอง" ถูกตรวจจากข้อมูลในชีต
-  var accepted = changeStatus(ENTITY.WO, woId, ACTION.ACCEPT, approver, {
+  var accepted = await changeStatus(ENTITY.WO, woId, ACTION.ACCEPT, approver, {
     assignmentType: ASSIGNMENT.SERVICE, requiredFilesOk: true,
     fields: { 'Assignment_Type': ASSIGNMENT.SERVICE, 'Approved_By': approver.email }
   });
   assertEquals_(accepted.to, WO_STATUS.APPROVED, 'ACCEPT -> APPROVED');
-  assertEquals_(getWorkOrder(woId)['Assignment_Type'], ASSIGNMENT.SERVICE, 'แผนกผู้รับงานถูกบันทึกพร้อมสถานะในการเขียนครั้งเดียว');
+  assertEquals_((await getWorkOrder(woId))['Assignment_Type'], ASSIGNMENT.SERVICE, 'แผนกผู้รับงานถูกบันทึกพร้อมสถานะในการเขียนครั้งเดียว');
 
   // 4) สร้าง Task ของแผนก — WO ต้องยังเป็น APPROVED เพราะยังไม่มีใครรับงาน
-  var taskCreated = changeStatus(ENTITY.TASK, taskId, ACTION.CREATE, approver, {
+  var taskCreated = await changeStatus(ENTITY.TASK, taskId, ACTION.CREATE, approver, {
     fields: { 'Task_ID': taskId, 'WO_ID': woId, 'Department': DEPT.SERVICE }
   });
   assertEquals_(taskCreated.to, TASK_STATUS.PENDING_ACCEPT, 'สร้าง Task -> PENDING_ACCEPT');
   assertEquals_(taskCreated.recalc.changed, false, 'มี Task ที่ยังไม่มีใครรับ WO ต้องไม่เปลี่ยนสถานะ');
-  assertEquals_(getWorkOrder(woId)['Overall_Status'], WO_STATUS.APPROVED, 'WO ยังเป็น APPROVED');
+  assertEquals_((await getWorkOrder(woId))['Overall_Status'], WO_STATUS.APPROVED, 'WO ยังเป็น APPROVED');
 
   // 5) TASK_ACCEPT — recalcWoStatus ถูกเรียกในรายการเดียวกัน ดัน WO เป็น IN_PROGRESS
-  var taskAccepted = changeStatus(ENTITY.TASK, taskId, ACTION.TASK_ACCEPT, service, {});
+  var taskAccepted = await changeStatus(ENTITY.TASK, taskId, ACTION.TASK_ACCEPT, service, {});
   assertEquals_(taskAccepted.to, TASK_STATUS.IN_PROGRESS, 'TASK_ACCEPT -> Task IN_PROGRESS');
   assertEquals_(taskAccepted.recalc.status, WO_STATUS.IN_PROGRESS, 'recalc ดัน WO เป็น IN_PROGRESS');
-  assertEquals_(getWorkOrder(woId)['Overall_Status'], WO_STATUS.IN_PROGRESS, 'สถานะ WO ในชีตเป็น IN_PROGRESS');
+  assertEquals_((await getWorkOrder(woId))['Overall_Status'], WO_STATUS.IN_PROGRESS, 'สถานะ WO ในชีตเป็น IN_PROGRESS');
 
   // 6) TASK_COMPLETE — WO ต้องปิดเอง ไม่มีใครสั่งปิด (SPEC C-8)
-  var taskCompleted = changeStatus(ENTITY.TASK, taskId, ACTION.TASK_COMPLETE, service, {
+  var taskCompleted = await changeStatus(ENTITY.TASK, taskId, ACTION.TASK_COMPLETE, service, {
     allStepsDone: true, requiredReportsOk: true
   });
   assertEquals_(taskCompleted.to, TASK_STATUS.COMPLETED, 'TASK_COMPLETE -> Task COMPLETED');
   assertEquals_(taskCompleted.recalc.rule, 'ALL_ACTIVE_COMPLETED', 'recalc ใช้กฎ ALL_ACTIVE_COMPLETED');
-  assertEquals_(getWorkOrder(woId)['Overall_Status'], WO_STATUS.COMPLETED, 'WO ปิดเองหลังแผนกสุดท้ายปิดงาน');
-  assertEquals_(getTask(taskId)['Status'], TASK_STATUS.COMPLETED, 'สถานะ Task ในชีตเป็น COMPLETED');
+  assertEquals_((await getWorkOrder(woId))['Overall_Status'], WO_STATUS.COMPLETED, 'WO ปิดเองหลังแผนกสุดท้ายปิดงาน');
+  assertEquals_((await getTask(taskId))['Status'], TASK_STATUS.COMPLETED, 'สถานะ Task ในชีตเป็น COMPLETED');
 
   // 7) ทำซ้ำต้องถูกปฏิเสธ เพราะอ่านสถานะจริงจากชีตแล้วไม่มี Transition รองรับ
-  assertThrows_(function () {
-    changeStatus(ENTITY.TASK, taskId, ACTION.TASK_COMPLETE, service, {
+  await assertThrows_(async function () {
+    await changeStatus(ENTITY.TASK, taskId, ACTION.TASK_COMPLETE, service, {
       allStepsDone: true, requiredReportsOk: true
     });
   }, 'ปิดงานซ้ำต้องถูกปฏิเสธจากสถานะจริงในชีต');
 
   // 8) Audit ต้องครบทุกขั้น รวมการปิดงานอัตโนมัติ 2 ครั้ง (IN_PROGRESS และ COMPLETED)
-  assertEquals_(auditCount_(woId, ENTITY.WO, ACTION.CREATE), 1, 'Audit บันทึกการสร้างใบงาน 1 แถว');
-  assertEquals_(auditCount_(woId, ENTITY.TASK, ACTION.CREATE), 1, 'Audit บันทึกการสร้างงานของแผนก 1 แถว');
-  assertEquals_(auditCount_(woId, ENTITY.WO, ACTION.SUBMIT), 1, 'Audit บันทึก SUBMIT 1 แถว');
-  assertEquals_(auditCount_(woId, ENTITY.WO, ACTION.ACCEPT), 1, 'Audit บันทึก ACCEPT 1 แถว');
-  assertEquals_(auditCount_(woId, ENTITY.TASK, ACTION.TASK_ACCEPT), 1, 'Audit บันทึก TASK_ACCEPT 1 แถว');
-  assertEquals_(auditCount_(woId, ENTITY.TASK, ACTION.TASK_COMPLETE), 1, 'Audit บันทึก TASK_COMPLETE 1 แถว');
-  assertEquals_(auditCount_(woId, ENTITY.WO, ACTION.RECALC), 2,
+  assertEquals_(await auditCount_(woId, ENTITY.WO, ACTION.CREATE), 1, 'Audit บันทึกการสร้างใบงาน 1 แถว');
+  assertEquals_(await auditCount_(woId, ENTITY.TASK, ACTION.CREATE), 1, 'Audit บันทึกการสร้างงานของแผนก 1 แถว');
+  assertEquals_(await auditCount_(woId, ENTITY.WO, ACTION.SUBMIT), 1, 'Audit บันทึก SUBMIT 1 แถว');
+  assertEquals_(await auditCount_(woId, ENTITY.WO, ACTION.ACCEPT), 1, 'Audit บันทึก ACCEPT 1 แถว');
+  assertEquals_(await auditCount_(woId, ENTITY.TASK, ACTION.TASK_ACCEPT), 1, 'Audit บันทึก TASK_ACCEPT 1 แถว');
+  assertEquals_(await auditCount_(woId, ENTITY.TASK, ACTION.TASK_COMPLETE), 1, 'Audit บันทึก TASK_COMPLETE 1 แถว');
+  assertEquals_(await auditCount_(woId, ENTITY.WO, ACTION.RECALC), 2,
     'Audit บันทึกการเปลี่ยนสถานะอัตโนมัติของใบงานไว้ 2 ครั้ง (IN_PROGRESS แล้ว COMPLETED)');
 
-  var recalcRows = findAuditRows_(woId, ENTITY.WO, ACTION.RECALC);
+  var recalcRows = await findAuditRows_(woId, ENTITY.WO, ACTION.RECALC);
   assertEquals_(recalcRows[recalcRows.length - 1]['To_Value'], WO_STATUS.COMPLETED,
     'การคำนวณสถานะอัตโนมัติครั้งสุดท้ายคือการปิดงาน');
 
@@ -1915,7 +1920,7 @@ function test_statemachine_integration_flow() {
 /**
  * งานแผนกเดียวที่ถูกยกเลิก ต้องทำให้ WO กลายเป็น CANCELLED เองตามกฎในหัวข้อ 8
  */
-function test_statemachine_integration_autoCancel() {
+async function test_statemachine_integration_autoCancel() {
   beginTest_('ยกเลิกงานแผนกเดียวแล้ว WO ยกเลิกตาม — SPEC 8');
 
   var admin    = { email: currentUserEmail_(), role: ROLE.ADMIN };
@@ -1925,28 +1930,28 @@ function test_statemachine_integration_autoCancel() {
   var woId = testWoId_();
   var taskId = testTaskId_('CANCEL');
 
-  changeStatus(ENTITY.WO, woId, ACTION.CREATE, admin, {
+  await changeStatus(ENTITY.WO, woId, ACTION.CREATE, admin, {
     requiredFieldsOk: true,
     fields: { 'WO_ID': woId, 'Customer_Code': 'CUST-TEST', 'Route': ROUTE.SP,
       'Assignment_Type': ASSIGNMENT.SERVICE, 'Payment_Required': false }
   });
-  changeStatus(ENTITY.WO, woId, ACTION.ACCEPT, approver,
+  await changeStatus(ENTITY.WO, woId, ACTION.ACCEPT, approver,
     { assignmentType: ASSIGNMENT.SERVICE, requiredFilesOk: true });
-  changeStatus(ENTITY.TASK, taskId, ACTION.CREATE, approver, {
+  await changeStatus(ENTITY.TASK, taskId, ACTION.CREATE, approver, {
     fields: { 'Task_ID': taskId, 'WO_ID': woId, 'Department': DEPT.SERVICE }
   });
 
-  var cancelled = changeStatus(ENTITY.TASK, taskId, ACTION.TASK_CANCEL, service, {
+  var cancelled = await changeStatus(ENTITY.TASK, taskId, ACTION.TASK_CANCEL, service, {
     reason: 'ลูกค้าแจ้งยกเลิกงาน'
   });
   assertEquals_(cancelled.to, TASK_STATUS.CANCELLED, 'TASK_CANCEL -> Task CANCELLED');
   assertEquals_(cancelled.recalc.rule, 'ALL_CANCELLED', 'recalc ใช้กฎ ALL_CANCELLED');
-  assertEquals_(getWorkOrder(woId)['Overall_Status'], WO_STATUS.CANCELLED, 'WO ยกเลิกตามงานแผนกเดียว');
-  assertEquals_(getTask(taskId)['Cancel_Reason'], '',
+  assertEquals_((await getWorkOrder(woId))['Overall_Status'], WO_STATUS.CANCELLED, 'WO ยกเลิกตามงานแผนกเดียว');
+  assertEquals_((await getTask(taskId))['Cancel_Reason'], '',
     'changeStatus เขียนเฉพาะสถานะ ช่อง Cancel_Reason ยังว่าง เพราะเป็นหน้าที่ของชั้น Service ส่งมาทาง fields');
 
-  assertEquals_(auditCount_(woId, ENTITY.TASK, ACTION.TASK_CANCEL), 1, 'Audit บันทึก TASK_CANCEL 1 แถว');
-  assertEquals_(auditCount_(woId, ENTITY.WO, ACTION.RECALC), 1, 'Audit บันทึกการยกเลิกอัตโนมัติของใบงาน 1 แถว');
+  assertEquals_(await auditCount_(woId, ENTITY.TASK, ACTION.TASK_CANCEL), 1, 'Audit บันทึก TASK_CANCEL 1 แถว');
+  assertEquals_(await auditCount_(woId, ENTITY.WO, ACTION.RECALC), 1, 'Audit บันทึกการยกเลิกอัตโนมัติของใบงาน 1 แถว');
 
   return endTest_();
 }
@@ -1955,7 +1960,7 @@ function test_statemachine_integration_autoCancel() {
  * ตรวจว่าชั้นเชื่อมอ่านข้อมูลประกอบจากชีตมาให้ Guard เอง
  * ผู้เรียกไม่ต้อง (และไม่ควร) ยืนยันเองว่าเป็นสายไหน ใครเป็นเจ้าของงาน หรือจ่ายเงินแล้วหรือยัง
  */
-function test_statemachine_integration_guards() {
+async function test_statemachine_integration_guards() {
   beginTest_('Guard อ่านข้อมูลจริงจากชีต — SPEC 3, 12, E');
 
   var admin    = { email: currentUserEmail_(), role: ROLE.ADMIN };
@@ -1967,47 +1972,47 @@ function test_statemachine_integration_guards() {
   var woId = testWoId_();
   var taskId = testTaskId_('GUARD');
 
-  changeStatus(ENTITY.WO, woId, ACTION.CREATE, admin, {
+  await changeStatus(ENTITY.WO, woId, ACTION.CREATE, admin, {
     requiredFieldsOk: true,
     fields: { 'WO_ID': woId, 'Customer_Code': 'CUST-TEST', 'Route': ROUTE.SP,
       'Assignment_Type': ASSIGNMENT.SERVICE, 'Payment_Required': true, 'Payment_Status': PAYMENT.UNPAID }
   });
 
   // สายอนุมัติอ่านจากคอลัมน์ Route ของใบงาน ไม่ใช่จากที่ผู้เรียกบอก
-  assertThrows_(function () {
-    changeStatus(ENTITY.WO, woId, ACTION.ACCEPT, labAppr, {
+  await assertThrows_(async function () {
+    await changeStatus(ENTITY.WO, woId, ACTION.ACCEPT, labAppr, {
       assignmentType: ASSIGNMENT.SERVICE, route: ROUTE.LAB
     });
   }, 'APPROVER_LAB อนุมัติใบงานสาย SP ไม่ได้ แม้จะส่ง route มาเอง');
 
   // ผู้สร้างใบงานอนุมัติงานตัวเองไม่ได้ ตรวจจากคอลัมน์ Created_By
-  assertThrows_(function () {
-    changeStatus(ENTITY.WO, woId, ACTION.ACCEPT, { email: admin.email, role: ROLE.APPROVER_SP }, {
+  await assertThrows_(async function () {
+    await changeStatus(ENTITY.WO, woId, ACTION.ACCEPT, { email: admin.email, role: ROLE.APPROVER_SP }, {
       assignmentType: ASSIGNMENT.SERVICE
     });
   }, 'ผู้สร้างใบงานอนุมัติงานของตัวเองไม่ได้ แม้จะมี Role ผู้อนุมัติ');
 
-  changeStatus(ENTITY.WO, woId, ACTION.ACCEPT, approver,
+  await changeStatus(ENTITY.WO, woId, ACTION.ACCEPT, approver,
     { assignmentType: ASSIGNMENT.SERVICE, requiredFilesOk: true });
-  changeStatus(ENTITY.TASK, taskId, ACTION.CREATE, approver, {
+  await changeStatus(ENTITY.TASK, taskId, ACTION.CREATE, approver, {
     fields: { 'Task_ID': taskId, 'WO_ID': woId, 'Department': DEPT.SERVICE }
   });
 
   // เงื่อนไขการชำระเงินอ่านจากใบงานต้นทางของ Task
-  assertThrows_(function () {
-    changeStatus(ENTITY.TASK, taskId, ACTION.TASK_ACCEPT, service, {});
+  await assertThrows_(async function () {
+    await changeStatus(ENTITY.TASK, taskId, ACTION.TASK_ACCEPT, service, {});
   }, 'ใบงานที่ต้องชำระก่อนและยัง UNPAID แผนกกดรับงานไม่ได้');
 
   // แผนกอื่นรับงานแทนไม่ได้ ตรวจจากคอลัมน์ Department ของ Task
-  assertThrows_(function () {
-    changeStatus(ENTITY.TASK, taskId, ACTION.TASK_ACCEPT, project, {});
+  await assertThrows_(async function () {
+    await changeStatus(ENTITY.TASK, taskId, ACTION.TASK_ACCEPT, project, {});
   }, 'แผนก Project กดรับงานของแผนก Service ไม่ได้');
 
   // บันทึกว่าชำระแล้วผ่านชั้น Repo แล้วรับงานได้ตามปกติ
-  updateWorkOrder(woId, { 'Payment_Status': PAYMENT.PAID });
-  var accepted = changeStatus(ENTITY.TASK, taskId, ACTION.TASK_ACCEPT, service, {});
+  await updateWorkOrder(woId, { 'Payment_Status': PAYMENT.PAID });
+  var accepted = await changeStatus(ENTITY.TASK, taskId, ACTION.TASK_ACCEPT, service, {});
   assertEquals_(accepted.to, TASK_STATUS.IN_PROGRESS, 'เมื่อชำระเงินแล้ว แผนกกดรับงานได้');
-  assertEquals_(getWorkOrder(woId)['Overall_Status'], WO_STATUS.IN_PROGRESS, 'WO เดินหน้าเป็น IN_PROGRESS');
+  assertEquals_((await getWorkOrder(woId))['Overall_Status'], WO_STATUS.IN_PROGRESS, 'WO เดินหน้าเป็น IN_PROGRESS');
 
   return endTest_();
 }
@@ -2016,7 +2021,7 @@ function test_statemachine_integration_guards() {
  * งานร่วม Service + Project — เมื่อ Service ตีกลับ Task ของ Project ต้องถูกพักไปด้วย
  * ทำอะไรกับ Task ไม่ได้เลยจนกว่าจะแก้ไขและอนุมัติผ่านอีกครั้ง (SPEC 8 · กฎข้อ 13)
  */
-function test_statemachine_integration_pausedTasks() {
+async function test_statemachine_integration_pausedTasks() {
   beginTest_('WO ถูกตีกลับแล้ว Task ทุกแผนกถูกพัก — SPEC 8');
 
   var admin    = { email: currentUserEmail_(), role: ROLE.ADMIN };
@@ -2029,82 +2034,82 @@ function test_statemachine_integration_pausedTasks() {
   var pjTaskId = testTaskId_('PJ');
 
   // เตรียมงานร่วมที่ทั้งสองแผนกรับงานแล้ว
-  changeStatus(ENTITY.WO, woId, ACTION.CREATE, admin, {
+  await changeStatus(ENTITY.WO, woId, ACTION.CREATE, admin, {
     requiredFieldsOk: true,
     fields: { 'WO_ID': woId, 'Customer_Code': 'CUST-TEST', 'Route': ROUTE.SP,
       'Assignment_Type': ASSIGNMENT.SERVICE_PROJECT, 'Payment_Required': false }
   });
-  changeStatus(ENTITY.WO, woId, ACTION.ACCEPT, approver,
+  await changeStatus(ENTITY.WO, woId, ACTION.ACCEPT, approver,
     { assignmentType: ASSIGNMENT.SERVICE_PROJECT, requiredFilesOk: true });
-  changeStatus(ENTITY.TASK, svTaskId, ACTION.CREATE, approver, {
+  await changeStatus(ENTITY.TASK, svTaskId, ACTION.CREATE, approver, {
     fields: { 'Task_ID': svTaskId, 'WO_ID': woId, 'Department': DEPT.SERVICE }
   });
-  changeStatus(ENTITY.TASK, pjTaskId, ACTION.CREATE, approver, {
+  await changeStatus(ENTITY.TASK, pjTaskId, ACTION.CREATE, approver, {
     fields: { 'Task_ID': pjTaskId, 'WO_ID': woId, 'Department': DEPT.PROJECT }
   });
-  changeStatus(ENTITY.TASK, svTaskId, ACTION.TASK_ACCEPT, service, {});
-  changeStatus(ENTITY.TASK, pjTaskId, ACTION.TASK_ACCEPT, project, {});
-  assertEquals_(getWorkOrder(woId)['Overall_Status'], WO_STATUS.IN_PROGRESS,
+  await changeStatus(ENTITY.TASK, svTaskId, ACTION.TASK_ACCEPT, service, {});
+  await changeStatus(ENTITY.TASK, pjTaskId, ACTION.TASK_ACCEPT, project, {});
+  assertEquals_((await getWorkOrder(woId))['Overall_Status'], WO_STATUS.IN_PROGRESS,
     'ทั้งสองแผนกรับงานแล้ว WO เป็น IN_PROGRESS');
 
   // Service ตีกลับ — WO ต้องเป็น RETURNED และห้าม recalc ดึงกลับเป็น IN_PROGRESS
-  var returned = changeStatus(ENTITY.TASK, svTaskId, ACTION.TASK_RETURN, service, {
+  var returned = await changeStatus(ENTITY.TASK, svTaskId, ACTION.TASK_RETURN, service, {
     reason: 'ที่อยู่หน้างานไม่ตรงกับที่แจ้ง'
   });
   assertEquals_(returned.changed, false, 'การตีกลับไม่เปลี่ยนสถานะงานของแผนกที่กดเอง (SPEC 20.5 ข้อ 4)');
-  assertEquals_(getTask(svTaskId)['Status'], TASK_STATUS.IN_PROGRESS,
+  assertEquals_((await getTask(svTaskId))['Status'], TASK_STATUS.IN_PROGRESS,
     'Task ของ Service ที่กดตีกลับ ยังเป็น IN_PROGRESS ไม่ถูกเปลี่ยน');
-  assertEquals_(getWorkOrder(woId)['Overall_Status'], WO_STATUS.RETURNED,
+  assertEquals_((await getWorkOrder(woId))['Overall_Status'], WO_STATUS.RETURNED,
     'WO เป็น RETURNED และไม่ถูก recalc ดึงกลับ แม้ Task ทั้งสองยังเป็น IN_PROGRESS');
-  assertEquals_(getTask(pjTaskId)['Status'], TASK_STATUS.IN_PROGRESS,
+  assertEquals_((await getTask(pjTaskId))['Status'], TASK_STATUS.IN_PROGRESS,
     'Task ของ Project ไม่ถูกล้างทิ้ง ยังคงสถานะเดิมไว้ (SPEC C-5)');
 
   // ขณะถูกตีกลับ Project แตะงานตัวเองไม่ได้เลย
-  assertThrows_(function () {
-    changeStatus(ENTITY.TASK, pjTaskId, ACTION.TASK_COMPLETE, project, {
+  await assertThrows_(async function () {
+    await changeStatus(ENTITY.TASK, pjTaskId, ACTION.TASK_COMPLETE, project, {
       allStepsDone: true, requiredReportsOk: true
     });
   }, 'WO ถูกตีกลับ Project ปิดงานของตัวเองไม่ได้');
-  assertThrows_(function () {
-    changeStatus(ENTITY.TASK, pjTaskId, ACTION.TASK_UPDATE, project, {});
+  await assertThrows_(async function () {
+    await changeStatus(ENTITY.TASK, pjTaskId, ACTION.TASK_UPDATE, project, {});
   }, 'WO ถูกตีกลับ Project อัปเดตงานของตัวเองไม่ได้');
-  assertThrows_(function () {
-    changeStatus(ENTITY.TASK, pjTaskId, ACTION.TASK_CANCEL, project, { reason: 'ขอยกเลิก' });
+  await assertThrows_(async function () {
+    await changeStatus(ENTITY.TASK, pjTaskId, ACTION.TASK_CANCEL, project, { reason: 'ขอยกเลิก' });
   }, 'WO ถูกตีกลับ Project ยกเลิกงานของตัวเองไม่ได้');
-  assertEquals_(getTask(pjTaskId)['Status'], TASK_STATUS.IN_PROGRESS,
+  assertEquals_((await getTask(pjTaskId))['Status'], TASK_STATUS.IN_PROGRESS,
     'รายการที่ถูกปฏิเสธต้องไม่เปลี่ยนสถานะ Task ในชีต');
 
   // ผู้เรียกยัดสถานะ WO ปลอมเข้ามาเองเพื่อข้าม Guard ไม่ได้ เพราะชั้นเชื่อมทิ้งค่านั้นแล้วอ่านจากชีตใหม่
-  assertThrows_(function () {
-    changeStatus(ENTITY.TASK, pjTaskId, ACTION.TASK_COMPLETE, project, {
+  await assertThrows_(async function () {
+    await changeStatus(ENTITY.TASK, pjTaskId, ACTION.TASK_COMPLETE, project, {
       allStepsDone: true, requiredReportsOk: true, woStatus: WO_STATUS.IN_PROGRESS
     });
   }, 'ส่ง woStatus ปลอมมาเองก็ยังถูกปฏิเสธ เพราะสถานะ WO อ่านจากชีตเท่านั้น');
 
   // งานที่ยังไม่มีใครรับก็เริ่มไม่ได้เช่นกัน
   var lateTaskId = testTaskId_('LATE');
-  insertTask({ 'Task_ID': lateTaskId, 'WO_ID': woId, 'Department': DEPT.LAB,
+  await insertTask({ 'Task_ID': lateTaskId, 'WO_ID': woId, 'Department': DEPT.LAB,
     'Status': TASK_STATUS.PENDING_ACCEPT });
-  assertThrows_(function () {
-    changeStatus(ENTITY.TASK, lateTaskId, ACTION.TASK_ACCEPT,
+  await assertThrows_(async function () {
+    await changeStatus(ENTITY.TASK, lateTaskId, ACTION.TASK_ACCEPT,
       { email: 'lab@cnr.co.th', role: ROLE.LAB, department: DEPT.LAB }, {});
   }, 'WO ถูกตีกลับ แผนกที่ยังไม่ได้รับงานก็กดรับไม่ได้');
 
   // แก้ไขแล้วส่งขออนุมัติใหม่ ผ่านแล้วต้องทำงานต่อได้ตามปกติ
   // ใบที่ถูกตีกลับต้องผ่าน SUBMIT ก่อนเสมอ จึงจะกลับไปรออนุมัติแล้วอนุมัติได้ (SPEC 5, 8)
-  changeStatus(ENTITY.WO, woId, ACTION.SUBMIT, admin, { requiredFieldsOk: true });
-  changeStatus(ENTITY.WO, woId, ACTION.ACCEPT, approver,
+  await changeStatus(ENTITY.WO, woId, ACTION.SUBMIT, admin, { requiredFieldsOk: true });
+  await changeStatus(ENTITY.WO, woId, ACTION.ACCEPT, approver,
     { assignmentType: ASSIGNMENT.SERVICE_PROJECT, requiredFilesOk: true });
-  assertEquals_(getWorkOrder(woId)['Overall_Status'], WO_STATUS.APPROVED, 'อนุมัติผ่านอีกครั้ง -> APPROVED');
+  assertEquals_((await getWorkOrder(woId))['Overall_Status'], WO_STATUS.APPROVED, 'อนุมัติผ่านอีกครั้ง -> APPROVED');
 
-  var completed = changeStatus(ENTITY.TASK, pjTaskId, ACTION.TASK_COMPLETE, project, {
+  var completed = await changeStatus(ENTITY.TASK, pjTaskId, ACTION.TASK_COMPLETE, project, {
     allStepsDone: true, requiredReportsOk: true
   });
   assertEquals_(completed.to, TASK_STATUS.COMPLETED, 'อนุมัติผ่านแล้ว Project ปิดงานของตัวเองได้ตามปกติ');
-  assertEquals_(getTask(pjTaskId)['Status'], TASK_STATUS.COMPLETED, 'สถานะ Task ของ Project ในชีตเป็น COMPLETED');
+  assertEquals_((await getTask(pjTaskId))['Status'], TASK_STATUS.COMPLETED, 'สถานะ Task ของ Project ในชีตเป็น COMPLETED');
   assertEquals_(completed.recalc.status, WO_STATUS.IN_PROGRESS,
     'Task ของ Service ยังทำค้างอยู่ WO จึงกลับไปเป็น IN_PROGRESS ไม่ใช่ปิดงาน');
-  assertEquals_(getWorkOrder(woId)['Overall_Status'], WO_STATUS.IN_PROGRESS,
+  assertEquals_((await getWorkOrder(woId))['Overall_Status'], WO_STATUS.IN_PROGRESS,
     'ใบงานยังไม่ปิดจนกว่าแผนก Service จะปิดหรือยกเลิกงานของตัวเอง');
 
   return endTest_();
@@ -2190,9 +2195,9 @@ function testWoForm_(overrides) {
  * @param {Object} [options] {skipRequiredFiles} ไม่ต้องแนบไฟล์บังคับให้
  * @return {Object} ผลจาก createWorkOrder
  */
-function createTestWo_(users, overrides, options) {
-  var created = createWorkOrder(testWoForm_(overrides), users.admin, { woIdPrefix: testWoPrefix_() });
-  if (!options || !options.skipRequiredFiles) attachRequiredTestFiles_(created.woId);
+async function createTestWo_(users, overrides, options) {
+  var created = await createWorkOrder(testWoForm_(overrides), users.admin, { woIdPrefix: testWoPrefix_() });
+  if (!options || !options.skipRequiredFiles) await attachRequiredTestFiles_(created.woId);
   return created;
 }
 
@@ -2205,8 +2210,8 @@ function createTestWo_(users, overrides, options) {
  * @param {string} woId เลขที่ใบงานทดสอบ
  * @return {number} จำนวนไฟล์ที่แนบให้
  */
-function attachRequiredTestFiles_(woId) {
-  var topics = listAttachmentTopics();
+async function attachRequiredTestFiles_(woId) {
+  var topics = await listAttachmentTopics();
   var rows = [];
 
   for (var i = 0; i < topics.length; i++) {
@@ -2226,7 +2231,7 @@ function attachRequiredTestFiles_(woId) {
     });
   }
 
-  if (rows.length) insertFiles(rows);   // เขียนครั้งเดียว ไม่วนเขียนทีละแถว
+  if (rows.length) await insertFiles(rows);   // เขียนครั้งเดียว ไม่วนเขียนทีละแถว
   return rows.length;
 }
 
@@ -2240,10 +2245,10 @@ function attachRequiredTestFiles_(woId) {
  * @param {Object} [overrides] ค่าที่ต้องการเปลี่ยนในฟอร์ม
  * @return {Object} ผลจาก createWorkOrder
  */
-function returnedTestWo_(users, overrides) {
-  var created = createTestWo_(users, overrides);
-  returnWorkOrder(created.woId, 'ตีกลับเพื่อให้แก้ไขในชุดทดสอบ', users.approver);
-  created.workOrder = getWorkOrder(created.woId);
+async function returnedTestWo_(users, overrides) {
+  var created = await createTestWo_(users, overrides);
+  await returnWorkOrder(created.woId, 'ตีกลับเพื่อให้แก้ไขในชุดทดสอบ', users.approver);
+  created.workOrder = await getWorkOrder(created.woId);
   return created;
 }
 
@@ -2251,57 +2256,57 @@ function returnedTestWo_(users, overrides) {
  * PJ_ID ต้องใช้ซ้ำเมื่อ ลูกค้า + โครงการ + สถานที่ ตรงกันทั้งสามค่า
  * และต้องออกใหม่เมื่อค่าใดค่าหนึ่งต่างไป (SPEC 10.2, 10.3)
  */
-function test_service_projectLocation() {
+async function test_service_projectLocation() {
   beginTest_('PJ_ID ใช้ซ้ำและออกใหม่ — SPEC 10');
 
   var users = serviceTestUsers_();
 
-  var first = createTestWo_(users);
+  var first = await createTestWo_(users);
   assertTrue_(String(first.woId).indexOf(TEST_PREFIX) === 0, 'ใบงานทดสอบออกเลขที่ขึ้นต้นด้วย TEST-');
   assertTrue_(String(first.pjId).indexOf('PJ-') !== -1, 'ใบแรกได้ PJ_ID ที่อิงเลขของใบงานตัวเอง');
 
   // ใบที่ 2 ลูกค้า + โครงการ + สถานที่ เดียวกัน ต้องได้ PJ_ID เดิม
-  var second = createTestWo_(users);
+  var second = await createTestWo_(users);
   assertEquals_(second.pjId, first.pjId, 'ใบที่ 2 ที่สถานที่เดิม ต้องใช้ PJ_ID เดิม');
   assertTrue_(second.woId !== first.woId, 'แต่เลขที่ใบงานต้องเป็นคนละเลข');
 
   // ใบที่ 3 เปลี่ยนสถานที่ ต้องได้ PJ_ID ใหม่
-  var third = createTestWo_(users, { 'Location': 'สระน้ำ' });
+  var third = await createTestWo_(users, { 'Location': 'สระน้ำ' });
   assertTrue_(third.pjId !== first.pjId, 'ใบที่ 3 ที่สถานที่ใหม่ ต้องได้ PJ_ID ใหม่');
 
   // ใบที่ 4 พิมพ์ชื่อเดิมแต่มีช่องว่างหน้าหลังและช่องว่างซ้อน ต้องยังจับเป็นที่เดิมได้ (SPEC 10.3)
-  var fourth = createTestWo_(users, { 'Location': '  ห้องปั๊มน้ำ  ' });
+  var fourth = await createTestWo_(users, { 'Location': '  ห้องปั๊มน้ำ  ' });
   assertEquals_(fourth.pjId, first.pjId, 'ช่องว่างหน้าหลังต้องไม่ทำให้เกิด PJ_ID ใหม่');
 
   // เปลี่ยนโครงการ ถือเป็นสถานที่คนละจุด
-  var fifth = createTestWo_(users, { 'Project': 'โครงการทดสอบ 2' });
+  var fifth = await createTestWo_(users, { 'Project': 'โครงการทดสอบ 2' });
   assertTrue_(fifth.pjId !== first.pjId, 'โครงการต่างกันถือเป็นสถานที่ใหม่');
 
   // ตัวนับจำนวนใบงานของสถานที่นั้นต้องเดินตาม
-  var location = getLocation(first.pjId);
+  var location = await getLocation(first.pjId);
   assertEquals_(Number(location['WO_Count']), 3, 'PJ_ID เดิมถูกใช้ไป 3 ใบ (ใบที่ 1, 2 และ 4)');
   assertEquals_(location['First_WO_ID'], first.woId, 'ทะเบียนจำใบงานใบแรกของสถานที่นั้นไว้');
 
   // รายการสถานที่เดิมสำหรับทำ dropdown
-  var list = listLocations(testCustomerCode_('01'), 'โครงการทดสอบ');
+  var list = await listLocations(testCustomerCode_('01'), 'โครงการทดสอบ');
   assertEquals_(list.length, 2, 'ลูกค้า+โครงการนี้มีสถานที่เดิม 2 จุด (ห้องปั๊มน้ำ และ สระน้ำ)');
 
   // เตือนเมื่อชื่อคล้ายของเดิมมาก ก่อนออก PJ_ID ใหม่
   // การ normalize ตาม SPEC 10.3 ยุบเฉพาะช่องว่างซ้อน ไม่ได้ตัดช่องว่างกลางคำทิ้ง
   // "ห้องปั๊ม น้ำ" จึงยังเป็นคนละคีย์กับ "ห้องปั๊มน้ำ" และต้องอาศัยคำเตือนชั้นนี้ดักแทน
-  var similar = findSimilarLocation(testCustomerCode_('01'), 'โครงการทดสอบ', 'ห้องปั้มน้ำ');
+  var similar = await findSimilarLocation(testCustomerCode_('01'), 'โครงการทดสอบ', 'ห้องปั้มน้ำ');
   assertTrue_(similar.length > 0, 'พิมพ์ "ห้องปั้มน้ำ" ต้องเตือนว่าคล้ายกับ "ห้องปั๊มน้ำ" ที่มีอยู่');
-  assertTrue_(findSimilarLocation(testCustomerCode_('01'), 'โครงการทดสอบ', 'ห้องปั๊ม น้ำ').length > 0,
+  assertTrue_((await findSimilarLocation(testCustomerCode_('01'), 'โครงการทดสอบ', 'ห้องปั๊ม น้ำ')).length > 0,
     'พิมพ์แยกคำเป็น "ห้องปั๊ม น้ำ" ต้องเตือนว่าคล้ายของเดิมก่อนออก PJ_ID ใหม่');
-  assertEquals_(findSimilarLocation(testCustomerCode_('01'), 'โครงการทดสอบ', 'ลานจอดรถ').length, 0,
+  assertEquals_((await findSimilarLocation(testCustomerCode_('01'), 'โครงการทดสอบ', 'ลานจอดรถ')).length, 0,
     'ชื่อที่ต่างกันชัดเจนต้องไม่ขึ้นคำเตือน');
 
   // ร่างขาดรหัสลูกค้าต้องหยุดตั้งแต่ก่อนแตะชีต เพราะรหัสเป็นส่วนหนึ่งของ PJ_ID (SPEC 20.1 ข้อ 2)
-  assertThrows_(function () {
-    createWorkOrder(testWoForm_({ 'Customer_Code': '' }), users.admin, { woIdPrefix: testWoPrefix_() });
+  await assertThrows_(async function () {
+    await createWorkOrder(testWoForm_({ 'Customer_Code': '' }), users.admin, { woIdPrefix: testWoPrefix_() });
   }, 'ร่างที่ไม่มีรหัสลูกค้า ต้องถูกปฏิเสธ');
-  assertThrows_(function () {
-    createWorkOrder(testWoForm_(), users.service, { woIdPrefix: testWoPrefix_() });
+  await assertThrows_(async function () {
+    await createWorkOrder(testWoForm_(), users.service, { woIdPrefix: testWoPrefix_() });
   }, 'แผนก Service สร้างใบงานไม่ได้');
 
   return endTest_();
@@ -2310,11 +2315,11 @@ function test_service_projectLocation() {
 /**
  * ลำดับการทำงานของ createWorkOrder ตาม SPEC 20.1 และผลลัพธ์ที่ต้องได้
  */
-function test_service_createWorkOrder() {
+async function test_service_createWorkOrder() {
   beginTest_('createWorkOrder — SPEC 20.1');
 
   var users = serviceTestUsers_();
-  var result = createTestWo_(users, { 'Assignment_Type': ASSIGNMENT.SERVICE });
+  var result = await createTestWo_(users, { 'Assignment_Type': ASSIGNMENT.SERVICE });
   var wo = result.workOrder;
 
   assertEquals_(wo['Overall_Status'], WO_STATUS.PENDING_APPROVE,
@@ -2328,13 +2333,13 @@ function test_service_createWorkOrder() {
   assertTrue_(toDate_(wo['Created_Date']) !== null, 'บันทึกวันที่แจ้งงานอัตโนมัติ');
 
   // งาน Lab ต้องเข้าสายอนุมัติ Lab
-  var lab = createTestWo_(users, { 'Assignment_Type': ASSIGNMENT.LAB, 'Location': 'ห้องแล็บ' });
+  var lab = await createTestWo_(users, { 'Assignment_Type': ASSIGNMENT.LAB, 'Location': 'ห้องแล็บ' });
   assertEquals_(lab.workOrder['Route'], ROUTE.LAB, 'งาน Lab ถูกจัดเข้าสายอนุมัติ LAB');
 
   // Audit ต้องมีตั้งแต่ตอนสร้าง — เจาะจง Entity + Action ไม่นับรวมทั้งใบ
-  assertEquals_(auditCount_(result.woId, ENTITY.WO, ACTION.CREATE), 1,
+  assertEquals_(await auditCount_(result.woId, ENTITY.WO, ACTION.CREATE), 1,
     'การสร้างใบงานถูกบันทึกลง Audit_Log 1 แถว');
-  assertEquals_(findAuditRow_(result.woId, ENTITY.WO, ACTION.CREATE)['To_Value'],
+  assertEquals_((await findAuditRow_(result.woId, ENTITY.WO, ACTION.CREATE))['To_Value'],
     WO_STATUS.PENDING_APPROVE, 'Audit บันทึกสถานะตั้งต้นเป็นรออนุมัติ');
 
   return endTest_();
@@ -2343,65 +2348,65 @@ function test_service_createWorkOrder() {
 /**
  * อนุมัติ -> ตีกลับ -> Submit ใหม่ -> อนุมัติอีกครั้ง จำนวน Task ต้องเท่าเดิม (กฎข้อ 11 · SPEC 20.2, 20.5)
  */
-function test_service_approveDoesNotDuplicateTasks() {
+async function test_service_approveDoesNotDuplicateTasks() {
   beginTest_('อนุมัติซ้ำหลังตีกลับต้องไม่สร้าง Task ซ้อน — กฎข้อ 11');
 
   var users = serviceTestUsers_();
-  var wo = createTestWo_(users, { 'Assignment_Type': ASSIGNMENT.SERVICE_PROJECT, 'Location': 'อาคารรวม' });
+  var wo = await createTestWo_(users, { 'Assignment_Type': ASSIGNMENT.SERVICE_PROJECT, 'Location': 'อาคารรวม' });
   var woId = wo.woId;
 
-  var approved = approveWorkOrder(woId, ASSIGNMENT.SERVICE_PROJECT, users.approver, {});
+  var approved = await approveWorkOrder(woId, ASSIGNMENT.SERVICE_PROJECT, users.approver, {});
 
   assertEquals_(approved.tasks.length, 2, 'งานร่วม SERVICE_PROJECT สร้าง Task 2 ตัว');
-  assertEquals_(listTasksByWo(woId).length, 2, 'ในชีตมี Task 2 แถว');
+  assertEquals_((await listTasksByWo(woId)).length, 2, 'ในชีตมี Task 2 แถว');
   assertEquals_(approved.resumed, 0, 'ครั้งแรกไม่มี Task เดิมให้ปลดพัก');
 
-  var serviceTask = findTaskOfDepartment_(woId, DEPT.SERVICE);
-  var projectTask = findTaskOfDepartment_(woId, DEPT.PROJECT);
+  var serviceTask = await findTaskOfDepartment_(woId, DEPT.SERVICE);
+  var projectTask = await findTaskOfDepartment_(woId, DEPT.PROJECT);
   assertEquals_(serviceTask['Status'], TASK_STATUS.PENDING_ACCEPT, 'Task ที่สร้างใหม่เริ่มที่ PENDING_ACCEPT');
-  assertEquals_(listStepsByTask(serviceTask['Task_ID']).length, STEP_DEFAULT.length,
+  assertEquals_((await listStepsByTask(serviceTask['Task_ID'])).length, STEP_DEFAULT.length,
     'ฝั่ง Service สร้าง Step ตามค่าตั้งต้น เพราะยังไม่มีข้อมูลใน Task_Step_Template');
   // เจตนาเดิมคือ "ฝั่ง Project ต้องไม่ถูกยัดจำนวนงวดตายตัว" ซึ่งยังต้องคุ้มครองอยู่
   // แต่ข้อตกลงใหม่แรงกว่าเดิม: ตอนอนุมัติต้องไม่มีงวดเลย แผนกเป็นผู้เพิ่มเอง (SPEC 20.2)
-  assertEquals_(listStepsByTask(projectTask['Task_ID']).length, 0,
+  assertEquals_((await listStepsByTask(projectTask['Task_ID'])).length, 0,
     'ฝั่ง Project ต้องไม่มีงวดใด ๆ ตอนอนุมัติ แผนกเพิ่มเองระหว่างทำงาน');
 
   // ทั้งสองแผนกเริ่มงานแล้ว จากนั้น Service ตีกลับ ทำให้ WO กลับไป RETURNED
-  changeStatus(ENTITY.TASK, serviceTask['Task_ID'], ACTION.TASK_ACCEPT, users.service, {});
-  changeStatus(ENTITY.TASK, projectTask['Task_ID'], ACTION.TASK_ACCEPT, users.project, {});
-  changeStatus(ENTITY.TASK, serviceTask['Task_ID'], ACTION.TASK_RETURN, users.service, {
+  await changeStatus(ENTITY.TASK, serviceTask['Task_ID'], ACTION.TASK_ACCEPT, users.service, {});
+  await changeStatus(ENTITY.TASK, projectTask['Task_ID'], ACTION.TASK_ACCEPT, users.project, {});
+  await changeStatus(ENTITY.TASK, serviceTask['Task_ID'], ACTION.TASK_RETURN, users.service, {
     reason: 'ที่อยู่หน้างานไม่ตรงกับที่แจ้ง'
   });
-  assertEquals_(getWorkOrder(woId)['Overall_Status'], WO_STATUS.RETURNED, 'แผนกตีกลับแล้ว WO เป็น RETURNED');
+  assertEquals_((await getWorkOrder(woId))['Overall_Status'], WO_STATUS.RETURNED, 'แผนกตีกลับแล้ว WO เป็น RETURNED');
 
   // Admin แก้แล้วส่งใหม่ แต่ผู้อนุมัติยังไม่พอใจ จึงตีกลับซ้ำจากชั้นใบงาน (SPEC 20.5)
-  submitWorkOrder(woId, users.admin);
-  returnWorkOrder(woId, 'ข้อมูลลูกค้าไม่ครบ', users.approver);
+  await submitWorkOrder(woId, users.admin);
+  await returnWorkOrder(woId, 'ข้อมูลลูกค้าไม่ครบ', users.approver);
 
-  assertEquals_(getWorkOrder(woId)['Overall_Status'], WO_STATUS.RETURNED, 'ผู้อนุมัติตีกลับแล้ว WO เป็น RETURNED');
-  assertEquals_(Number(getWorkOrder(woId)['Return_Count']), 1,
+  assertEquals_((await getWorkOrder(woId))['Overall_Status'], WO_STATUS.RETURNED, 'ผู้อนุมัติตีกลับแล้ว WO เป็น RETURNED');
+  assertEquals_(Number((await getWorkOrder(woId))['Return_Count']), 1,
     'ตัวนับการตีกลับเพิ่มเป็น 1 (แผนกตีกลับผ่าน TASK_RETURN ก็นับด้วยรอบเดียวกัน)');
-  assertEquals_(getTask(projectTask['Task_ID'])['Status_Before_Return'], TASK_STATUS.IN_PROGRESS,
+  assertEquals_((await getTask(projectTask['Task_ID']))['Status_Before_Return'], TASK_STATUS.IN_PROGRESS,
     'จำสถานะเดิมของ Task ที่กำลังทำอยู่ไว้ก่อนตีกลับ (SPEC 20.5 ข้อ 2)');
-  assertEquals_(getTask(projectTask['Task_ID'])['Status'], TASK_STATUS.IN_PROGRESS,
+  assertEquals_((await getTask(projectTask['Task_ID']))['Status'], TASK_STATUS.IN_PROGRESS,
     'สถานะ Task ต้องไม่ถูกแตะ Task ถูกพักด้วย Guard แทน (SPEC 20.5 ข้อ 4)');
 
   // แก้แล้วส่งใหม่ อนุมัติอีกครั้ง — ต้องใช้ Task ชุดเดิม
   // ใบที่ถูกตีกลับต้องส่งขออนุมัติใหม่ก่อน จึงจะอนุมัติได้อีกครั้ง (SPEC 5, 8)
-  submitWorkOrder(woId, users.admin);
-  var again = approveWorkOrder(woId, ASSIGNMENT.SERVICE_PROJECT, users.approver, {});
+  await submitWorkOrder(woId, users.admin);
+  var again = await approveWorkOrder(woId, ASSIGNMENT.SERVICE_PROJECT, users.approver, {});
 
-  assertEquals_(listTasksByWo(woId).length, 2, 'อนุมัติซ้ำแล้วจำนวน Task ต้องเท่าเดิม ไม่งอกเป็น 4');
+  assertEquals_((await listTasksByWo(woId)).length, 2, 'อนุมัติซ้ำแล้วจำนวน Task ต้องเท่าเดิม ไม่งอกเป็น 4');
   assertEquals_(again.resumed, 2, 'Task เดิมทั้งสองตัวถูกปลดพัก');
-  assertEquals_(getTask(projectTask['Task_ID'])['Status_Before_Return'], '',
+  assertEquals_((await getTask(projectTask['Task_ID']))['Status_Before_Return'], '',
     'ค่าที่จำไว้ถูกล้างหลังปลดพัก');
-  assertEquals_(getTask(projectTask['Task_ID'])['Status'], TASK_STATUS.IN_PROGRESS,
+  assertEquals_((await getTask(projectTask['Task_ID']))['Status'], TASK_STATUS.IN_PROGRESS,
     'งานที่ทำค้างไว้ยังอยู่ที่เดิม ไม่ถูกล้างทิ้ง (SPEC C-5)');
-  assertEquals_(listStepsByTask(serviceTask['Task_ID']).length, STEP_DEFAULT.length,
+  assertEquals_((await listStepsByTask(serviceTask['Task_ID'])).length, STEP_DEFAULT.length,
     'Step ที่ทำไปแล้วไม่ถูกสร้างซ้ำ');
 
   // อนุมัติแล้วแผนกทำงานต่อได้ตามปกติ
-  var completed = changeStatus(ENTITY.TASK, projectTask['Task_ID'], ACTION.TASK_COMPLETE, users.project, {
+  var completed = await changeStatus(ENTITY.TASK, projectTask['Task_ID'], ACTION.TASK_COMPLETE, users.project, {
     allStepsDone: true, requiredReportsOk: true
   });
   assertEquals_(completed.to, TASK_STATUS.COMPLETED, 'ปลดพักแล้วแผนกปิดงานของตัวเองได้');
@@ -2412,55 +2417,55 @@ function test_service_approveDoesNotDuplicateTasks() {
 /**
  * REOPEN ต้องบังคับระบุแผนก และต้องไม่ถูก recalcWoStatus ปิดงานกลับทันที (กฎข้อ 12 · SPEC 20.6)
  */
-function test_service_reopenWorkOrder() {
+async function test_service_reopenWorkOrder() {
   beginTest_('REOPEN ต้องระบุแผนกและดึง Task กลับมาด้วย — SPEC 20.6');
 
   var users = serviceTestUsers_();
-  var wo = createTestWo_(users, { 'Assignment_Type': ASSIGNMENT.SERVICE, 'Location': 'ห้องเครื่องชั้น 3' });
+  var wo = await createTestWo_(users, { 'Assignment_Type': ASSIGNMENT.SERVICE, 'Location': 'ห้องเครื่องชั้น 3' });
   var woId = wo.woId;
 
-  approveWorkOrder(woId, ASSIGNMENT.SERVICE, users.approver);
-  var task = findTaskOfDepartment_(woId, DEPT.SERVICE);
+  await approveWorkOrder(woId, ASSIGNMENT.SERVICE, users.approver);
+  var task = await findTaskOfDepartment_(woId, DEPT.SERVICE);
 
-  changeStatus(ENTITY.TASK, task['Task_ID'], ACTION.TASK_ACCEPT, users.service, {});
-  changeStatus(ENTITY.TASK, task['Task_ID'], ACTION.TASK_COMPLETE, users.service, {
+  await changeStatus(ENTITY.TASK, task['Task_ID'], ACTION.TASK_ACCEPT, users.service, {});
+  await changeStatus(ENTITY.TASK, task['Task_ID'], ACTION.TASK_COMPLETE, users.service, {
     allStepsDone: true, requiredReportsOk: true
   });
-  assertEquals_(getWorkOrder(woId)['Overall_Status'], WO_STATUS.COMPLETED, 'งานปิดเองแล้วก่อนทดสอบ REOPEN');
+  assertEquals_((await getWorkOrder(woId))['Overall_Status'], WO_STATUS.COMPLETED, 'งานปิดเองแล้วก่อนทดสอบ REOPEN');
 
   // ไม่ระบุแผนกต้องถูกปฏิเสธตั้งแต่ยังไม่แตะอะไร
-  assertThrows_(function () {
-    reopenWorkOrder(woId, 'ลูกค้าแจ้งกลับว่ายังมีปัญหา', '', users.approver);
+  await assertThrows_(async function () {
+    await reopenWorkOrder(woId, 'ลูกค้าแจ้งกลับว่ายังมีปัญหา', '', users.approver);
   }, 'REOPEN โดยไม่ระบุแผนกต้องถูกปฏิเสธ');
-  assertEquals_(getWorkOrder(woId)['Overall_Status'], WO_STATUS.COMPLETED,
+  assertEquals_((await getWorkOrder(woId))['Overall_Status'], WO_STATUS.COMPLETED,
     'รายการที่ถูกปฏิเสธต้องไม่เปลี่ยนสถานะใบงาน');
 
-  assertThrows_(function () {
-    reopenWorkOrder(woId, '', DEPT.SERVICE, users.approver);
+  await assertThrows_(async function () {
+    await reopenWorkOrder(woId, '', DEPT.SERVICE, users.approver);
   }, 'REOPEN โดยไม่ระบุเหตุผลต้องถูกปฏิเสธ');
-  assertThrows_(function () {
-    reopenWorkOrder(woId, 'ลูกค้าแจ้งกลับ', DEPT.LAB, users.approver);
+  await assertThrows_(async function () {
+    await reopenWorkOrder(woId, 'ลูกค้าแจ้งกลับ', DEPT.LAB, users.approver);
   }, 'REOPEN ให้แผนกที่ไม่มีงานในใบนี้ต้องถูกปฏิเสธ');
 
   // ระบุแผนกแล้วต้องดึงทั้ง WO และ Task กลับมาในรายการเดียวกัน
-  var steps = listStepsByTask(task['Task_ID']);
-  var reopened = reopenWorkOrder(woId, 'ลูกค้าแจ้งกลับว่ายังมีปัญหา', DEPT.SERVICE, users.approver, {
+  var steps = await listStepsByTask(task['Task_ID']);
+  var reopened = await reopenWorkOrder(woId, 'ลูกค้าแจ้งกลับว่ายังมีปัญหา', DEPT.SERVICE, users.approver, {
     stepIds: [steps[steps.length - 1]['Step_ID']]
   });
 
   assertEquals_(reopened.plan.to, WO_STATUS.IN_PROGRESS, 'REOPEN -> WO IN_PROGRESS');
   assertEquals_(reopened.taskPlan.to, TASK_STATUS.IN_PROGRESS, 'Task ของแผนกที่ระบุถูกดึงกลับมาเป็น IN_PROGRESS');
-  assertEquals_(getWorkOrder(woId)['Overall_Status'], WO_STATUS.IN_PROGRESS,
+  assertEquals_((await getWorkOrder(woId))['Overall_Status'], WO_STATUS.IN_PROGRESS,
     'หลังทำรายการเสร็จ WO ต้องยังเป็น IN_PROGRESS ไม่ถูก recalc ปิดกลับทันที');
-  assertEquals_(getTask(task['Task_ID'])['Status'], TASK_STATUS.IN_PROGRESS, 'สถานะ Task ในชีตถูกดึงกลับจริง');
+  assertEquals_((await getTask(task['Task_ID']))['Status'], TASK_STATUS.IN_PROGRESS, 'สถานะ Task ในชีตถูกดึงกลับจริง');
   assertEquals_(reopened.steps.length, 1, 'Step ที่ผู้อนุมัติเลือกถูกตั้งกลับเป็นยังไม่เสร็จ');
   assertEquals_(reopened.steps[0]['Status'], STEP_STATUS.PENDING, 'Step ที่เปิดใหม่กลับเป็น PENDING');
 
   // แผนกทำงานต่อแล้วปิดใหม่ได้ตามปกติ
-  changeStatus(ENTITY.TASK, task['Task_ID'], ACTION.TASK_COMPLETE, users.service, {
+  await changeStatus(ENTITY.TASK, task['Task_ID'], ACTION.TASK_COMPLETE, users.service, {
     allStepsDone: true, requiredReportsOk: true
   });
-  assertEquals_(getWorkOrder(woId)['Overall_Status'], WO_STATUS.COMPLETED, 'ทำต่อจนเสร็จแล้ว WO ปิดเองอีกครั้ง');
+  assertEquals_((await getWorkOrder(woId))['Overall_Status'], WO_STATUS.COMPLETED, 'ทำต่อจนเสร็จแล้ว WO ปิดเองอีกครั้ง');
 
   return endTest_();
 }
@@ -2468,30 +2473,30 @@ function test_service_reopenWorkOrder() {
 /**
  * ตีกลับจากผู้อนุมัติ และยกเลิกทั้งใบ (SPEC 5, 8)
  */
-function test_service_returnCancel() {
+async function test_service_returnCancel() {
   beginTest_('Return / Cancel ระดับใบงาน — SPEC 5, 8');
 
   var users = serviceTestUsers_();
 
   // ผู้อนุมัติตีกลับ แล้วผู้แจ้งแก้ไขส่งใหม่
-  var wo = createTestWo_(users, { 'Assignment_Type': ASSIGNMENT.SERVICE, 'Location': 'จุดที่ถูกตีกลับ' });
-  returnWorkOrder(wo.woId, 'ข้อมูลผู้ติดต่อไม่ครบ', users.approver);
+  var wo = await createTestWo_(users, { 'Assignment_Type': ASSIGNMENT.SERVICE, 'Location': 'จุดที่ถูกตีกลับ' });
+  await returnWorkOrder(wo.woId, 'ข้อมูลผู้ติดต่อไม่ครบ', users.approver);
 
-  var afterReturn = getWorkOrder(wo.woId);
+  var afterReturn = await getWorkOrder(wo.woId);
   assertEquals_(afterReturn['Overall_Status'], WO_STATUS.RETURNED, 'ตีกลับแล้วใบงานกลับมาแก้ไขได้');
   assertEquals_(afterReturn['Return_Reason'], 'ข้อมูลผู้ติดต่อไม่ครบ', 'บันทึกเหตุผลการตีกลับไว้');
   assertEquals_(Number(afterReturn['Return_Count']), 1, 'ตัวนับการตีกลับเพิ่มขึ้น');
 
   // ยกเลิกทั้งใบทำได้เฉพาะก่อนอนุมัติ
-  var draft = createTestWo_(users, { 'Location': 'จุดที่จะยกเลิก' });
-  var cancelled = cancelWorkOrder(draft.woId, 'ลูกค้ายกเลิกคำสั่ง', users.admin);
+  var draft = await createTestWo_(users, { 'Location': 'จุดที่จะยกเลิก' });
+  var cancelled = await cancelWorkOrder(draft.woId, 'ลูกค้ายกเลิกคำสั่ง', users.admin);
   assertEquals_(cancelled.to, WO_STATUS.CANCELLED, 'ยกเลิกใบงานที่ยังรออนุมัติได้');
-  assertEquals_(getWorkOrder(draft.woId)['Cancel_Reason'], 'ลูกค้ายกเลิกคำสั่ง', 'บันทึกเหตุผลการยกเลิกไว้');
+  assertEquals_((await getWorkOrder(draft.woId))['Cancel_Reason'], 'ลูกค้ายกเลิกคำสั่ง', 'บันทึกเหตุผลการยกเลิกไว้');
 
-  var approved = createTestWo_(users, { 'Assignment_Type': ASSIGNMENT.SERVICE, 'Location': 'จุดที่อนุมัติแล้ว' });
-  approveWorkOrder(approved.woId, ASSIGNMENT.SERVICE, users.approver);
-  assertThrows_(function () {
-    cancelWorkOrder(approved.woId, 'ขอยกเลิกย้อนหลัง', users.admin);
+  var approved = await createTestWo_(users, { 'Assignment_Type': ASSIGNMENT.SERVICE, 'Location': 'จุดที่อนุมัติแล้ว' });
+  await approveWorkOrder(approved.woId, ASSIGNMENT.SERVICE, users.approver);
+  await assertThrows_(async function () {
+    await cancelWorkOrder(approved.woId, 'ขอยกเลิกย้อนหลัง', users.admin);
   }, 'อนุมัติไปแล้วยกเลิกทั้งใบไม่ได้ ต้องยกเลิกรายแผนกแทน');
 
   return endTest_();
@@ -2500,10 +2505,10 @@ function test_service_returnCancel() {
 /**
  * ชั้น API ต้องคืน {ok, ...} เสมอ ไม่ปล่อย error ดิบออกไปหาหน้าเว็บ (กฎข้อ 7)
  */
-function test_api_contract() {
+async function test_api_contract() {
   beginTest_('ชั้น API คืนผลรูปแบบเดียวเสมอ');
 
-  var bootstrap = api_getBootstrap();
+  var bootstrap = await api_getBootstrap();
   assertTrue_(typeof bootstrap.ok === 'boolean', 'api_getBootstrap คืนฟิลด์ ok เสมอ');
   if (bootstrap.ok) {
     assertTrue_(!!bootstrap.data.user.email, 'bootstrap มีอีเมลผู้ใช้ปัจจุบัน');
@@ -2514,11 +2519,11 @@ function test_api_contract() {
     assertTrue_(!!bootstrap.message, 'เมื่อทำไม่สำเร็จต้องมีข้อความบอกเหตุผล');
   }
 
-  var missing = api_getWorkOrder('TEST-ไม่มีใบงานนี้');
+  var missing = await api_getWorkOrder('TEST-ไม่มีใบงานนี้');
   assertEquals_(missing.ok, false, 'ขอใบงานที่ไม่มีอยู่ ต้องได้ ok = false ไม่ใช่ error ดิบ');
   assertTrue_(!!missing.message, 'และต้องมีข้อความภาษาไทยบอกสาเหตุ');
 
-  var created = api_createWorkOrder({ 'Customer_Name': 'ไม่ครบ' });
+  var created = await api_createWorkOrder({ 'Customer_Name': 'ไม่ครบ' });
   assertEquals_(created.ok, false, 'สร้างใบงานด้วยข้อมูลไม่ครบ ต้องได้ ok = false');
 
   assertEquals_(splitRoles_('APPROVER_SP, SERVICE').length, 2, 'ผู้ใช้ที่มีหลาย Role ถูกแยกออกจากกันได้');
@@ -2532,7 +2537,7 @@ function test_api_contract() {
  * การไล่เลขของ PJ_ID รูปแบบใหม่ PJ-<รหัสลูกค้า>-<ลำดับโครงการ>-<ลำดับสถานที่> (SPEC 10.2.1)
  * ลำดับต้องอ่านจากคอลัมน์ Project_Seq / Location_Seq ไม่ใช่แกะจากตัว PJ_ID
  */
-function test_service_pjIdNumbering() {
+async function test_service_pjIdNumbering() {
   beginTest_('การไล่เลข PJ_ID — SPEC 10.2');
 
   var users = serviceTestUsers_();
@@ -2546,10 +2551,10 @@ function test_service_pjIdNumbering() {
    * @param {string} location ชื่อสถานที่
    * @return {string}
    */
-  function pjOf(customerCode, project, location) {
-    return createTestWo_(users, {
+  async function pjOf(customerCode, project, location) {
+    return (await createTestWo_(users, {
       'Customer_Code': customerCode, 'Project': project, 'Location': location
-    }).pjId;
+    })).pjId;
   }
 
   // ลูกค้าเดียวกัน โครงการเดียวกัน 3 สถานที่ -> ลำดับสถานที่เดินหน้า ลำดับโครงการคงที่
@@ -2574,10 +2579,10 @@ function test_service_pjIdNumbering() {
   assertTrue_(p6.indexOf(custA) === -1, 'PJ_ID ของลูกค้าคนละรายต้องไม่มีรหัสของอีกรายปนอยู่');
 
   // สถานที่เดิมครบทั้ง 3 ค่า -> ได้ PJ_ID เดิม ไม่สร้างแถวใหม่
-  var before = listLocations(custA, 'ออนิว').length;
+  var before = (await listLocations(custA, 'ออนิว')).length;
   var p7 = pjOf(custA, 'ออนิว', 'ห้องปั๊ม');
   assertEquals_(p7, p1, 'ทั้งสามค่าตรงกัน ต้องได้ PJ_ID เดิม');
-  assertEquals_(listLocations(custA, 'ออนิว').length, before, 'และต้องไม่เกิดแถวใหม่ในทะเบียนสถานที่');
+  assertEquals_((await listLocations(custA, 'ออนิว')).length, before, 'และต้องไม่เกิดแถวใหม่ในทะเบียนสถานที่');
 
   /*
    * โครงการเว้นว่าง ถือเป็นกลุ่มโครงการหนึ่งตามปกติ
@@ -2589,26 +2594,26 @@ function test_service_pjIdNumbering() {
    *
    * ข้อนี้จึงยังพิสูจน์สิ่งเดิมทุกประการ เพียงแต่ถามที่ชั้นที่เป็นเจ้าของกติกาจริง
    */
-  var blank1 = resolveProjectLocation(custA, '', 'โกดัง', testWoId_(),
+  var blank1 = await resolveProjectLocation(custA, '', 'โกดัง', testWoId_(),
     { customerName: 'บริษัททดสอบ จำกัด' });
-  var blank2 = resolveProjectLocation(custA, '', 'ลานหลังอาคาร', testWoId_(),
+  var blank2 = await resolveProjectLocation(custA, '', 'ลานหลังอาคาร', testWoId_(),
     { customerName: 'บริษัททดสอบ จำกัด' });
   assertEquals_(blank1, PREFIX.PJ + custA + '-03-01', 'โครงการที่เว้นว่างได้ลำดับโครงการของตัวเอง');
   assertEquals_(blank2, PREFIX.PJ + custA + '-03-02', 'สถานที่ถัดไปของโครงการที่เว้นว่างนับต่อตามปกติ');
 
   // และการเว้นโครงการว่างต้องยังหาแถวเดิมเจอ ไม่ใช่ออกเลขใหม่ทุกครั้ง
-  assertEquals_(resolveProjectLocation(custA, '', 'โกดัง', testWoId_(),
+  assertEquals_(await resolveProjectLocation(custA, '', 'โกดัง', testWoId_(),
     { customerName: 'บริษัททดสอบ จำกัด' }), blank1,
     'เรียกซ้ำด้วยสามค่าเดิมที่โครงการเว้นว่าง ต้องได้ PJ_ID เดิม');
 
   // ส่วนหน้าสร้างใบงานต้องปฏิเสธ เพราะโครงการเป็นช่องบังคับแล้ว (SPEC 9.1 · 9.3)
-  assertThrowsMessage_(function () {
-    createWorkOrder(testWoForm_({ 'Project': '' }), users.admin, { woIdPrefix: testWoPrefix_() });
+  await assertThrowsMessage_(async function () {
+    await createWorkOrder(testWoForm_({ 'Project': '' }), users.admin, { woIdPrefix: testWoPrefix_() });
   }, 'ยังกรอกไม่ครบ 1 ช่อง: โครงการ',
     'เปิดใบงานโดยไม่กรอกโครงการ ต้องถูกปฏิเสธพร้อมบอกว่าขาดช่องไหน');
 
   // ลำดับถูกเก็บไว้เป็นคอลัมน์ ไม่ต้องแกะจาก PJ_ID
-  var row = getLocation(p5);
+  var row = await getLocation(p5);
   assertEquals_(Number(row['Project_Seq']), 1, 'คอลัมน์ Project_Seq เก็บลำดับโครงการไว้ตรง ๆ');
   assertEquals_(Number(row['Location_Seq']), 4, 'คอลัมน์ Location_Seq เก็บลำดับสถานที่ไว้ตรง ๆ');
   assertTrue_(String(row['First_WO_ID']).indexOf(TEST_PREFIX) === 0,
@@ -2619,14 +2624,14 @@ function test_service_pjIdNumbering() {
 
   // ไม่มีรหัสลูกค้า -> เปิดใบงานไม่ได้ และข้อความต้องบอกทางออก ไม่ใช่แค่ "กรอกไม่ครบ"
   var noCodeMessage = 'ลูกค้ารายนี้ยังไม่มีรหัสใน Sheet Customer กรุณาเพิ่มรหัสลูกค้าก่อนเปิดใบงาน';
-  assertThrowsMessage_(function () {
-    createWorkOrder(testWoForm_({ 'Customer_Code': '' }), users.admin, { woIdPrefix: testWoPrefix_() });
+  await assertThrowsMessage_(async function () {
+    await createWorkOrder(testWoForm_({ 'Customer_Code': '' }), users.admin, { woIdPrefix: testWoPrefix_() });
   }, noCodeMessage, 'สร้างใบงานโดยไม่มีรหัสลูกค้า ต้องถูกปฏิเสธพร้อมข้อความที่บอกทางออก');
-  assertThrowsMessage_(function () {
-    createWorkOrder(testWoForm_({ 'Customer_Code': '   ' }), users.admin, { woIdPrefix: testWoPrefix_() });
+  await assertThrowsMessage_(async function () {
+    await createWorkOrder(testWoForm_({ 'Customer_Code': '   ' }), users.admin, { woIdPrefix: testWoPrefix_() });
   }, noCodeMessage, 'รหัสลูกค้าที่เป็นช่องว่างล้วนก็ถือว่าไม่มีรหัส');
-  assertThrowsMessage_(function () {
-    resolveProjectLocation('', 'ออนิว', 'ห้องปั๊ม', 'TEST-WO-0001');
+  await assertThrowsMessage_(async function () {
+    await resolveProjectLocation('', 'ออนิว', 'ห้องปั๊ม', 'TEST-WO-0001');
   }, noCodeMessage, 'ชั้นทะเบียนสถานที่ก็ปฏิเสธด้วยข้อความเดียวกัน');
 
   return endTest_();
@@ -2641,38 +2646,38 @@ function test_service_pjIdNumbering() {
  *
  * เขียนลงตาราง _Test_Bulk ซึ่งมีไว้ให้ชุดทดสอบเท่านั้น ระบบจริงไม่อ่านที่ไหนเลย
  */
-function test_repo_rowCache() {
+async function test_repo_rowCache() {
   beginTest_('แคชระดับการรันของชั้น Repo');
 
   var mine = { Row_ID: { op: 'like', value: dbLikeLiteral_(testPrefix_()) + '*' } };
   var id = testPrefix_() + 'C1';
 
   try {
-    appendRow_(TEST_BULK_TABLE, { 'Row_ID': id, 'Row_Name': 'ค่าแรก', 'Sort_Order': 1, 'Active': true });
+    await appendRow_(TEST_BULK_TABLE, { 'Row_ID': id, 'Row_Name': 'ค่าแรก', 'Sort_Order': 1, 'Active': true });
 
-    var first = findOne_(TEST_BULK_TABLE, 'Row_ID', id);
+    var first = await findOne_(TEST_BULK_TABLE, 'Row_ID', id);
     assertEquals_(first['Row_Name'], 'ค่าแรก', 'อ่านครั้งแรกได้ค่าที่เพิ่งเขียน');
     assertTrue_(!!ROW_CACHE_[TEST_BULK_TABLE], 'อ่านแล้วภาพของตารางถูกเก็บไว้ใช้ซ้ำในการรันนี้');
 
     // อ่านซ้ำต้องได้ object คนละก้อน เพื่อไม่ให้ผู้เรียกเผลอไปแก้ค่าในแคช
-    var second = findOne_(TEST_BULK_TABLE, 'Row_ID', id);
+    var second = await findOne_(TEST_BULK_TABLE, 'Row_ID', id);
     assertTrue_(first !== second, 'อ่านซ้ำได้ object ใหม่ ไม่ใช่ตัวเดิมที่ค้างในแคช');
     first['Row_Name'] = 'แก้ใน memory';
-    assertEquals_(findOne_(TEST_BULK_TABLE, 'Row_ID', id)['Row_Name'], 'ค่าแรก',
+    assertEquals_((await findOne_(TEST_BULK_TABLE, 'Row_ID', id))['Row_Name'], 'ค่าแรก',
       'แก้ค่าใน object ที่อ่านไป ต้องไม่กระทบข้อมูลที่อ่านครั้งถัดไป');
 
     // เขียนแล้วต้องอ่านได้ค่าใหม่ ไม่ใช่ค่าเก่าที่ค้างอยู่
-    updateRow_(TEST_BULK_TABLE, 'Row_ID', id, { 'Row_Name': 'ค่าที่สอง' });
-    assertEquals_(findOne_(TEST_BULK_TABLE, 'Row_ID', id)['Row_Name'], 'ค่าที่สอง',
+    await updateRow_(TEST_BULK_TABLE, 'Row_ID', id, { 'Row_Name': 'ค่าที่สอง' });
+    assertEquals_((await findOne_(TEST_BULK_TABLE, 'Row_ID', id))['Row_Name'], 'ค่าที่สอง',
       'หลังแก้ไขต้องอ่านได้ค่าใหม่ ไม่ใช่ค่าที่ค้างในแคช');
 
     // เพิ่มแถวแล้วต้องเห็นทันทีเช่นกัน
     var id2 = testPrefix_() + 'C2';
-    appendRow_(TEST_BULK_TABLE, { 'Row_ID': id2, 'Row_Name': 'แถวใหม่', 'Sort_Order': 2, 'Active': true });
-    assertEquals_(readAll_(TEST_BULK_TABLE).length, 2, 'เพิ่มแถวแล้วอ่านเห็นครบทันที');
-    assertEquals_(findOne_(TEST_BULK_TABLE, 'Row_ID', id2)['Row_Name'], 'แถวใหม่',
+    await appendRow_(TEST_BULK_TABLE, { 'Row_ID': id2, 'Row_Name': 'แถวใหม่', 'Sort_Order': 2, 'Active': true });
+    assertEquals_((await readAll_(TEST_BULK_TABLE)).length, 2, 'เพิ่มแถวแล้วอ่านเห็นครบทันที');
+    assertEquals_((await findOne_(TEST_BULK_TABLE, 'Row_ID', id2))['Row_Name'], 'แถวใหม่',
       'อ่านแถวที่เพิ่งเพิ่มได้ค่าถูกต้อง');
-    assertEquals_(findOne_(TEST_BULK_TABLE, 'Row_ID', id)['Row_Name'], 'ค่าที่สอง',
+    assertEquals_((await findOne_(TEST_BULK_TABLE, 'Row_ID', id))['Row_Name'], 'ค่าที่สอง',
       'เพิ่มแถวใหม่แล้วแถวเดิมต้องไม่ถูกทับ');
 
     /*
@@ -2681,11 +2686,11 @@ function test_repo_rowCache() {
      * ข้อนี้คือตัวจับว่าภาพในหน่วยความจำเพี้ยนไปจากของจริงหรือไม่ — เป็นข้อเดียว
      * ที่บอกความต่างระหว่าง "แคชถูกต้อง" กับ "แคชถูกใจตัวเอง"
      */
-    var cached = readAll_(TEST_BULK_TABLE);
+    var cached = await readAll_(TEST_BULK_TABLE);
     clearRowCache_(TEST_BULK_TABLE);
     assertTrue_(!ROW_CACHE_[TEST_BULK_TABLE], 'ล้างแคชแล้วภาพเดิมต้องไม่เหลืออยู่');
 
-    var fresh = readAll_(TEST_BULK_TABLE);
+    var fresh = await readAll_(TEST_BULK_TABLE);
     assertEquals_(fresh.length, cached.length, 'จำนวนแถวที่แคชไว้ตรงกับที่อ่านใหม่จากฐานข้อมูล');
     for (var f = 0; f < fresh.length; f++) {
       assertEquals_(String(fresh[f]['Row_ID']) + '|' + String(fresh[f]['Row_Name']),
@@ -2701,18 +2706,18 @@ function test_repo_rowCache() {
      * และเป็นทางที่ Optimistic Lock พึ่งอยู่ ถ้ามันอ่านผ่านแคชเมื่อไร การตรวจนั้น
      * จะไร้ความหมายทันทีโดยไม่มีอะไรฟ้อง
      */
-    updateRow_(TEST_BULK_TABLE, 'Row_ID', id2, { 'Row_Name': 'ค่าล่าสุด' });
-    var direct = queryRows_(TEST_BULK_TABLE, { Row_ID: id2 });
+    await updateRow_(TEST_BULK_TABLE, 'Row_ID', id2, { 'Row_Name': 'ค่าล่าสุด' });
+    var direct = await queryRows_(TEST_BULK_TABLE, { Row_ID: id2 });
     assertEquals_(direct.length, 1, 'ถามฐานข้อมูลตรง ๆ ต้องได้แถวที่ระบุ');
     assertEquals_(String(direct[0]['Row_Name']), 'ค่าล่าสุด',
       'การอ่านตรงต้องได้ค่าล่าสุดเสมอ ไม่ใช่ค่าที่ค้างในแคช');
 
   } finally {
-    db_delete_(TEST_BULK_TABLE, mine);
+    await db_delete_(TEST_BULK_TABLE, mine);
     clearRowCache_();
   }
 
-  assertEquals_(db_count_(TEST_BULK_TABLE, mine), 0, 'ต้องไม่เหลือแถวทดสอบไว้เลย');
+  assertEquals_(await db_count_(TEST_BULK_TABLE, mine), 0, 'ต้องไม่เหลือแถวทดสอบไว้เลย');
 
   return endTest_();
 }
@@ -2720,11 +2725,11 @@ function test_repo_rowCache() {
 /**
  * เดินงานจริงหนึ่งรอบให้ครบวงจรแบบสั้นที่สุด ใช้เป็นตัวตรวจว่าระบบยังทำงานอยู่
  */
-function test_smoke_flow() {
+async function test_smoke_flow() {
   beginTest_('เดินงานครบวงจรหนึ่งรอบ');
 
   var users = serviceTestUsers_();
-  var wo = createTestWo_(users, {
+  var wo = await createTestWo_(users, {
     'Assignment_Type': ASSIGNMENT.SERVICE,
     'Location': 'จุดตรวจ smoke ' + Math.floor(Math.random() * 10000)
   });
@@ -2733,20 +2738,20 @@ function test_smoke_flow() {
     'สร้างใบงานแล้วไปรออนุมัติทันที ไม่ผ่านสถานะร่าง (SPEC 4.1)');
   assertTrue_(String(wo.pjId).indexOf(PREFIX.PJ) === 0, 'ได้รหัสสถานที่ตามรูปแบบใหม่');
 
-  approveWorkOrder(wo.woId, ASSIGNMENT.SERVICE, users.approver);
+  await approveWorkOrder(wo.woId, ASSIGNMENT.SERVICE, users.approver);
 
-  var task = findTaskOfDepartment_(wo.woId, DEPT.SERVICE);
+  var task = await findTaskOfDepartment_(wo.woId, DEPT.SERVICE);
   assertTrue_(!!task, 'อนุมัติแล้วเกิดงานของแผนก Service');
 
-  changeStatus(ENTITY.TASK, task['Task_ID'], ACTION.TASK_ACCEPT, users.service, {});
-  changeStatus(ENTITY.TASK, task['Task_ID'], ACTION.TASK_COMPLETE, users.service, {
+  await changeStatus(ENTITY.TASK, task['Task_ID'], ACTION.TASK_ACCEPT, users.service, {});
+  await changeStatus(ENTITY.TASK, task['Task_ID'], ACTION.TASK_COMPLETE, users.service, {
     allStepsDone: true, requiredReportsOk: true
   });
 
-  assertEquals_(getWorkOrder(wo.woId)['Overall_Status'], WO_STATUS.COMPLETED, 'แผนกปิดงานแล้ว WO ปิดเอง');
-  assertEquals_(auditCount_(wo.woId, ENTITY.WO, ACTION.CREATE), 1, 'Audit บันทึกการสร้างใบงาน');
-  assertEquals_(auditCount_(wo.woId, ENTITY.TASK, ACTION.TASK_COMPLETE), 1, 'Audit บันทึกการปิดงานของแผนก');
-  assertEquals_(auditCount_(wo.woId, ENTITY.WO, ACTION.RECALC), 2,
+  assertEquals_((await getWorkOrder(wo.woId))['Overall_Status'], WO_STATUS.COMPLETED, 'แผนกปิดงานแล้ว WO ปิดเอง');
+  assertEquals_(await auditCount_(wo.woId, ENTITY.WO, ACTION.CREATE), 1, 'Audit บันทึกการสร้างใบงาน');
+  assertEquals_(await auditCount_(wo.woId, ENTITY.TASK, ACTION.TASK_COMPLETE), 1, 'Audit บันทึกการปิดงานของแผนก');
+  assertEquals_(await auditCount_(wo.woId, ENTITY.WO, ACTION.RECALC), 2,
     'Audit บันทึกการเปลี่ยนสถานะอัตโนมัติของใบงาน 2 ครั้ง');
 
   return endTest_();
@@ -2756,7 +2761,7 @@ function test_smoke_flow() {
  * ฟังก์ชันที่หน้าเว็บเรียกเพิ่มในขั้นหน้าจอ — ค้นลูกค้า แก้ไขใบงาน และรายการรออนุมัติ
  * (SPEC 11, 17.2 · ฟังก์ชันใหม่ใน 09_Api.gs ต้องมีเทสต์ตามกติกาใน CLAUDE.md)
  */
-function test_service_webApi() {
+async function test_service_webApi() {
   beginTest_('ฟังก์ชันที่หน้าเว็บเรียก — SPEC 11, 17.2');
 
   var users = serviceTestUsers_();
@@ -2786,10 +2791,10 @@ function test_service_webApi() {
 
   /* ---------- แก้ไขใบงาน ---------- */
   // ใบที่แก้ไขได้ต้องผ่านการตีกลับมาก่อน เพราะใบที่รออนุมัติถูกล็อกไว้ (SPEC 5)
-  var wo = returnedTestWo_(users, { 'Location': 'จุดที่จะแก้ไข', 'Contact': 'ผู้ติดต่อเดิม' });
-  var before = getWorkOrder(wo.woId);
+  var wo = await returnedTestWo_(users, { 'Location': 'จุดที่จะแก้ไข', 'Contact': 'ผู้ติดต่อเดิม' });
+  var before = await getWorkOrder(wo.woId);
 
-  var edited = editWorkOrder(wo.woId, testWoForm_({
+  var edited = await editWorkOrder(wo.woId, testWoForm_({
     'Customer_Code': before['Customer_Code'],
     'Location': 'จุดที่จะแก้ไข',
     'Contact': 'ผู้ติดต่อใหม่',
@@ -2799,55 +2804,55 @@ function test_service_webApi() {
   assertEquals_(edited.workOrder['Contact'], 'ผู้ติดต่อใหม่', 'แก้ไขข้อมูลใบงานได้');
   assertEquals_(edited.workOrder['Overall_Status'], WO_STATUS.RETURNED, 'การแก้ไขไม่เปลี่ยนสถานะใบงาน');
   assertEquals_(edited.workOrder['PJ_ID'], before['PJ_ID'], 'สถานที่เดิมยังใช้รหัสสถานที่เดิม');
-  assertEquals_(auditCount_(wo.woId, ENTITY.WO, ACTION.EDIT), 1, 'การแก้ไขถูกบันทึกลง Audit_Log 1 แถว');
+  assertEquals_(await auditCount_(wo.woId, ENTITY.WO, ACTION.EDIT), 1, 'การแก้ไขถูกบันทึกลง Audit_Log 1 แถว');
 
   // ใช้ค่า Updated_Date ชุดเดิมซ้ำต้องถูกปฏิเสธ เพราะมีการแก้ไปแล้ว (SPEC C-3)
-  assertThrowsMessage_(function () {
-    editWorkOrder(wo.woId, testWoForm_({
+  await assertThrowsMessage_(async function () {
+    await editWorkOrder(wo.woId, testWoForm_({
       'Customer_Code': before['Customer_Code'], 'Location': 'จุดที่จะแก้ไข'
     }), users.admin, before['Updated_Date']);
   }, 'ถูกแก้ไขโดยผู้ใช้อื่นไปแล้ว', 'แก้ไขด้วยค่า Updated_Date ที่ล้าสมัย ต้องถูกปฏิเสธ');
 
   // ไม่มีรหัสลูกค้าก็แก้ไขไม่ได้เช่นเดียวกับตอนสร้าง
-  assertThrowsMessage_(function () {
-    editWorkOrder(wo.woId, testWoForm_({ 'Customer_Code': '' }), users.admin);
+  await assertThrowsMessage_(async function () {
+    await editWorkOrder(wo.woId, testWoForm_({ 'Customer_Code': '' }), users.admin);
   }, 'กรุณาเพิ่มรหัสลูกค้าก่อนเปิดใบงาน', 'แก้ไขโดยไม่มีรหัสลูกค้า ต้องถูกปฏิเสธพร้อมข้อความที่บอกทางออก');
 
   // ใบงานที่ส่งอนุมัติไปแล้วถูกล็อกการแก้ไข (SPEC 4.1)
-  var latest = getWorkOrder(wo.woId);
-  submitWorkOrder(wo.woId, users.admin, latest['Updated_Date']);
-  assertThrows_(function () {
-    editWorkOrder(wo.woId, testWoForm_({ 'Customer_Code': before['Customer_Code'] }), users.admin);
+  var latest = await getWorkOrder(wo.woId);
+  await submitWorkOrder(wo.woId, users.admin, latest['Updated_Date']);
+  await assertThrows_(async function () {
+    await editWorkOrder(wo.woId, testWoForm_({ 'Customer_Code': before['Customer_Code'] }), users.admin);
   }, 'ใบงานที่รออนุมัติอยู่ แก้ไขไม่ได้');
 
   /* ---------- รายการรออนุมัติ ---------- */
-  var pending = listPendingApprovals(users.approver);
+  var pending = await listPendingApprovals(users.approver);
   assertTrue_(containsWo_(pending, wo.woId), 'ใบงานที่เพิ่งส่งอนุมัติอยู่ในรายการของ APPROVER_SP');
-  assertTrue_(!containsWo_(listPendingApprovals(users.labApprover), wo.woId),
+  assertTrue_(!containsWo_(await listPendingApprovals(users.labApprover), wo.woId),
     'ผู้อนุมัติสาย Lab ต้องไม่เห็นใบงานสาย SP');
-  assertEquals_(listPendingApprovals(users.service).length, 0,
+  assertEquals_((await listPendingApprovals(users.service)).length, 0,
     'ผู้ใช้ที่ไม่ใช่ผู้อนุมัติเห็นรายการว่าง');
 
-  var labWo = createTestWo_(users, { 'Assignment_Type': ASSIGNMENT.LAB, 'Location': 'ห้องแล็บทดสอบ' });
-  assertTrue_(containsWo_(listPendingApprovals(users.labApprover), labWo.woId),
+  var labWo = await createTestWo_(users, { 'Assignment_Type': ASSIGNMENT.LAB, 'Location': 'ห้องแล็บทดสอบ' });
+  assertTrue_(containsWo_(await listPendingApprovals(users.labApprover), labWo.woId),
     'ใบงานสาย Lab อยู่ในรายการของ APPROVER_LAB');
-  assertTrue_(!containsWo_(listPendingApprovals(users.approver), labWo.woId),
+  assertTrue_(!containsWo_(await listPendingApprovals(users.approver), labWo.woId),
     'APPROVER_SP ต้องไม่เห็นใบงานสาย Lab');
 
   // อนุมัติไปแล้วต้องหลุดจากรายการรออนุมัติ
-  approveWorkOrder(wo.woId, ASSIGNMENT.SERVICE, users.approver);
-  assertTrue_(!containsWo_(listPendingApprovals(users.approver), wo.woId),
+  await approveWorkOrder(wo.woId, ASSIGNMENT.SERVICE, users.approver);
+  assertTrue_(!containsWo_(await listPendingApprovals(users.approver), wo.woId),
     'ใบงานที่อนุมัติแล้วหลุดจากรายการรออนุมัติ');
 
   /* ---------- ชั้น API ต้องคืน {ok, ...} เสมอ ---------- */
-  var searchResult = api_searchCustomers('ทดสอบ');
+  var searchResult = await api_searchCustomers('ทดสอบ');
   assertTrue_(typeof searchResult.ok === 'boolean', 'api_searchCustomers คืนฟิลด์ ok เสมอ');
 
-  var editResult = api_editWorkOrder('TEST-ไม่มีใบงานนี้', {}, null);
+  var editResult = await api_editWorkOrder('TEST-ไม่มีใบงานนี้', {}, null);
   assertEquals_(editResult.ok, false, 'api_editWorkOrder กับใบงานที่ไม่มีอยู่ คืน ok = false');
   assertTrue_(!!editResult.message, 'และมีข้อความบอกสาเหตุ');
 
-  var pendingResult = api_listPendingApprovals();
+  var pendingResult = await api_listPendingApprovals();
   assertTrue_(typeof pendingResult.ok === 'boolean', 'api_listPendingApprovals คืนฟิลด์ ok เสมอ');
 
   return endTest_();
@@ -2889,7 +2894,7 @@ function containsWo_(rows, woId) {
  * เทสต์นี้มีไว้ดักกรณีที่มีคนเพิ่ม api_ ใหม่แล้วลืมห่อด้วยตัวแปลงกลาง
  * เพราะอาการเวลาพลาดคือหน้าเว็บได้ undefined เงียบ ๆ ไม่มี error ให้เห็นเลย
  */
-function test_service_apiJsonSafe() {
+async function test_service_apiJsonSafe() {
   beginTest_('ค่าที่คืนจาก api_* ต้องข้าม google.script.run ได้ — กฎข้อ 14');
 
   /* ---------- ตัวแปลงและตัวตรวจ ---------- */
@@ -2919,7 +2924,7 @@ function test_service_apiJsonSafe() {
   /* ---------- วนเรียกทุกฟังก์ชัน api_* ---------- */
   var users = serviceTestUsers_();
   var code = testCustomerCode_('01');
-  var wo = createTestWo_(users, { 'Job_Description': 'ปั๊มน้ำมีเสียงดังผิดปกติ' });
+  var wo = await createTestWo_(users, { 'Job_Description': 'ปั๊มน้ำมีเสียงดังผิดปกติ' });
 
   // api_createWorkOrder ตั้งใจส่งฟอร์มที่ไม่ผ่านการตรวจ เพราะถ้าสร้างสำเร็จจะได้ใบงานเลขจริง
   // ที่ test_cleanup() ตามลบไม่ได้ · ฟังก์ชันที่เปลี่ยนสถานะก็ส่งเหตุผลว่างไว้ให้ถูกปฏิเสธ
@@ -2950,7 +2955,7 @@ function test_service_apiJsonSafe() {
     var args = Object.prototype.hasOwnProperty.call(argsByName, name) ? argsByName[name] : [];
     var result;
     try {
-      result = scope[name].apply(null, args);
+      result = await scope[name].apply(null, args);
     } catch (e) {
       fail_(name + ' โยน error ดิบออกมา ทั้งที่ต้องคืน {ok:false} เสมอ — ' + e.message);
       continue;
@@ -2968,13 +2973,13 @@ function test_service_apiJsonSafe() {
   }
 
   /* ---------- จุดที่พังจริงเมื่อลืมห่อ: แถวที่มีวันที่จากชีต ---------- */
-  var rawRow = getWorkOrder(wo.woId);
+  var rawRow = await getWorkOrder(wo.woId);
   assertTrue_(toDate_(rawRow['Created_Date']) !== null, 'แถวดิบจากชีตมีวันที่เป็น Date จริง');
   assertEquals_(isJsonSafe_(rawRow), false, 'แถวดิบจากชีตส่งให้หน้าเว็บตรง ๆ ไม่ได้');
   assertEquals_(typeof jsonSafe_(rawRow)['Created_Date'], 'string',
     'เมื่อผ่านตัวแปลงแล้ว วันที่กลายเป็นข้อความ ISO ที่หน้าเว็บรับได้');
 
-  var probe = api_getWorkOrder(wo.woId);
+  var probe = await api_getWorkOrder(wo.woId);
   if (probe.ok) {
     assertEquals_(typeof probe.data.workOrder['Created_Date'], 'string',
       'api_getWorkOrder คืนวันที่เป็นข้อความ ISO');
@@ -2988,11 +2993,11 @@ function test_service_apiJsonSafe() {
 /**
  * ฟิลด์ใหม่ตาม SPEC 9.3 และกติกาว่าอะไรบังคับตอนไหน
  */
-function test_service_woFormFields() {
+async function test_service_woFormFields() {
   beginTest_('ฟิลด์ของใบงานตาม SPEC 9.3');
 
   var users = serviceTestUsers_();
-  var wo = createTestWo_(users, {
+  var wo = await createTestWo_(users, {
     'Job_Description': 'ปั๊มน้ำมีเสียงดังผิดปกติ',
     'Product_Detail': 'ปั๊มน้ำรุ่น XP-200',
     'Work_Scope': 'ห้องเครื่องชั้นใต้ดิน โซน B',
@@ -3022,17 +3027,17 @@ function test_service_woFormFields() {
    * ทุกช่องบังคับตั้งแต่ตอนสร้าง เพราะไม่มีขั้นบันทึกร่างแล้ว (SPEC 4.1)
    * และต้องตรวจที่ฝั่งเซิร์ฟเวอร์ ไม่ใช่เชื่อการตรวจในหน้าเว็บอย่างเดียว
    */
-  var beforeRows = listWorkOrders().length;
-  assertThrowsMessage_(function () {
-    createTestWo_(users, { 'Location': 'จุดที่ยังไม่ได้กรอกอาการ', 'Job_Description': '' });
+  var beforeRows = (await listWorkOrders()).length;
+  await assertThrowsMessage_(async function () {
+    await createTestWo_(users, { 'Location': 'จุดที่ยังไม่ได้กรอกอาการ', 'Job_Description': '' });
   }, 'ลักษณะงานที่ทำ หรืออาการ', 'สร้างใบงานโดยยังไม่กรอกลักษณะงาน ต้องถูกปฏิเสธ');
-  assertEquals_(listWorkOrders().length, beforeRows,
+  assertEquals_((await listWorkOrders()).length, beforeRows,
     'ถูกปฏิเสธแล้วต้องไม่มีแถวใดถูกเขียนลงชีต');
 
   // ข้อความต้องบอกชื่อช่องเป็นภาษาไทย ไม่ใช่ชื่อคอลัมน์ และบอกจำนวนช่องที่ขาดด้วย
   var createError = '';
   try {
-    createTestWo_(users, { 'Location': 'จุดที่กรอกไม่ครบ', 'Phone': '', 'Contact': '' });
+    await createTestWo_(users, { 'Location': 'จุดที่กรอกไม่ครบ', 'Phone': '', 'Contact': '' });
   } catch (e) {
     createError = e.message;
   }
@@ -3046,25 +3051,25 @@ function test_service_woFormFields() {
    * การตรวจต้องเกิดก่อนออกเลขที่เสมอ ไม่งั้นทุกครั้งที่กรอกไม่ครบ เลขจะวิ่งไปหนึ่งใบ
    * แล้วเลขที่เอกสารจะมีช่องโหว่ที่อธิบายกับลูกค้าไม่ได้
    */
-  var good = createTestWo_(users, { 'Location': 'จุดที่กรอกครบแล้ว' });
+  var good = await createTestWo_(users, { 'Location': 'จุดที่กรอกครบแล้ว' });
   var numberBefore = Number(String(good.woId).slice(-4));
   try {
-    createTestWo_(users, { 'Location': 'จุดที่กรอกไม่ครบอีกใบ', 'Contact': '' });
+    await createTestWo_(users, { 'Location': 'จุดที่กรอกไม่ครบอีกใบ', 'Contact': '' });
   } catch (e) {
     // ตั้งใจให้ล้มเหลว
   }
-  var next = createTestWo_(users, { 'Location': 'จุดถัดไป' });
+  var next = await createTestWo_(users, { 'Location': 'จุดถัดไป' });
   assertEquals_(Number(String(next.woId).slice(-4)), numberBefore + 1,
     'ใบที่กรอกไม่ครบต้องไม่กินเลขที่ใบงานไป');
 
   /* ---------- ใบที่ถูกตีกลับ แก้แล้วส่งใหม่ได้ ---------- */
-  var returned = returnedTestWo_(users, { 'Location': 'จุดที่ถูกตีกลับ' });
-  editWorkOrder(returned.woId, testWoForm_({
+  var returned = await returnedTestWo_(users, { 'Location': 'จุดที่ถูกตีกลับ' });
+  await editWorkOrder(returned.woId, testWoForm_({
     'Customer_Code': returned.workOrder['Customer_Code'],
     'Location': 'จุดที่ถูกตีกลับ',
     'Job_Description': 'ตรวจเช็คระบบน้ำประจำปี'
   }), users.admin);
-  assertEquals_(submitWorkOrder(returned.woId, users.admin).to, WO_STATUS.PENDING_APPROVE,
+  assertEquals_((await submitWorkOrder(returned.woId, users.admin)).to, WO_STATUS.PENDING_APPROVE,
     'แก้ตามที่ถูกตีกลับแล้ว ส่งขออนุมัติใหม่ได้ตามปกติ');
 
   return endTest_();
@@ -3245,36 +3250,36 @@ function test_meta_runOneByOneMessageListsEveryGroup() {
  * มีคนเปลี่ยนนามสกุล และจะไม่มีทางรู้อีกเลยว่าแถวเก่าหมายถึงใคร · ข้อนี้จึงตรวจ
  * ทั้งสองฝั่งเสมอ คือฝั่งที่แสดง กับฝั่งที่เก็บ
  */
-function test_web_showsDisplayNameNotEmail() {
+async function test_web_showsDisplayNameNotEmail() {
   beginTest_('ทุกที่ที่บอกว่าใครทำอะไร ต้องแสดงชื่อ ไม่ใช่อีเมล');
 
   var users = serviceTestUsers_();
 
   /* ---------- ชื่อที่มีอักขระทำ JavaScript พัง ต้องไม่ทำให้หน้าพัง (กฎข้อ 33) ---------- */
   var nasty = 'ผู้แจ้ง ' + hostileText_();
-  var maker = addLoginTestUser_('NAME1', ROLE.ADMIN, 'รหัสผ่านของผู้แจ้งงาน',
+  var maker = await addLoginTestUser_('NAME1', ROLE.ADMIN, 'รหัสผ่านของผู้แจ้งงาน',
     { 'Display_Name': nasty });
   clearRowCache_(SHEET.USER_ROLE);
 
-  var wo = withTestUser_({ email: maker.email, roles: [ROLE.ADMIN] }, function () {
-    return createTestWo_({ admin: { email: maker.email, roles: [ROLE.ADMIN] } }, {});
+  var wo = await withTestUser_({ email: maker.email, roles: [ROLE.ADMIN] }, async function () {
+    return await createTestWo_({ admin: { email: maker.email, roles: [ROLE.ADMIN] } }, {});
   });
 
   /* ---------- ฝั่งที่เก็บ ต้องเป็นอีเมลเหมือนเดิมทุกตัวอักษร ---------- */
-  var saved = getWorkOrder(wo.woId);
+  var saved = await getWorkOrder(wo.woId);
   assertEquals_(String(saved['Created_By']), maker.email,
     'คอลัมน์ Created_By ต้องยังเก็บอีเมล ไม่ใช่ชื่อที่แสดง');
 
   /* ---------- ฝั่งที่แสดง ต้องเป็นชื่อ ---------- */
-  var detail = workOrderDetail(wo.woId).workOrder;
+  var detail = (await workOrderDetail(wo.woId)).workOrder;
   assertEquals_(detail.createdBy, nasty,
     'หน้ารายละเอียดต้องแสดงชื่อ ไม่ใช่อีเมล (ได้: ' + detail.createdBy + ')');
   assertTrue_(String(detail.createdBy).indexOf('@') === -1 || nasty.indexOf('@') !== -1,
     'และต้องไม่มีอีเมลหลงเหลืออยู่ในค่าที่ส่งไปแสดง');
 
   /* ---------- หน้าอนุมัติรับแถวดิบไปทั้งแถว จึงต้องได้ชื่อมาด้วย ---------- */
-  var pending = withTestUser_(users.approver, function () {
-    return api_listPendingApprovals(ROUTE.SP);
+  var pending = await withTestUser_(users.approver, async function () {
+    return await api_listPendingApprovals(ROUTE.SP);
   });
   var foundRow = null;
   for (var i = 0; i < pending.data.rows.length; i++) {
@@ -3288,27 +3293,27 @@ function test_web_showsDisplayNameNotEmail() {
   /* ---------- ทุกหน้าต้องยังแปลผ่าน ทั้งที่ชื่อเต็มไปด้วยอักขระร้าย ---------- */
   for (var key in WEB_PAGES) {
     if (!Object.prototype.hasOwnProperty.call(WEB_PAGES, key)) continue;
-    var html = servedHtmlOf_(key, { wo: wo.woId, dept: DEPT.SERVICE, view: 'active' });
+    var html = await servedHtmlOf_(key, { wo: wo.woId, dept: DEPT.SERVICE, view: 'active' });
     assertEquals_(riskReport_(htmlRiskScan_(html)), '',
       'หน้า ' + key + ' ต้องยังแปลผ่าน แม้ชื่อผู้ใช้จะเต็มไปด้วยอักขระร้าย');
   }
 
   /* ---------- คนที่ไม่มีในทะเบียน ต้องเห็นอีเมล ไม่ใช่ช่องว่าง ---------- */
   var ghost = 'คนที่ลาออกไปแล้ว@cnr.co.th';
-  assertEquals_(displayNameOf_(ghost), ghost,
+  assertEquals_(await displayNameOf_(ghost), ghost,
     'ผู้ใช้ที่ถูกลบหรือปิดไปแล้ว ต้องแสดงอีเมล · ประวัติที่บอกว่า "ใครไม่รู้อนุมัติใบนี้" แย่กว่าบอกอีเมล');
-  assertEquals_(displayNameOf_(''), '', 'ค่าว่างต้องยังเป็นค่าว่าง ไม่ใช่กลายเป็นข้อความอะไรสักอย่าง');
+  assertEquals_(await displayNameOf_(''), '', 'ค่าว่างต้องยังเป็นค่าว่าง ไม่ใช่กลายเป็นข้อความอะไรสักอย่าง');
 
   /* ---------- ผู้ใช้ที่ถูกปิดการใช้งาน ต้องยังมีชื่อในประวัติ ---------- */
-  var gone = addLoginTestUser_('NAME2', ROLE.SERVICE, 'รหัสผ่านของคนที่ถูกปิด',
+  var gone = await addLoginTestUser_('NAME2', ROLE.SERVICE, 'รหัสผ่านของคนที่ถูกปิด',
     { 'Display_Name': 'ช่างที่ลาออกแล้ว', 'Active': false });
   clearRowCache_(SHEET.USER_ROLE);
-  assertEquals_(displayNameOf_(gone.email), 'ช่างที่ลาออกแล้ว',
+  assertEquals_(await displayNameOf_(gone.email), 'ช่างที่ลาออกแล้ว',
     'ปิดการใช้งานแล้วชื่อต้องยังอยู่ ไม่งั้นประวัติเก่าจะกลายเป็นอีเมลเงียบ ๆ');
 
   /* ---------- ชื่อที่เปลี่ยนแล้ว ต้องเห็นทันที ไม่ต้องรอแคชหมดอายุ ---------- */
-  updateUserRole_(gone.email, { 'Display_Name': 'ชื่อที่แก้ให้สะกดถูกแล้ว' });
-  assertEquals_(displayNameOf_(gone.email), 'ชื่อที่แก้ให้สะกดถูกแล้ว',
+  await updateUserRole_(gone.email, { 'Display_Name': 'ชื่อที่แก้ให้สะกดถูกแล้ว' });
+  assertEquals_(await displayNameOf_(gone.email), 'ชื่อที่แก้ให้สะกดถูกแล้ว',
     'แก้ชื่อในทะเบียนแล้ว คำขอถัดไปต้องเห็นชื่อใหม่ทันที');
 
   return endTest_();
@@ -3321,26 +3326,26 @@ function test_web_showsDisplayNameNotEmail() {
  * ถ้าวันหนึ่งมีคนเขียน getUserRole(email) ไว้ในลูปของการวาดรายการ หน้าที่มีห้าสิบแถว
  * จะยิงห้าสิบคำขอ แล้วอาการที่เห็นคือ "ระบบช้าลงเฉย ๆ" ซึ่งหาสาเหตุยากมาก
  */
-function test_web_displayNameCostsNothingPerRow() {
+async function test_web_displayNameCostsNothingPerRow() {
   beginTest_('การแสดงชื่อต้องไม่เพิ่มจำนวนคำขอต่อแถว');
 
   var users = serviceTestUsers_();
-  var maker = addLoginTestUser_('NAME3', ROLE.ADMIN, 'รหัสผ่านสำหรับนับคำขอ',
+  var maker = await addLoginTestUser_('NAME3', ROLE.ADMIN, 'รหัสผ่านสำหรับนับคำขอ',
     { 'Display_Name': 'ผู้แจ้งงานสำหรับนับคำขอ' });
   clearRowCache_(SHEET.USER_ROLE);
 
-  createTestWo_(users, {});
-  createTestWo_(users, {});
-  createTestWo_(users, {});
+  await createTestWo_(users, {});
+  await createTestWo_(users, {});
+  await createTestWo_(users, {});
 
   /* ---------- แปลงชื่อซ้ำ ต้องไม่มีราคาเลย ---------- */
   clearRowCache_();
   dbCallReset_();
-  displayNameOf_(maker.email);
+  await displayNameOf_(maker.email);
   var first = dbCallCount();
 
   dbCallReset_();
-  for (var i = 0; i < 10; i++) displayNameOf_(maker.email);
+  for (var i = 0; i < 10; i++) await displayNameOf_(maker.email);
   assertEquals_(dbCallCount(), 0,
     'แปลงชื่อซ้ำสิบครั้งต้องยิงศูนย์คำขอ · ถ้าเป็นสิบ แปลว่ากำลังอ่านทีละคน');
   assertTrue_(first <= 1,
@@ -3357,12 +3362,12 @@ function test_web_displayNameCostsNothingPerRow() {
    */
   clearRowCache_();
   dbCallReset_();
-  getUserRole(maker.email);          // สิ่งที่ getCurrentUser_ ทำเป็นอย่างแรกเสมอ
+  await getUserRole(maker.email);          // สิ่งที่ getCurrentUser_ ทำเป็นอย่างแรกเสมอ
   var identityCost = dbCallCount();
 
   dbCallReset_();
-  var listed = withTestUser_(users.approver, function () {
-    return api_listPendingApprovals(ROUTE.SP);
+  var listed = await withTestUser_(users.approver, async function () {
+    return await api_listPendingApprovals(ROUTE.SP);
   });
   var listCost = dbCallCount();
 
@@ -3494,7 +3499,7 @@ function emptyStringDateWrites_(source) {
  * ตรวจสองชั้น — ชั้นแรกคือ runSuites_ ต้องนับชุดที่หยุดกลางคันแยกจากชุดที่มีข้อไม่ผ่าน
  * ชั้นที่สองคือประโยคสรุปต้องพูดถึงจำนวนข้อที่หายไปจริง
  */
-function test_meta_crashedSuiteIsCountedInSummary() {
+async function test_meta_crashedSuiteIsCountedInSummary() {
   beginTest_('ชุดที่หยุดกลางคัน ต้องถูกรายงานว่าทำให้กี่ข้อไม่ได้รัน');
 
   /* ---------- ประโยคสรุป ต้องพูดถูกทุกสถานการณ์ ---------- */
@@ -3515,7 +3520,7 @@ function test_meta_crashedSuiteIsCountedInSummary() {
   var outerState = TEST_STATE_;
   var inner;
   try {
-    inner = runSuites_([
+    inner = await runSuites_([
       { name: 'ชุดที่หยุดกลางคัน', fn: function () {
           beginTest_('ชุดที่หยุดกลางคัน (จำลอง)');
           throw new Error('จำลองการหยุดกลางคัน');
@@ -3579,7 +3584,7 @@ function loadNavFunctions_() {
  * ข้อความที่ชี้ผิดทางแพงกว่าไม่มีข้อความ เพราะผู้ใช้ไปแจ้งผู้ดูแลว่าระบบพัง
  * แล้วผู้ดูแลไปไล่หาของที่ไม่ได้เสีย
  */
-function test_web_deniedPageSaysDeniedNotIncomplete() {
+async function test_web_deniedPageSaysDeniedNotIncomplete() {
   beginTest_('หน้าที่ไม่มีสิทธิ์ต้องบอกเรื่องสิทธิ์ ไม่ใช่เรื่องคีย์ขาด');
 
   var nav = loadNavFunctions_();
@@ -3618,8 +3623,8 @@ function test_web_deniedPageSaysDeniedNotIncomplete() {
    * ก่อนเป็นอันดับแรก — ข้อมูลที่ไม่ควรเห็นต้องไม่มาถึงเบราว์เซอร์ตั้งแต่ต้น
    */
   var users = serviceTestUsers_();
-  var boot = withTestUser_(users.admin, function () {
-    return pageBootstrap_('work', { dept: DEPT.SERVICE });
+  var boot = await withTestUser_(users.admin, async function () {
+    return await pageBootstrap_('work', { dept: DEPT.SERVICE });
   });
   assertEquals_(boot.rows, undefined,
     'ผู้ที่ไม่มีสิทธิ์ต้องไม่ได้รายการงานของแผนกติดมาด้วย');
@@ -3640,7 +3645,7 @@ function test_web_deniedPageSaysDeniedNotIncomplete() {
  * ตรวจด้วยก้อนปลอม เพื่อพิสูจน์ว่าด่านนี้ดังจริง ไม่ใช่เชื่อว่าดังเพราะเขียนไว้แล้ว
  * แล้วตรวจของจริงทุกหน้าซ้ำอีกชั้น
  */
-function test_web_bootstrapKeysMustNotCollide() {
+async function test_web_bootstrapKeysMustNotCollide() {
   beginTest_('คีย์ในก้อนข้อมูลตั้งต้นที่ชนกันต้องโวย ไม่ใช่หายไปเงียบ ๆ');
 
   /* ---------- ก้อนปลอม: ชนแล้วต้องโยน error ที่บอกชื่อคีย์ ---------- */
@@ -3679,7 +3684,7 @@ function test_web_bootstrapKeysMustNotCollide() {
   for (var i = 0; i < pages.length; i++) {
     var page = pages[i];
     try {
-      withTestUser_(users.admin, function () { return pageBootstrap_(page, {}); });
+      await withTestUser_(users.admin, async function () { return await pageBootstrap_(page, {}); });
     } catch (e) {
       broken.push(page + ': ' + ((e && e.message) ? e.message : String(e)));
     }
@@ -3839,13 +3844,13 @@ function test_web_dateFormats() {
  * เพราะเบราว์เซอร์จะทิ้งค่าที่ผิดรูปแบบไปเงียบ ๆ ผู้ใช้จะเห็นแค่ช่องว่าง
  * แล้วบันทึกทับจนวันที่เดิมหายไปโดยไม่มีใครรู้ตัว
  */
-function test_web_editKeepsDateInputs() {
+async function test_web_editKeepsDateInputs() {
   beginTest_('เปิดใบงานเดิมมาแก้ไข ช่องวันที่ต้องไม่ว่าง — กฎข้อ 20');
 
   var web = loadWebFunctions_();
   var users = serviceTestUsers_();
 
-  var wo = createTestWo_(users, {
+  var wo = await createTestWo_(users, {
     'Location': 'จุดทดสอบช่องวันที่',
     'Start_Contact_Date': '2026-03-05',
     'Start_Date': '2026-10-15T09:00',
@@ -3853,7 +3858,7 @@ function test_web_editKeepsDateInputs() {
   });
 
   // เส้นทางเดียวกับที่หน้าแก้ไขใช้จริง: อ่านผ่านชั้น API แล้วแปลงลงช่องกรอก
-  var sent = withTestUser_(users.admin, function () { return api_getWorkOrder(wo.woId); });
+  var sent = await withTestUser_(users.admin, async function () { return await api_getWorkOrder(wo.woId); });
   assertEquals_(sent.ok, true, 'เปิดใบงานเดิมขึ้นมาได้');
   var row = sent.data.workOrder;
 
@@ -3886,7 +3891,7 @@ function test_web_editKeepsDateInputs() {
 /**
  * คีย์ใน Counter และเลขที่เอกสารเป็น "ข้อมูล" ไม่ใช่การแสดงผล ห้ามเปลี่ยนรูปแบบตามกฎข้อ 20
  */
-function test_web_documentNumbersUnchanged() {
+async function test_web_documentNumbersUnchanged() {
   beginTest_('คีย์ Counter และเลขที่เอกสารต้องไม่เปลี่ยนรูปแบบ — กฎข้อ 20');
 
   // คีย์ของตัวนับอิงปีเดือนแบบ yyMM ติดกัน ไม่ใช่รูปแบบวันที่ที่คนอ่าน
@@ -3899,7 +3904,7 @@ function test_web_documentNumbersUnchanged() {
 
   // เลขที่ใบงานจริงต้องยังเป็น WO-yyMM-NNNN
   var users = serviceTestUsers_();
-  var wo = createTestWo_(users, { 'Location': 'จุดทดสอบเลขที่เอกสาร' });
+  var wo = await createTestWo_(users, { 'Location': 'จุดทดสอบเลขที่เอกสาร' });
   assertTrue_(/WO-\d{4}-\d{4}$/.test(wo.woId),
     'เลขที่ใบงานยังเป็นรูปแบบ WO-yyMM-NNNN (ได้: ' + wo.woId + ')');
 
@@ -3916,29 +3921,29 @@ function test_web_documentNumbersUnchanged() {
  * หน้าจอเป็นแค่ตัววาด ข้อมูลทั้งหมดตัดสินจากฝั่งเซิร์ฟเวอร์ เทสต์ชุดนี้จึงตรวจที่สัญญาข้อมูล
  * ถ้าสัญญานี้ถูก หน้าจอจะแสดงถูกตาม และถ้าสัญญานี้พัง หน้าจอจะพังทั้งสามหน้าพร้อมกัน
  */
-function test_web_deptWorkView() {
+async function test_web_deptWorkView() {
   beginTest_('ข้อมูลของหน้างานแผนก — SPEC 17.2');
 
   var users = serviceTestUsers_();
 
   /* ---------- งานร่วมสองแผนก ฝั่ง Project ยังไม่มีงวด ---------- */
-  var wo = approvedTestWo_(users, ASSIGNMENT.SERVICE_PROJECT,
+  var wo = await approvedTestWo_(users, ASSIGNMENT.SERVICE_PROJECT,
     { 'Location': 'จุดทดสอบหน้างานแผนก', 'Start_Date': '2026-10-15T09:00' });
 
-  var svList = withTestUser_(users.service, function () { return api_listMyTasks(); });
+  var svList = await withTestUser_(users.service, async function () { return await api_listMyTasks(); });
   assertEquals_(svList.ok, true, 'แผนกเปิดรายการงานของตัวเองได้');
 
   var sv = findTaskView_(svList.data.rows, wo.taskOf(DEPT.SERVICE));
   assertTrue_(!!sv, 'เห็นงานของแผนกตัวเองในรายการ');
 
   /* ---------- จำนวนขั้นตอนมาจากข้อมูลจริง ไม่ใช่เลขตายตัว (กฎข้อ 9) ---------- */
-  assertEquals_(sv.steps.length, listStepsByTask(sv.taskId).length,
+  assertEquals_(sv.steps.length, (await listStepsByTask(sv.taskId)).length,
     'จำนวนขั้นตอนที่ส่งให้หน้าจอ ตรงกับที่สร้างไว้จริงในตาราง');
   assertEquals_(sv.progress.total, sv.steps.length, 'ตัวนับความคืบหน้าตรงกับจำนวนขั้นตอนจริง');
   assertEquals_(sv.steps[0].stepNo, 1, 'ขั้นตอนเรียงจากลำดับที่ 1');
   assertEquals_(sv.steps[0].type, STEP_TYPE.STEP, 'ฝั่ง Service เป็นขั้นตอนงาน');
 
-  var pjList = withTestUser_(users.project, function () { return api_listMyTasks(); });
+  var pjList = await withTestUser_(users.project, async function () { return await api_listMyTasks(); });
   var pj = findTaskView_(pjList.data.rows, wo.taskOf(DEPT.PROJECT));
   /*
    * ฝั่ง Project เริ่มด้วยศูนย์งวดเสมอ แผนกเพิ่มเองระหว่างทำงาน (SPEC 20.2)
@@ -3964,8 +3969,8 @@ function test_web_deptWorkView() {
   assertEquals_(sv.display.acceptedDate, '', 'ยังไม่ได้รับงาน ช่องเวลารับงานต้องว่าง ไม่ใช่ปี 1970');
 
   /* ---------- รับงานแล้วข้อมูลต้องอัปเดตตาม ---------- */
-  withTestUser_(users.service, function () { return api_acceptTask(sv.taskId); });
-  sv = findTaskView_(withTestUser_(users.service, function () { return api_listMyTasks(); }).data.rows,
+  await withTestUser_(users.service, async function () { return await api_acceptTask(sv.taskId); });
+  sv = findTaskView_((await withTestUser_(users.service, async function () { return await api_listMyTasks(); })).data.rows,
     sv.taskId);
   assertEquals_(sv.status, TASK_STATUS.IN_PROGRESS, 'รับงานแล้วสถานะเปลี่ยน');
   assertEquals_(sv.acceptedBy, users.service.email, 'เห็นว่าใครเป็นคนรับงาน');
@@ -3973,10 +3978,10 @@ function test_web_deptWorkView() {
     'เวลารับงานถูกจัดรูปแบบมาให้แล้ว');
 
   /* ---------- ปิดขั้นตอนทีละขั้นแล้วความคืบหน้าต้องขยับ ---------- */
-  withTestUser_(users.service, function () {
-    return api_updateTaskStep(sv.steps[0].stepId, { 'Status': STEP_STATUS.COMPLETED });
+  await withTestUser_(users.service, async function () {
+    return await api_updateTaskStep(sv.steps[0].stepId, { 'Status': STEP_STATUS.COMPLETED });
   });
-  sv = findTaskView_(withTestUser_(users.service, function () { return api_listMyTasks(); }).data.rows,
+  sv = findTaskView_((await withTestUser_(users.service, async function () { return await api_listMyTasks(); })).data.rows,
     sv.taskId);
   assertEquals_(sv.progress.done, 1, 'ปิดไปหนึ่งขั้น ความคืบหน้าต้องเป็น 1');
   assertEquals_(sv.steps[0].done, true, 'ขั้นตอนแรกถูกทำเครื่องหมายว่าเสร็จแล้ว');
@@ -3993,25 +3998,25 @@ function test_web_deptWorkView() {
  * ใบที่ถูกตีกลับ ต้องยังเห็นในรายการ พร้อมบอกเหตุผล — ห้ามซ่อนทั้งใบ (SPEC 8, 17.3)
  * และงานที่ยกเลิกแล้วต้องยังเปิดดูได้พร้อมเหตุผล
  */
-function test_web_deptWorkBlockedStates() {
+async function test_web_deptWorkBlockedStates() {
   beginTest_('ใบที่ถูกตีกลับและงานที่ยกเลิก ต้องยังเห็นพร้อมเหตุผล — SPEC 17.3');
 
   var users = serviceTestUsers_();
 
   /* ---------- ถูกตีกลับ ---------- */
-  var wo = approvedTestWo_(users, ASSIGNMENT.SERVICE_PROJECT,
+  var wo = await approvedTestWo_(users, ASSIGNMENT.SERVICE_PROJECT,
     { 'Location': 'จุดที่จะถูกตีกลับ' });
   var svTask = wo.taskOf(DEPT.SERVICE);
   var pjTask = wo.taskOf(DEPT.PROJECT);
 
-  withTestUser_(users.service, function () { return api_acceptTask(svTask); });
-  withTestUser_(users.project, function () { return api_acceptTask(pjTask); });
-  withTestUser_(users.service, function () {
-    return api_returnTask(svTask, 'ที่อยู่หน้างานไม่ตรงกับที่แจ้ง');
+  await withTestUser_(users.service, async function () { return await api_acceptTask(svTask); });
+  await withTestUser_(users.project, async function () { return await api_acceptTask(pjTask); });
+  await withTestUser_(users.service, async function () {
+    return await api_returnTask(svTask, 'ที่อยู่หน้างานไม่ตรงกับที่แจ้ง');
   });
 
   // อีกแผนกที่ไม่ได้เป็นคนตีกลับ ก็ต้องเห็นใบนี้อยู่ในรายการและรู้ว่าเกิดอะไรขึ้น
-  var pjRows = withTestUser_(users.project, function () { return api_listMyTasks(); }).data.rows;
+  var pjRows = (await withTestUser_(users.project, async function () { return await api_listMyTasks(); })).data.rows;
   var pj = findTaskView_(pjRows, pjTask);
   assertTrue_(!!pj, 'ใบที่ถูกตีกลับต้องยังเห็นในรายการ ห้ามหายไปเฉย ๆ');
   assertEquals_(pj.blocked.returned, true, 'ต้องถูกทำเครื่องหมายว่าใบงานถูกตีกลับอยู่');
@@ -4022,32 +4027,32 @@ function test_web_deptWorkBlockedStates() {
   assertEquals_(pj.workOrder.status, WO_STATUS.RETURNED, 'สถานะใบงานเป็นตีกลับ');
 
   // และกดอะไรไม่ได้จริง ๆ ที่ชั้น API ไม่ใช่แค่ปุ่มเทาบนหน้าจอ
-  var blocked = withTestUser_(users.project, function () { return api_completeTask(pjTask); });
+  var blocked = await withTestUser_(users.project, async function () { return await api_completeTask(pjTask); });
   assertEquals_(blocked.ok, false, 'ขณะถูกตีกลับ ปิดงานไม่ได้จริงที่ชั้น API');
 
   /* ---------- ถูกยกเลิก ---------- */
   // ใบที่ถูกตีกลับต้องส่งขออนุมัติใหม่ก่อน จึงจะอนุมัติได้อีกครั้ง (SPEC 5, 8)
-  submitWorkOrder(wo.woId, users.admin);
-  approveWorkOrder(wo.woId, ASSIGNMENT.SERVICE_PROJECT, users.approver);
-  withTestUser_(users.project, function () {
-    return api_cancelTask(pjTask, 'ลูกค้าตัดงานส่วนติดตั้งออก');
+  await submitWorkOrder(wo.woId, users.admin);
+  await approveWorkOrder(wo.woId, ASSIGNMENT.SERVICE_PROJECT, users.approver);
+  await withTestUser_(users.project, async function () {
+    return await api_cancelTask(pjTask, 'ลูกค้าตัดงานส่วนติดตั้งออก');
   });
 
-  var closed = withTestUser_(users.project, function () { return api_listMyTasks(true); }).data.rows;
+  var closed = (await withTestUser_(users.project, async function () { return await api_listMyTasks(true); })).data.rows;
   var cancelled = findTaskView_(closed, pjTask);
   assertTrue_(!!cancelled, 'งานที่ยกเลิกแล้วต้องยังเปิดดูได้เมื่อขอให้แสดง');
   assertEquals_(cancelled.status, TASK_STATUS.CANCELLED, 'สถานะเป็นยกเลิก');
   assertEquals_(cancelled.cancelReason, 'ลูกค้าตัดงานส่วนติดตั้งออก', 'เห็นเหตุผลที่ยกเลิก');
 
   // และแผนกที่ยังทำอยู่ ต้องเห็นว่าอีกแผนกยกเลิกไปแล้วพร้อมเหตุผล
-  var svRows = withTestUser_(users.service, function () { return api_listMyTasks(); }).data.rows;
+  var svRows = (await withTestUser_(users.service, async function () { return await api_listMyTasks(); })).data.rows;
   var sv = findTaskView_(svRows, svTask);
   assertEquals_(sv.others[0].status, TASK_STATUS.CANCELLED, 'เห็นว่าอีกแผนกยกเลิกไปแล้ว');
   assertEquals_(sv.others[0].cancelReason, 'ลูกค้าตัดงานส่วนติดตั้งออก',
     'และเห็นเหตุผลที่อีกแผนกยกเลิกด้วย');
 
   // ตามค่าเริ่มต้น งานที่ปิดหรือยกเลิกแล้วจะไม่รก แต่ใบที่ถูกตีกลับต้องไม่ถูกกรองทิ้ง
-  var defaultRows = withTestUser_(users.project, function () { return api_listMyTasks(); }).data.rows;
+  var defaultRows = (await withTestUser_(users.project, async function () { return await api_listMyTasks(); })).data.rows;
   assertTrue_(!findTaskView_(defaultRows, pjTask),
     'งานที่ยกเลิกแล้วไม่โผล่ในรายการปกติ จนกว่าจะขอให้แสดง');
 
@@ -4057,18 +4062,18 @@ function test_web_deptWorkBlockedStates() {
 /**
  * ใบที่รอชำระเงิน ต้องบอกเหตุผลได้ ไม่ใช่แค่ทำปุ่มเทา (SPEC 12, 17.3)
  */
-function test_web_deptWorkPaymentNotice() {
+async function test_web_deptWorkPaymentNotice() {
   beginTest_('ใบที่รอชำระเงินต้องบอกเหตุผลให้หน้าจอแสดงได้ — SPEC 12');
 
   var users = serviceTestUsers_();
-  var wo = approvedTestWo_(users, ASSIGNMENT.SERVICE, {
+  var wo = await approvedTestWo_(users, ASSIGNMENT.SERVICE, {
     'Location': 'จุดที่ต้องชำระก่อน',
     'Payment_Required': true
   });
   var taskId = wo.taskOf(DEPT.SERVICE);
 
   var row = findTaskView_(
-    withTestUser_(users.service, function () { return api_listMyTasks(); }).data.rows, taskId);
+    (await withTestUser_(users.service, async function () { return await api_listMyTasks(); })).data.rows, taskId);
 
   assertEquals_(row.blocked.payment, true, 'ต้องบอกหน้าจอว่าติดเงื่อนไขการชำระเงิน');
   assertEquals_(row.workOrder.paymentRequired, true, 'ส่งมาด้วยว่าใบนี้บังคับชำระก่อน');
@@ -4076,17 +4081,17 @@ function test_web_deptWorkPaymentNotice() {
   assertEquals_(row.blocked.returned, false, 'ไม่ได้ติดเพราะถูกตีกลับ เป็นคนละเหตุกัน');
 
   // กดจริงก็ต้องถูกปฏิเสธด้วยข้อความที่คนอ่านรู้เรื่อง
-  var denied = withTestUser_(users.service, function () { return api_acceptTask(taskId); });
+  var denied = await withTestUser_(users.service, async function () { return await api_acceptTask(taskId); });
   assertEquals_(denied.ok, false, 'กดรับงานไม่ได้จริงที่ชั้น API');
   assertTrue_(String(denied.message).indexOf('ชำระเงิน') !== -1,
     'ข้อความที่ได้ต้องบอกว่าเป็นเรื่องการชำระเงิน');
 
   // บันทึกชำระแล้วต้องหายไป
-  withTestUser_(users.admin, function () { return api_recordPayment(wo.woId, 'ใบเสร็จทดสอบ'); });
+  await withTestUser_(users.admin, async function () { return await api_recordPayment(wo.woId, 'ใบเสร็จทดสอบ'); });
   row = findTaskView_(
-    withTestUser_(users.service, function () { return api_listMyTasks(); }).data.rows, taskId);
+    (await withTestUser_(users.service, async function () { return await api_listMyTasks(); })).data.rows, taskId);
   assertEquals_(row.blocked.payment, false, 'บันทึกชำระแล้ว เงื่อนไขนี้ต้องหายไป');
-  assertEquals_(withTestUser_(users.service, function () { return api_acceptTask(taskId); }).ok, true,
+  assertEquals_((await withTestUser_(users.service, async function () { return await api_acceptTask(taskId); })).ok, true,
     'แล้วกดรับงานได้จริง');
 
   return endTest_();
@@ -4107,7 +4112,7 @@ function test_web_deptWorkPaymentNotice() {
  * "ไม่มีข้อมูล" เป็นสถานะปกติ ไม่ใช่ข้อผิดพลาด — ถ้าที่ไหนโยน error
  * ผู้ใช้จะเห็นข้อความว่าระบบล้มเหลว ทั้งที่ระบบทำงานถูกต้องทุกอย่าง
  */
-function test_web_emptyListsEverywhere() {
+async function test_web_emptyListsEverywhere() {
   beginTest_('ทุกหน้ารับมือรายการว่างได้ — SPEC 17.3');
 
   var users = serviceTestUsers_();
@@ -4129,24 +4134,24 @@ function test_web_emptyListsEverywhere() {
   var everyList = [
     { name: 'แผนก Service',
       who: { email: 'empty.sv@cnr.co.th', roles: [ROLE.SERVICE], department: DEPT.SERVICE },
-      run: function () { return api_listMyTasks(false); } },
+      run: async function () { return await api_listMyTasks(false); } },
     { name: 'แผนก Project',
       who: { email: 'empty.pe@cnr.co.th', roles: [ROLE.PROJECT], department: DEPT.PROJECT },
-      run: function () { return api_listMyTasks(false); } },
+      run: async function () { return await api_listMyTasks(false); } },
     { name: 'แผนก Lab รวมงานที่ปิดแล้ว',
       who: { email: 'empty.lab@cnr.co.th', roles: [ROLE.LAB], department: DEPT.LAB },
-      run: function () { return api_listMyTasks(true); } },
+      run: async function () { return await api_listMyTasks(true); } },
     { name: 'ผู้อนุมัติสาย SP',
       who: { email: 'empty.ap@cnr.co.th', roles: [ROLE.APPROVER_SP] },
-      run: function () { return api_listPendingApprovals(ROUTE.SP); } },
+      run: async function () { return await api_listPendingApprovals(ROUTE.SP); } },
     { name: 'ผู้อนุมัติสายแล็บ',
       who: { email: 'empty.lap@cnr.co.th', roles: [ROLE.APPROVER_LAB] },
-      run: function () { return api_listPendingApprovals(ROUTE.LAB); } }
+      run: async function () { return await api_listPendingApprovals(ROUTE.LAB); } }
   ];
 
   for (var i = 0; i < everyList.length; i++) {
     var test = everyList[i];
-    var result = withTestUser_(test.who, test.run);
+    var result = await withTestUser_(test.who, test.run);
 
     assertEquals_(result.ok, true,
       test.name + ' ต้องได้คำตอบปกติ ไม่ใช่ข้อผิดพลาด (ได้: ' + result.message + ')');
@@ -4161,40 +4166,40 @@ function test_web_emptyListsEverywhere() {
    */
   var mustBeEmpty = [
     { name: 'ผู้ใช้ที่ไม่ได้สังกัดแผนกใด เปิดหน้างานแผนก',
-      who: nobody, run: function () { return api_listMyTasks(true); } },
+      who: nobody, run: async function () { return await api_listMyTasks(true); } },
     { name: 'ผู้อนุมัติสาย SP ขอดูรายการสายแล็บ',
       who: { email: 'empty.ap@cnr.co.th', roles: [ROLE.APPROVER_SP] },
-      run: function () { return api_listPendingApprovals(ROUTE.LAB); } },
+      run: async function () { return await api_listPendingApprovals(ROUTE.LAB); } },
     { name: 'ผู้อนุมัติสายแล็บขอดูรายการสาย SP',
       who: { email: 'empty.lap@cnr.co.th', roles: [ROLE.APPROVER_LAB] },
-      run: function () { return api_listPendingApprovals(ROUTE.SP); } },
+      run: async function () { return await api_listPendingApprovals(ROUTE.SP); } },
     { name: 'คนที่ไม่มีสิทธิ์อนุมัติ เปิดหน้าอนุมัติ',
-      who: nobody, run: function () { return api_listPendingApprovals(ROUTE.SP); } }
+      who: nobody, run: async function () { return await api_listPendingApprovals(ROUTE.SP); } }
   ];
 
   for (var e = 0; e < mustBeEmpty.length; e++) {
     var empty = mustBeEmpty[e];
-    var got = withTestUser_(empty.who, empty.run);
+    var got = await withTestUser_(empty.who, empty.run);
     assertEquals_(got.ok, true, empty.name + ' ต้องไม่ใช่ข้อผิดพลาด');
     assertEquals_(got.data.rows.length, 0, empty.name + ' ต้องได้รายการว่าง');
   }
 
   /* ---------- หน้าแรกและหน้าสร้างใบงาน ---------- */
-  var menu = withTestUser_(nobody, function () { return api_getMenu(); });
+  var menu = await withTestUser_(nobody, async function () { return await api_getMenu(); });
   assertEquals_(menu.ok, true, 'หน้าแรกเปิดได้แม้ยังไม่มีข้อมูลและไม่มีสิทธิ์ใด');
   assertEquals_(menu.data.menu.length, MENU_ITEMS.length, 'เมนูยังครบทุกรายการ');
 
-  var boot = withTestUser_(users.admin, function () { return api_getBootstrap(); });
+  var boot = await withTestUser_(users.admin, async function () { return await api_getBootstrap(); });
   assertEquals_(boot.ok, true, 'หน้าสร้างใบงานเปิดได้');
 
-  var noCustomer = withTestUser_(users.admin, function () {
-    return api_searchCustomers('ชื่อที่ไม่มีทางมีอยู่จริง-' + testRunId_());
+  var noCustomer = await withTestUser_(users.admin, async function () {
+    return await api_searchCustomers('ชื่อที่ไม่มีทางมีอยู่จริง-' + testRunId_());
   });
   assertEquals_(noCustomer.ok, true, 'ค้นหาลูกค้าแล้วไม่เจอ ต้องไม่ใช่ข้อผิดพลาด');
   assertEquals_(noCustomer.data.length, 0, 'และได้รายการว่าง');
 
-  var noLocation = withTestUser_(users.admin, function () {
-    return api_listLocations(testCustomerCode_('ไม่มีจริง'), 'โครงการที่ไม่มี');
+  var noLocation = await withTestUser_(users.admin, async function () {
+    return await api_listLocations(testCustomerCode_('ไม่มีจริง'), 'โครงการที่ไม่มี');
   });
   assertEquals_(noLocation.ok, true, 'ลูกค้าที่ยังไม่มีสถานที่ ต้องไม่ใช่ข้อผิดพลาด');
   assertEquals_(noLocation.data.length, 0, 'และได้รายการว่าง');
@@ -4264,7 +4269,7 @@ function test_web_emptyListsEverywhere() {
  * เทสต์นี้อ่าน PAGE_NEEDS จากไฟล์หน้าเว็บจริง แล้วเทียบกับก้อนที่ pageBootstrap_ ส่งให้
  * ใครเพิ่มหน้าใหม่แล้วลืมใส่ข้อมูล หรือเปลี่ยนรูปแบบก้อนข้อมูล จะแดงทันที
  */
-function test_web_bootstrapContract() {
+async function test_web_bootstrapContract() {
   beginTest_('คีย์ที่หน้าเว็บต้องใช้ ต้องมาครบ — SPEC 17.3');
 
   /*
@@ -4331,8 +4336,8 @@ function test_web_bootstrapContract() {
     assertTrue_(needs.length > 0,
       'หน้า ' + item.file + ' ต้องประกาศ PAGE_NEEDS ว่าตัวเองใช้คีย์อะไร');
 
-    var boot = withTestUser_(item.who, (function (it) {
-      return function () { return pageBootstrap_(it.page, it.params); };
+    var boot = await withTestUser_(item.who, (function (it) {
+      return async function () { return await pageBootstrap_(it.page, it.params); };
     })(item));
 
     assertEquals_(boot.error, '', label + ' ต้องไม่มีข้อผิดพลาดติดมาสำหรับผู้ใช้ที่มีสิทธิ์');
@@ -4363,9 +4368,9 @@ function test_web_bootstrapContract() {
 
   /* ---------- หน้าที่ผู้ใช้ไม่มีสิทธิ์ ต้องยังได้ตัวตนและเมนู ---------- */
   // ไม่งั้นจะไม่มีแถบเมนูให้กดออก แล้วผู้ใช้จะติดอยู่ในหน้านั้น
-  var denied = withTestUser_(
+  var denied = await withTestUser_(
     { email: 's@cnr.co.th', roles: [ROLE.SERVICE], department: DEPT.SERVICE },
-    function () { return pageBootstrap_('approve', {}); });
+    async function () { return await pageBootstrap_('approve', {}); });
   assertTrue_(!!denied.user, 'หน้าที่ไม่มีสิทธิ์ ต้องยังได้ตัวตนมาเพื่อวาดแถบเมนู');
   assertEquals_(denied.menu.length, MENU_ITEMS.length, 'และต้องได้เมนูครบ เพื่อให้กดออกไปหน้าอื่นได้');
   assertTrue_(denied.rows === undefined, 'แต่ต้องไม่มีข้อมูลของหน้านั้นติดมา');
@@ -4448,15 +4453,15 @@ function test_web_singleReaderAndNoStuckLoading() {
 /**
  * ข้อมูลตั้งต้นที่ฝังมากับหน้า ต้องครบและปลอดภัย และเปิดหน้าต้องคุยกับเซิร์ฟเวอร์ครั้งเดียว
  */
-function test_web_pageBootstrap() {
+async function test_web_pageBootstrap() {
   beginTest_('เปิดหน้าเดียว คุยกับเซิร์ฟเวอร์ครั้งเดียว — SPEC 17.3');
 
   var users = serviceTestUsers_();
   var svUser = { email: 'boot.sv@cnr.co.th', roles: [ROLE.SERVICE], department: DEPT.SERVICE };
 
   /* ---------- ข้อมูลตั้งต้นของแต่ละหน้า ---------- */
-  var boot = withTestUser_(svUser, function () {
-    return pageBootstrap_('work', { dept: DEPT.SERVICE });
+  var boot = await withTestUser_(svUser, async function () {
+    return await pageBootstrap_('work', { dept: DEPT.SERVICE });
   });
   assertEquals_(boot.error, '', 'ผู้ใช้ที่มีสิทธิ์ ต้องไม่มีข้อผิดพลาดติดมา');
   assertEquals_(boot.user.email, svUser.email, 'ตัวตนถูกฝังมากับหน้า');
@@ -4482,20 +4487,20 @@ function test_web_pageBootstrap() {
   assertTrue_(!!boot.upload.maxLabel, 'และข้อความขนาดที่คนอ่านรู้เรื่อง ไว้ใส่ในข้อความปฏิเสธ');
 
   /* ---------- หน้าที่ไม่มีสิทธิ์ ต้องไม่ดึงข้อมูลมาแต่แรก ---------- */
-  var denied = withTestUser_(svUser, function () {
-    return pageBootstrap_('approve', {});
+  var denied = await withTestUser_(svUser, async function () {
+    return await pageBootstrap_('approve', {});
   });
   assertEquals_(denied.error, '', 'หน้ายังขึ้นได้ตามปกติ');
   assertTrue_(denied.rows === undefined,
     'หน้าที่ผู้ใช้ไม่มีสิทธิ์ ต้องไม่มีข้อมูลติดมาเลย ไม่ใช่ดึงมาแล้วให้หน้าเว็บซ่อน');
 
-  var crossDept = withTestUser_(svUser, function () {
-    return pageBootstrap_('work', { dept: DEPT.PROJECT });
+  var crossDept = await withTestUser_(svUser, async function () {
+    return await pageBootstrap_('work', { dept: DEPT.PROJECT });
   });
   assertTrue_(crossDept.rows === undefined, 'ขอดูแผนกที่ไม่ใช่ของตัวเอง ต้องไม่มีข้อมูลติดมา');
 
   /* ---------- ไม่มีโทเคน ต้องได้ข้อความ ไม่ใช่ล้มทั้งหน้า ---------- */
-  var anon = pageBootstrap_('work', {});
+  var anon = await pageBootstrap_('work', {});
   assertTrue_(anon.error !== '', 'ระบุตัวตนไม่ได้ ต้องมีข้อความอธิบายติดมากับก้อนข้อมูล');
   assertEquals_(anon.upload.maxBytes, MAX_UPLOAD_BYTES,
     'ข้อจำกัดของการอัปโหลดไม่ขึ้นกับว่าใครเปิดหน้า จึงต้องมาครบแม้ในเส้นทางที่ระบุตัวตนไม่ได้');
@@ -4508,7 +4513,7 @@ function test_web_pageBootstrap() {
    * ตอนประกอบหน้ายังไม่รู้ว่าใครเป็นคนเปิด เพราะตัวตนอยู่ในโทเคนที่เก็บไว้ในเบราว์เซอร์
    * และห้ามส่งโทเคนผ่าน URL · หน้าจึงต้องเป็นโครงเปล่าเสมอ ไม่ว่าใครขอมา
    */
-  var page = renderPage_({ page: 'work', dept: DEPT.SERVICE, base: 'https://example.com/exec' });
+  var page = await renderPage_({ page: 'work', dept: DEPT.SERVICE, base: 'https://example.com/exec' });
   assertTrue_(page.indexOf('data-bootstrap=""') !== -1,
     'หน้าที่ส่งออกไปต้องไม่มีข้อมูลตั้งต้นฝังอยู่ เพราะขั้นนั้นยังไม่รู้ว่าใครเปิด');
   assertTrue_(page.indexOf(svUser.email) === -1, 'และต้องไม่มีตัวตนของใครติดไปกับหน้า');
@@ -4569,15 +4574,15 @@ function pagesSettingUploadLimits_(sources) {
  * @param {string} email อีเมลผู้ใช้
  * @return {string} HTML
  */
-function doPostPage_(page, dept, email) {
+async function doPostPage_(page, dept, email) {
   var props = PropertiesService.getScriptProperties();
   var before = props.getProperty(GATEWAY_SECRET_PROP);
   props.setProperty(GATEWAY_SECRET_PROP, 'รหัสลับของรอบทดสอบ');
   try {
-    return doPost({ postData: { contents: JSON.stringify({
+    return (await doPost({ postData: { contents: JSON.stringify({
       secret: 'รหัสลับของรอบทดสอบ', mode: 'page', email: email,
       params: { page: page, dept: dept, base: 'https://example.com/exec' }
-    }) } }).getContent();
+    }) } })).getContent();
   } finally {
     if (before === null) props.deleteProperty(GATEWAY_SECRET_PROP);
     else props.setProperty(GATEWAY_SECRET_PROP, before);
@@ -4870,7 +4875,7 @@ function findTaskView_(rows, taskId) {
  *   2. เมื่อเปิดแล้วต้องไม่ปฏิเสธใครเลย แม้ระบุตัวตนไม่ได้ —
  *      เพราะเคสที่อยากดูที่สุดคือเคสที่ระบบระบุตัวตนไม่ได้พอดี
  */
-function test_web_whoami() {
+async function test_web_whoami() {
   beginTest_('หน้าตรวจสอบตัวตน — ?page=whoami');
 
   var props = PropertiesService.getScriptProperties();
@@ -4879,19 +4884,19 @@ function test_web_whoami() {
   try {
     /* ---------- ปิดเป็นค่าเริ่มต้น ---------- */
     props.deleteProperty(WHOAMI_PROP);
-    assertEquals_(whoamiOutput_().getContent(), 'ปิดอยู่',
+    assertEquals_((await whoamiOutput_()).getContent(), 'ปิดอยู่',
       'ยังไม่ได้ตั้ง Script Property ต้องขึ้นว่าปิดอยู่');
-    assertEquals_(doGet({ parameter: { page: 'whoami' } }).getContent(), 'ปิดอยู่',
+    assertEquals_((await doGet({ parameter: { page: 'whoami' } })).getContent(), 'ปิดอยู่',
       'เข้าผ่าน doGet ก็ต้องปิดเหมือนกัน');
 
     props.setProperty(WHOAMI_PROP, 'false');
-    assertEquals_(whoamiOutput_().getContent(), 'ปิดอยู่', 'ตั้งเป็น false ก็ยังปิด');
+    assertEquals_((await whoamiOutput_()).getContent(), 'ปิดอยู่', 'ตั้งเป็น false ก็ยังปิด');
     props.setProperty(WHOAMI_PROP, '');
-    assertEquals_(whoamiOutput_().getContent(), 'ปิดอยู่', 'ตั้งเป็นค่าว่างก็ยังปิด');
+    assertEquals_((await whoamiOutput_()).getContent(), 'ปิดอยู่', 'ตั้งเป็นค่าว่างก็ยังปิด');
 
     /* ---------- เปิดแล้วต้องได้ครบ 5 บรรทัด ---------- */
     props.setProperty(WHOAMI_PROP, 'true');
-    var output = whoamiOutput_();
+    var output = await whoamiOutput_();
     var text = output.getContent();
     var lines = text.split('\n');
 
@@ -4920,7 +4925,7 @@ function test_web_whoami() {
       'บรรทัด Role ต้องบอกผลเสมอ ไม่ว่าจะระบุตัวตนได้หรือไม่');
 
     var deniedUser = { email: 'ไม่มีในทะเบียน@example.com', roles: [] };
-    var stillWorks = withTestUser_(deniedUser, function () { return whoamiOutput_().getContent(); });
+    var stillWorks = await withTestUser_(deniedUser, async function () { return (await whoamiOutput_()).getContent(); });
     assertEquals_(stillWorks.split('\n').length, 5,
       'สวมสิทธิ์เป็นใครก็ตาม หน้านี้ต้องยังเปิดได้ครบ 5 บรรทัด');
 
@@ -4967,7 +4972,7 @@ function test_web_whoamiRunningAs() {
 /**
  * ข้อความที่ผู้ใช้เห็นต้องเป็นภาษาไทยที่อ่านรู้เรื่อง ไม่มีชื่อสถานะ ชื่อ Action หรือชื่อ Role ดิบ (SPEC 17.3)
  */
-function test_service_thaiMessages() {
+async function test_service_thaiMessages() {
   beginTest_('ข้อความถึงผู้ใช้เป็นภาษาไทย — SPEC 17.3');
 
   assertEquals_(woStatusLabel(WO_STATUS.PENDING_APPROVE), 'รออนุมัติ', 'แปลสถานะใบงานเป็นไทยได้');
@@ -4978,13 +4983,13 @@ function test_service_thaiMessages() {
     'ข้อความของ "ไม่ระบุ" ต้องบอกชัดว่าหมายถึงยังไม่รู้ว่า Service หรือ Project เท่านั้น (SPEC 3.1)');
 
   var users = serviceTestUsers_();
-  var wo = createTestWo_(users, { 'Job_Description': 'ตรวจเช็คระบบ' });
-  approveWorkOrder(wo.woId, ASSIGNMENT.SERVICE, users.approver);
+  var wo = await createTestWo_(users, { 'Job_Description': 'ตรวจเช็คระบบ' });
+  await approveWorkOrder(wo.woId, ASSIGNMENT.SERVICE, users.approver);
 
   // ทำรายการผิดจังหวะ ข้อความต้องบอกสถานะเป็นคำไทย ไม่ใช่ PENDING_APPROVE หรือ SUBMIT
   var denied = '';
   try {
-    submitWorkOrder(wo.woId, users.admin);
+    await submitWorkOrder(wo.woId, users.admin);
   } catch (e) {
     denied = e.message;
   }
@@ -4993,10 +4998,10 @@ function test_service_thaiMessages() {
     'ข้อความต้องไม่มีชื่อ Action หรือชื่อสถานะดิบหลุดออกไป');
 
   // สิทธิ์ไม่พอ ต้องบอกว่าใครทำได้เป็นคำไทย — ต้องยิงตอนใบงานยังรออนุมัติอยู่
-  var waiting = createTestWo_(users, { 'Job_Description': 'ตรวจเช็คระบบ', 'Location': 'จุดรออนุมัติ' });
+  var waiting = await createTestWo_(users, { 'Job_Description': 'ตรวจเช็คระบบ', 'Location': 'จุดรออนุมัติ' });
   var roleDenied = '';
   try {
-    approveWorkOrder(waiting.woId, ASSIGNMENT.SERVICE, users.service);
+    await approveWorkOrder(waiting.woId, ASSIGNMENT.SERVICE, users.service);
   } catch (e) {
     roleDenied = e.message;
   }
@@ -5021,22 +5026,22 @@ function test_service_thaiMessages() {
  * @param {Object} [options] ส่งต่อให้ approveWorkOrder
  * @return {Object} {woId, workOrder, tasks, taskOf}
  */
-function approvedTestWo_(users, assignmentType, overrides, options) {
+async function approvedTestWo_(users, assignmentType, overrides, options) {
   // ใบงานเกิดพร้อมสถานะรออนุมัติทันที ไม่มีขั้นบันทึกร่างและไม่ต้องกด submit อีก (SPEC 4.1)
-  var created = createTestWo_(users, overrides);
-  var approved = approveWorkOrder(created.woId, assignmentType, users.approver, options || {});
+  var created = await createTestWo_(users, overrides);
+  var approved = await approveWorkOrder(created.woId, assignmentType, users.approver, options || {});
 
   return {
     woId: created.woId,
-    workOrder: getWorkOrder(created.woId),
+    workOrder: await getWorkOrder(created.woId),
     tasks: approved.tasks,
     /**
      * เลขที่งานของแผนกที่ต้องการ
      * @param {string} department ค่าจาก DEPT
      * @return {string}
      */
-    taskOf: function (department) {
-      var task = findTaskOfDepartment_(created.woId, department);
+    taskOf: async function (department) {
+      var task = await findTaskOfDepartment_(created.woId, department);
       return task ? task['Task_ID'] : '';
     }
   };
@@ -5054,7 +5059,7 @@ function approvedTestWo_(users, assignmentType, overrides, options) {
  *
  * @return {Object} แผนที่ชื่อสั้น -> แถวที่ใช้งานได้
  */
-function addTestReports_() {
+async function addTestReports_() {
   var prefix = testPrefix_();
   var wanted = [
     { key: 'svRequired', code: prefix + 'RPT-SV1', type: 'Service', sort: 1,
@@ -5077,7 +5082,7 @@ function addTestReports_() {
   ];
 
   var existing = {};
-  var rows = listReportMaster(false);
+  var rows = await listReportMaster(false);
   for (var e = 0; e < rows.length; e++) existing[String(rows[e]['Report_Code'])] = rows[e];
 
   var toAdd = [];
@@ -5092,7 +5097,7 @@ function addTestReports_() {
       'Sort_Order': item.sort, 'Active': item.active
     });
   }
-  if (toAdd.length) appendRows_(SHEET.REPORT_MASTER, toAdd);
+  if (toAdd.length) await appendRows_(SHEET.REPORT_MASTER, toAdd);
   return out;
 }
 
@@ -5107,11 +5112,11 @@ function addTestReports_() {
  * @param {string} taskId เลขที่งานของแผนก
  * @return {number} จำนวนเอกสารที่เพิ่งแนบให้
  */
-function attachRequiredReports_(taskId) {
-  var task = getTask(taskId);
+async function attachRequiredReports_(taskId) {
+  var task = await getTask(taskId);
   if (!task) return 0;
 
-  var missing = missingRequiredReports_(taskId);
+  var missing = await missingRequiredReports_(taskId);
   if (!missing.length) return 0;
 
   var rows = [];
@@ -5130,7 +5135,7 @@ function attachRequiredReports_(taskId) {
       'Uploaded_Date':      new Date()
     });
   }
-  insertFiles(rows);
+  await insertFiles(rows);
   return rows.length;
 }
 
@@ -5140,10 +5145,10 @@ function attachRequiredReports_(taskId) {
  * @param {Object} user แผนกเจ้าของงาน
  * @return {number} จำนวนขั้นตอนที่ปิด
  */
-function finishAllSteps_(taskId, user) {
-  var steps = listStepsByTask(taskId);
+async function finishAllSteps_(taskId, user) {
+  var steps = await listStepsByTask(taskId);
   for (var i = 0; i < steps.length; i++) {
-    updateTaskStep(steps[i]['Step_ID'], { 'Status': STEP_STATUS.COMPLETED }, user);
+    await updateTaskStep(steps[i]['Step_ID'], { 'Status': STEP_STATUS.COMPLETED }, user);
   }
   return steps.length;
 }
@@ -5154,44 +5159,44 @@ function finishAllSteps_(taskId, user) {
  * เริ่มจาก api_ ที่หน้าเว็บเรียกจริง เพราะด่านนี้ต้องยืนอยู่ได้แม้ไม่มีหน้าจอ —
  * หน้าเว็บล็อกปุ่มให้ก็จริง แต่ใครก็ยิง api_updateTaskStep ตรง ๆ ได้
  */
-function test_task_stepsInOrder() {
+async function test_task_stepsInOrder() {
   beginTest_('ทำทีละขั้นตามลำดับ ข้ามขั้นไม่ได้ แต่ย้อนกลับไปแก้ได้เสมอ');
 
   var users = serviceTestUsers_();
-  var sv = acceptedTaskFor_(ASSIGNMENT.SERVICE, DEPT.SERVICE, users.service);
-  var steps = listStepsByTask(sv.taskId);
+  var sv = await acceptedTaskFor_(ASSIGNMENT.SERVICE, DEPT.SERVICE, users.service);
+  var steps = await listStepsByTask(sv.taskId);
   var last = steps[steps.length - 1];
 
   /* ---------- กระโดดไปปิดขั้นสุดท้ายเลย ต้องไม่ได้ ---------- */
-  var jump = withTestUser_(users.service, function () {
-    return api_updateTaskStep(last['Step_ID'], { 'Status': STEP_STATUS.COMPLETED });
+  var jump = await withTestUser_(users.service, async function () {
+    return await api_updateTaskStep(last['Step_ID'], { 'Status': STEP_STATUS.COMPLETED });
   });
   assertEquals_(jump.ok, false, 'ขั้นก่อนหน้ายังไม่เสร็จ ปิดขั้นสุดท้ายไม่ได้');
   assertTrue_(String(jump.message).indexOf(String(steps[0]['Step_Name'])) !== -1,
     'ข้อความต้องบอกขั้นที่ต้องไปทำก่อนจริง ๆ คือขั้นแรกที่ยังค้าง ไม่ใช่ขั้นที่อยู่ติดกัน');
-  assertEquals_(getStep(last['Step_ID'])['Status'], STEP_STATUS.PENDING,
+  assertEquals_((await getStep(last['Step_ID']))['Status'], STEP_STATUS.PENDING,
     'รายการที่ถูกปฏิเสธต้องไม่เปลี่ยนอะไรเลย');
-  assertEquals_(String(getStep(last['Step_ID'])['Completed_By'] || ''), '',
+  assertEquals_(String((await getStep(last['Step_ID']))['Completed_By'] || ''), '',
     'และต้องไม่ทิ้งชื่อผู้ปิดค้างไว้บนขั้นที่ยังไม่เสร็จ');
 
   /* ---------- ทำตามลำดับได้ตามปกติ ---------- */
   for (var i = 0; i < steps.length; i++) {
-    callApiAs_(users.service, 'ปิดขั้นตอนตามลำดับ', function () {
-      return api_updateTaskStep(steps[i]['Step_ID'], { 'Status': STEP_STATUS.COMPLETED });
+    await callApiAs_(users.service, 'ปิดขั้นตอนตามลำดับ', async function () {
+      return await api_updateTaskStep(steps[i]['Step_ID'], { 'Status': STEP_STATUS.COMPLETED });
     });
   }
-  assertEquals_(stepProgressOf_(sv.taskId).allDone, true, 'ทำครบทุกขั้นแล้ว');
+  assertEquals_((await stepProgressOf_(sv.taskId)).allDone, true, 'ทำครบทุกขั้นแล้ว');
 
   /* ---------- ย้อนกลับไปแก้ขั้นเก่าได้เสมอ ---------- */
   /*
    * การเปิดกลับคือการแก้ของที่ลงผิด ซึ่งต้องทำได้ตลอด ไม่งั้นคนที่กดพลาดจะติดอยู่กับ
    * ข้อมูลที่ผิดโดยแก้เองไม่ได้ · ด่านลำดับใช้กับการ "ปิด" เท่านั้น
    */
-  callApiAs_(users.service, 'เปิดขั้นแรกกลับมาแก้', function () {
-    return api_updateTaskStep(steps[0]['Step_ID'], { 'Status': STEP_STATUS.PENDING });
+  await callApiAs_(users.service, 'เปิดขั้นแรกกลับมาแก้', async function () {
+    return await api_updateTaskStep(steps[0]['Step_ID'], { 'Status': STEP_STATUS.PENDING });
   });
-  assertEquals_(getStep(steps[0]['Step_ID'])['Status'], STEP_STATUS.PENDING, 'ขั้นแรกกลับมาแก้ได้');
-  assertEquals_(getStep(last['Step_ID'])['Status'], STEP_STATUS.COMPLETED,
+  assertEquals_((await getStep(steps[0]['Step_ID']))['Status'], STEP_STATUS.PENDING, 'ขั้นแรกกลับมาแก้ได้');
+  assertEquals_((await getStep(last['Step_ID']))['Status'], STEP_STATUS.COMPLETED,
     'และขั้นที่ปิดไปแล้วต้องไม่ถูกล้างตามไปด้วย');
 
   /*
@@ -5200,19 +5205,19 @@ function test_task_stepsInOrder() {
    * ข้อนี้คือความต่างระหว่าง "ด่านของการปิด" กับ "ด่านของทุกการแก้ไข" — ถ้าด่านไปกัน
    * การเปิดกลับด้วย คนที่ปิดขั้นสุดท้ายผิดจะแก้ไม่ได้เลย จนกว่าจะไปรื้อขั้นแรกก่อน
    */
-  callApiAs_(users.service, 'เปิดขั้นสุดท้ายกลับมาแก้ ขณะที่ขั้นแรกยังค้าง', function () {
-    return api_updateTaskStep(last['Step_ID'], { 'Status': STEP_STATUS.PENDING });
+  await callApiAs_(users.service, 'เปิดขั้นสุดท้ายกลับมาแก้ ขณะที่ขั้นแรกยังค้าง', async function () {
+    return await api_updateTaskStep(last['Step_ID'], { 'Status': STEP_STATUS.PENDING });
   });
-  assertEquals_(getStep(last['Step_ID'])['Status'], STEP_STATUS.PENDING,
+  assertEquals_((await getStep(last['Step_ID']))['Status'], STEP_STATUS.PENDING,
     'ขั้นหลังเปิดกลับมาแก้ได้ แม้ขั้นก่อนหน้าจะยังไม่เสร็จ');
 
-  callApiAs_(users.service, 'ปิดขั้นแรกอีกครั้ง', function () {
-    return api_updateTaskStep(steps[0]['Step_ID'], { 'Status': STEP_STATUS.COMPLETED });
+  await callApiAs_(users.service, 'ปิดขั้นแรกอีกครั้ง', async function () {
+    return await api_updateTaskStep(steps[0]['Step_ID'], { 'Status': STEP_STATUS.COMPLETED });
   });
-  callApiAs_(users.service, 'ปิดขั้นสุดท้ายอีกครั้ง', function () {
-    return api_updateTaskStep(last['Step_ID'], { 'Status': STEP_STATUS.COMPLETED });
+  await callApiAs_(users.service, 'ปิดขั้นสุดท้ายอีกครั้ง', async function () {
+    return await api_updateTaskStep(last['Step_ID'], { 'Status': STEP_STATUS.COMPLETED });
   });
-  assertEquals_(stepProgressOf_(sv.taskId).allDone, true, 'ปิดกลับคืนได้ตามเดิม');
+  assertEquals_((await stepProgressOf_(sv.taskId)).allDone, true, 'ปิดกลับคืนได้ตามเดิม');
 
   return endTest_();
 }
@@ -5221,69 +5226,69 @@ function test_task_stepsInOrder() {
  * เส้นทางปกติของงานแผนกเดียว — รับงาน อัปเดต Step ครบ ปิดงาน แล้ว WO ต้องปิดเอง
  * (SPEC 6.1, 7.1, 20.3 · กฎข้อ 2)
  */
-function test_task_singleDepartmentFlow() {
+async function test_task_singleDepartmentFlow() {
   beginTest_('รับงาน -> ปิด Step ครบ -> ปิดงาน -> WO ปิดเอง — SPEC 20.3');
 
   var users = serviceTestUsers_();
-  var wo = approvedTestWo_(users, ASSIGNMENT.SERVICE, { 'Location': 'จุดงานแผนกเดียว' });
+  var wo = await approvedTestWo_(users, ASSIGNMENT.SERVICE, { 'Location': 'จุดงานแผนกเดียว' });
   var taskId = wo.taskOf(DEPT.SERVICE);
 
-  assertEquals_(getTask(taskId)['Status'], TASK_STATUS.PENDING_ACCEPT, 'อนุมัติแล้วงานของแผนกรอให้กดรับ');
-  assertEquals_(getWorkOrder(wo.woId)['Overall_Status'], WO_STATUS.APPROVED,
+  assertEquals_((await getTask(taskId))['Status'], TASK_STATUS.PENDING_ACCEPT, 'อนุมัติแล้วงานของแผนกรอให้กดรับ');
+  assertEquals_((await getWorkOrder(wo.woId))['Overall_Status'], WO_STATUS.APPROVED,
     'ยังไม่มีใครกดรับงาน ใบงานจึงยังเป็นอนุมัติแล้ว');
 
   // ปิดงานก่อนรับงาน ต้องไม่ได้
-  assertThrows_(function () { completeTask(taskId, users.service); },
+  await assertThrows_(async function () { await completeTask(taskId, users.service); },
     'ยังไม่กดรับงานก็ปิดงานไม่ได้');
 
   // 1) รับงาน
-  var accepted = acceptTask(taskId, users.service);
+  var accepted = await acceptTask(taskId, users.service);
   assertEquals_(accepted.to, TASK_STATUS.IN_PROGRESS, 'กดรับงานแล้วงานของแผนกเป็นกำลังดำเนินการ');
-  assertEquals_(getWorkOrder(wo.woId)['Overall_Status'], WO_STATUS.IN_PROGRESS,
+  assertEquals_((await getWorkOrder(wo.woId))['Overall_Status'], WO_STATUS.IN_PROGRESS,
     'recalcWoStatus ในรายการเดียวกันดันใบงานเป็นกำลังดำเนินการ');
-  assertEquals_(getTask(taskId)['Accepted_By'], users.service.email, 'บันทึกว่าใครเป็นคนรับงาน');
-  assertTrue_(getTask(taskId)['Accepted_Date'] instanceof Date, 'บันทึกวันเวลาที่รับงาน');
+  assertEquals_((await getTask(taskId))['Accepted_By'], users.service.email, 'บันทึกว่าใครเป็นคนรับงาน');
+  assertTrue_((await getTask(taskId))['Accepted_Date'] instanceof Date, 'บันทึกวันเวลาที่รับงาน');
 
   // 2) Step ตั้งต้นต้องมาจากตารางจริง ไม่ได้ hard-code เลข 3 (กฎข้อ 9)
-  var steps = listStepsByTask(taskId);
+  var steps = await listStepsByTask(taskId);
   assertTrue_(steps.length > 0, 'แผนก Service ได้ขั้นตอนงานตั้งต้นมาให้');
-  assertEquals_(stepProgressOf_(taskId).allDone, false, 'ขั้นตอนงานยังไม่เสร็จสักขั้น');
+  assertEquals_((await stepProgressOf_(taskId)).allDone, false, 'ขั้นตอนงานยังไม่เสร็จสักขั้น');
 
   // ปิดงานทั้งที่ Step ยังไม่ครบ ต้องถูกปฏิเสธ
-  assertThrowsMessage_(function () { completeTask(taskId, users.service); },
+  await assertThrowsMessage_(async function () { await completeTask(taskId, users.service); },
     'ยังทำ Step', 'ปิดงานทั้งที่ขั้นตอนยังไม่ครบ ต้องถูกปฏิเสธ');
-  assertEquals_(getTask(taskId)['Status'], TASK_STATUS.IN_PROGRESS, 'และสถานะงานต้องไม่เปลี่ยน');
+  assertEquals_((await getTask(taskId))['Status'], TASK_STATUS.IN_PROGRESS, 'และสถานะงานต้องไม่เปลี่ยน');
 
   // 3) อัปเดต Step ให้ครบ
   var first = steps[0];
-  var updated = updateTaskStep(first['Step_ID'], { 'Status': STEP_STATUS.COMPLETED }, users.service);
+  var updated = await updateTaskStep(first['Step_ID'], { 'Status': STEP_STATUS.COMPLETED }, users.service);
   assertEquals_(updated.step['Status'], STEP_STATUS.COMPLETED, 'ปิดขั้นตอนแรกได้');
   assertEquals_(updated.step['Completed_By'], users.service.email, 'ระบบเติมผู้ปิดขั้นตอนให้เอง');
   assertTrue_(updated.step['Completed_Date'] instanceof Date, 'ระบบเติมวันเวลาที่ปิดขั้นตอนให้เอง');
   assertEquals_(updated.plan.changed, false, 'การอัปเดตขั้นตอนไม่เปลี่ยนสถานะของงานแผนก');
-  assertEquals_(stepProgressOf_(taskId).done, 1, 'ความคืบหน้านับได้ 1 ขั้น');
+  assertEquals_((await stepProgressOf_(taskId)).done, 1, 'ความคืบหน้านับได้ 1 ขั้น');
 
   // เปิดขั้นตอนกลับ ต้องล้างชื่อผู้ทำและวันที่ทิ้ง ไม่ให้ค้างอยู่บนขั้นที่ยังไม่เสร็จ
-  var reopened = updateTaskStep(first['Step_ID'], { 'Status': STEP_STATUS.PENDING }, users.service);
+  var reopened = await updateTaskStep(first['Step_ID'], { 'Status': STEP_STATUS.PENDING }, users.service);
   assertEquals_(reopened.step['Completed_By'], '', 'เปิดขั้นตอนกลับแล้วชื่อผู้ปิดต้องหายไป');
   assertTrue_(!reopened.step['Completed_Date'], 'เปิดขั้นตอนกลับแล้ววันที่ปิดต้องหายไป');
 
-  var finished = finishAllSteps_(taskId, users.service);
+  var finished = await finishAllSteps_(taskId, users.service);
 
-  attachRequiredReports_(taskId);
+  await attachRequiredReports_(taskId);
   assertEquals_(finished, steps.length, 'ปิดขั้นตอนครบทุกขั้น');
-  assertEquals_(stepProgressOf_(taskId).allDone, true, 'ความคืบหน้าครบ 100%');
+  assertEquals_((await stepProgressOf_(taskId)).allDone, true, 'ความคืบหน้าครบ 100%');
 
   // 4) ปิดงาน — WO ต้องปิดเองในรายการเดียวกัน
-  var completed = completeTask(taskId, users.service);
+  var completed = await completeTask(taskId, users.service);
   assertEquals_(completed.to, TASK_STATUS.COMPLETED, 'ปิดงานของแผนกได้');
   assertEquals_(completed.recalc.rule, 'ALL_ACTIVE_COMPLETED', 'ใบงานถูกคำนวณด้วยกฎปิดงานอัตโนมัติ');
-  assertEquals_(getWorkOrder(wo.woId)['Overall_Status'], WO_STATUS.COMPLETED,
+  assertEquals_((await getWorkOrder(wo.woId))['Overall_Status'], WO_STATUS.COMPLETED,
     'ไม่มีใครสั่งปิดใบงาน แต่ใบงานปิดเองเมื่อแผนกสุดท้ายปิดงาน');
-  assertEquals_(getTask(taskId)['Completed_By'], users.service.email, 'บันทึกว่าใครเป็นคนปิดงาน');
+  assertEquals_((await getTask(taskId))['Completed_By'], users.service.email, 'บันทึกว่าใครเป็นคนปิดงาน');
 
-  assertEquals_(auditCount_(wo.woId, ENTITY.TASK, ACTION.TASK_ACCEPT), 1, 'Audit บันทึกการรับงาน 1 แถว');
-  assertEquals_(auditCount_(wo.woId, ENTITY.TASK, ACTION.TASK_COMPLETE), 1, 'Audit บันทึกการปิดงาน 1 แถว');
+  assertEquals_(await auditCount_(wo.woId, ENTITY.TASK, ACTION.TASK_ACCEPT), 1, 'Audit บันทึกการรับงาน 1 แถว');
+  assertEquals_(await auditCount_(wo.woId, ENTITY.TASK, ACTION.TASK_COMPLETE), 1, 'Audit บันทึกการปิดงาน 1 แถว');
 
   return endTest_();
 }
@@ -5291,11 +5296,11 @@ function test_task_singleDepartmentFlow() {
 /**
  * งานร่วม Service + Project — ปิดแผนกเดียว WO ต้องยังไม่ปิด (SPEC 8)
  */
-function test_task_jointCompletion() {
+async function test_task_jointCompletion() {
   beginTest_('งานร่วมสองแผนก ปิดครบทั้งคู่ใบงานจึงปิด — SPEC 8');
 
   var users = serviceTestUsers_();
-  var wo = approvedTestWo_(users, ASSIGNMENT.SERVICE_PROJECT,
+  var wo = await approvedTestWo_(users, ASSIGNMENT.SERVICE_PROJECT,
     { 'Location': 'จุดงานร่วมสองแผนก' });
 
   var svTask = wo.taskOf(DEPT.SERVICE);
@@ -5304,33 +5309,33 @@ function test_task_jointCompletion() {
   assertTrue_(svTask !== '' && pjTask !== '', 'มีงานของทั้งแผนก Service และ Project');
   // เจตนาเดิมคือ "จำนวนงวดไม่ใช่เลขตายตัวในโค้ด" ซึ่งยังต้องคุ้มครอง
   // ข้อตกลงใหม่: ตอนอนุมัติไม่มีงวดเลย แผนกเพิ่มเองหลังรับงาน (SPEC 20.2)
-  assertEquals_(listStepsByTask(pjTask).length, 0, 'ตอนอนุมัติ ฝั่ง Project ยังไม่มีงวดเลย');
+  assertEquals_((await listStepsByTask(pjTask)).length, 0, 'ตอนอนุมัติ ฝั่ง Project ยังไม่มีงวดเลย');
 
-  acceptTask(svTask, users.service);
-  acceptTask(pjTask, users.project);
-  assertEquals_(getWorkOrder(wo.woId)['Overall_Status'], WO_STATUS.IN_PROGRESS,
+  await acceptTask(svTask, users.service);
+  await acceptTask(pjTask, users.project);
+  assertEquals_((await getWorkOrder(wo.woId))['Overall_Status'], WO_STATUS.IN_PROGRESS,
     'ทั้งสองแผนกรับงานแล้ว ใบงานกำลังดำเนินการ');
 
   // แผนก Project แบ่งงานเป็น 2 งวดเอง แล้วจำนวนงวดจึงต่างจากจำนวนขั้นของ Service
-  addTaskPeriod(pjTask, 'งวดที่ 1 ติดตั้ง', users.project);
-  addTaskPeriod(pjTask, 'งวดที่ 2 ทดสอบระบบ', users.project);
-  assertEquals_(listStepsByTask(pjTask).length, 2, 'แผนกเพิ่มงวดเองได้ตามที่งานจริงต้องใช้');
+  await addTaskPeriod(pjTask, 'งวดที่ 1 ติดตั้ง', users.project);
+  await addTaskPeriod(pjTask, 'งวดที่ 2 ทดสอบระบบ', users.project);
+  assertEquals_((await listStepsByTask(pjTask)).length, 2, 'แผนกเพิ่มงวดเองได้ตามที่งานจริงต้องใช้');
 
   // แผนกแรกปิดงาน — ใบงานต้องยังไม่ปิด
-  finishAllSteps_(svTask, users.service);
-  attachRequiredReports_(svTask);
-  var svDone = completeTask(svTask, users.service);
+  await finishAllSteps_(svTask, users.service);
+  await attachRequiredReports_(svTask);
+  var svDone = await completeTask(svTask, users.service);
   assertEquals_(svDone.to, TASK_STATUS.COMPLETED, 'แผนก Service ปิดงานของตัวเองแล้ว');
   assertEquals_(svDone.recalc.changed, false, 'อีกแผนกยังทำอยู่ ใบงานจึงยังไม่เปลี่ยนสถานะ');
-  assertEquals_(getWorkOrder(wo.woId)['Overall_Status'], WO_STATUS.IN_PROGRESS,
+  assertEquals_((await getWorkOrder(wo.woId))['Overall_Status'], WO_STATUS.IN_PROGRESS,
     'ปิดไปแผนกเดียว ใบงานต้องยังเป็นกำลังดำเนินการ');
 
   // แผนกที่สองปิดงาน — ใบงานจึงปิด
-  finishAllSteps_(pjTask, users.project);
-  attachRequiredReports_(pjTask);
-  var pjDone = completeTask(pjTask, users.project);
+  await finishAllSteps_(pjTask, users.project);
+  await attachRequiredReports_(pjTask);
+  var pjDone = await completeTask(pjTask, users.project);
   assertEquals_(pjDone.recalc.rule, 'ALL_ACTIVE_COMPLETED', 'ปิดครบทั้งสองแผนกแล้วจึงเข้ากฎปิดงาน');
-  assertEquals_(getWorkOrder(wo.woId)['Overall_Status'], WO_STATUS.COMPLETED,
+  assertEquals_((await getWorkOrder(wo.woId))['Overall_Status'], WO_STATUS.COMPLETED,
     'ปิดครบทั้งสองแผนก ใบงานจึงปิด');
 
   return endTest_();
@@ -5339,37 +5344,37 @@ function test_task_jointCompletion() {
 /**
  * งานร่วมที่แผนกหนึ่งเสร็จ อีกแผนกยกเลิก — ใบงานต้องเป็น COMPLETED ไม่ใช่ CANCELLED (SPEC 8)
  */
-function test_task_jointCancelOne() {
+async function test_task_jointCancelOne() {
   beginTest_('แผนกหนึ่งเสร็จ อีกแผนกยกเลิก ใบงานต้องปิดไม่ใช่ยกเลิก — SPEC 8');
 
   var users = serviceTestUsers_();
-  var wo = approvedTestWo_(users, ASSIGNMENT.SERVICE_PROJECT,
+  var wo = await approvedTestWo_(users, ASSIGNMENT.SERVICE_PROJECT,
     { 'Location': 'จุดที่ยกเลิกบางแผนก' });
 
   var svTask = wo.taskOf(DEPT.SERVICE);
   var pjTask = wo.taskOf(DEPT.PROJECT);
 
-  acceptTask(svTask, users.service);
-  acceptTask(pjTask, users.project);
+  await acceptTask(svTask, users.service);
+  await acceptTask(pjTask, users.project);
 
   // แผนก Project ยกเลิกงานของตัวเองได้ทันทีโดยไม่ต้องขออนุมัติ แต่ต้องมีเหตุผล (SPEC 8)
-  assertThrowsMessage_(function () { cancelTask(pjTask, '', users.project); },
+  await assertThrowsMessage_(async function () { await cancelTask(pjTask, '', users.project); },
     'เหตุผล', 'ยกเลิกงานโดยไม่กรอกเหตุผลไม่ได้');
-  assertEquals_(getTask(pjTask)['Status'], TASK_STATUS.IN_PROGRESS, 'รายการที่ถูกปฏิเสธไม่เปลี่ยนสถานะ');
+  assertEquals_((await getTask(pjTask))['Status'], TASK_STATUS.IN_PROGRESS, 'รายการที่ถูกปฏิเสธไม่เปลี่ยนสถานะ');
 
-  var cancelled = cancelTask(pjTask, 'ลูกค้าตัดงานส่วนติดตั้งออก', users.project);
+  var cancelled = await cancelTask(pjTask, 'ลูกค้าตัดงานส่วนติดตั้งออก', users.project);
   assertEquals_(cancelled.to, TASK_STATUS.CANCELLED, 'แผนกยกเลิกงานตัวเองได้ทันที');
-  assertEquals_(getTask(pjTask)['Cancel_Reason'], 'ลูกค้าตัดงานส่วนติดตั้งออก', 'บันทึกเหตุผลการยกเลิกไว้');
-  assertEquals_(getWorkOrder(wo.woId)['Overall_Status'], WO_STATUS.IN_PROGRESS,
+  assertEquals_((await getTask(pjTask))['Cancel_Reason'], 'ลูกค้าตัดงานส่วนติดตั้งออก', 'บันทึกเหตุผลการยกเลิกไว้');
+  assertEquals_((await getWorkOrder(wo.woId))['Overall_Status'], WO_STATUS.IN_PROGRESS,
     'ยังมีแผนกที่ทำอยู่ ใบงานจึงยังไม่ปิดและยังไม่ยกเลิก');
 
-  finishAllSteps_(svTask, users.service);
+  await finishAllSteps_(svTask, users.service);
 
-  attachRequiredReports_(svTask);
-  var done = completeTask(svTask, users.service);
+  await attachRequiredReports_(svTask);
+  var done = await completeTask(svTask, users.service);
   assertEquals_(done.recalc.rule, 'ALL_ACTIVE_COMPLETED',
     'ตัวที่ยกเลิกถูกกันออกจากการนับ เหลือแต่ตัวที่เสร็จ');
-  assertEquals_(getWorkOrder(wo.woId)['Overall_Status'], WO_STATUS.COMPLETED,
+  assertEquals_((await getWorkOrder(wo.woId))['Overall_Status'], WO_STATUS.COMPLETED,
     'มีทั้งแผนกที่ยกเลิกและแผนกที่เสร็จ ใบงานต้องเป็นเสร็จสิ้น ไม่ใช่ยกเลิก');
 
   return endTest_();
@@ -5378,28 +5383,28 @@ function test_task_jointCancelOne() {
 /**
  * ทุกแผนกยกเลิกหมด — ใบงานต้องกลายเป็น CANCELLED (SPEC 8)
  */
-function test_task_cancelAllDepartments() {
+async function test_task_cancelAllDepartments() {
   beginTest_('ยกเลิกครบทุกแผนก ใบงานจึงยกเลิก — SPEC 8');
 
   var users = serviceTestUsers_();
-  var wo = approvedTestWo_(users, ASSIGNMENT.SERVICE_PROJECT,
+  var wo = await approvedTestWo_(users, ASSIGNMENT.SERVICE_PROJECT,
     { 'Location': 'จุดที่ยกเลิกทุกแผนก' });
 
   var svTask = wo.taskOf(DEPT.SERVICE);
   var pjTask = wo.taskOf(DEPT.PROJECT);
 
   // ยกเลิกได้ตั้งแต่ยังไม่กดรับงาน (SPEC 5 — TASK_CANCEL จาก PENDING_ACCEPT ได้)
-  cancelTask(svTask, 'ลูกค้ายกเลิกงานทั้งหมด', users.service);
-  assertEquals_(getWorkOrder(wo.woId)['Overall_Status'], WO_STATUS.APPROVED,
+  await cancelTask(svTask, 'ลูกค้ายกเลิกงานทั้งหมด', users.service);
+  assertEquals_((await getWorkOrder(wo.woId))['Overall_Status'], WO_STATUS.APPROVED,
     'ยกเลิกไปแผนกเดียว ใบงานยังไม่ยกเลิกตาม');
 
-  var last = cancelTask(pjTask, 'ลูกค้ายกเลิกงานทั้งหมด', users.project);
+  var last = await cancelTask(pjTask, 'ลูกค้ายกเลิกงานทั้งหมด', users.project);
   assertEquals_(last.recalc.rule, 'ALL_CANCELLED', 'ยกเลิกครบทุกแผนกจึงเข้ากฎยกเลิกอัตโนมัติ');
-  assertEquals_(getWorkOrder(wo.woId)['Overall_Status'], WO_STATUS.CANCELLED,
+  assertEquals_((await getWorkOrder(wo.woId))['Overall_Status'], WO_STATUS.CANCELLED,
     'ยกเลิกครบทุกแผนก ใบงานจึงยกเลิก');
 
   // สถานะปลายทางแล้ว ทำอะไรต่อไม่ได้
-  assertThrows_(function () { acceptTask(svTask, users.service); },
+  await assertThrows_(async function () { await acceptTask(svTask, users.service); },
     'งานที่ยกเลิกแล้ว กดรับไม่ได้อีก');
 
   return endTest_();
@@ -5409,119 +5414,119 @@ function test_task_cancelAllDepartments() {
  * แผนกตีกลับใบงาน — ต้องจำสถานะ Task ทุกตัวไว้ก่อน แล้วไม่แตะสถานะ Task เลย
  * (SPEC 20.5 · ข้อ 5, 6, 7 ในเกณฑ์ตรวจรับ)
  */
-function test_task_returnKeepsWork() {
+async function test_task_returnKeepsWork() {
   beginTest_('แผนกตีกลับแล้วงานที่ทำไว้ต้องอยู่ครบ — SPEC 20.5');
 
   var users = serviceTestUsers_();
-  var wo = approvedTestWo_(users, ASSIGNMENT.SERVICE_PROJECT,
+  var wo = await approvedTestWo_(users, ASSIGNMENT.SERVICE_PROJECT,
     { 'Location': 'จุดที่ถูกตีกลับกลางคัน' });
 
   var svTask = wo.taskOf(DEPT.SERVICE);
   var pjTask = wo.taskOf(DEPT.PROJECT);
 
-  acceptTask(svTask, users.service);
-  acceptTask(pjTask, users.project);
+  await acceptTask(svTask, users.service);
+  await acceptTask(pjTask, users.project);
 
   // ทำงานค้างไว้ครึ่งทางก่อนถูกตีกลับ
-  var svSteps = listStepsByTask(svTask);
-  updateTaskStep(svSteps[0]['Step_ID'], { 'Status': STEP_STATUS.COMPLETED }, users.service);
-  var doneBefore = stepProgressOf_(svTask).done;
+  var svSteps = await listStepsByTask(svTask);
+  await updateTaskStep(svSteps[0]['Step_ID'], { 'Status': STEP_STATUS.COMPLETED }, users.service);
+  var doneBefore = (await stepProgressOf_(svTask)).done;
   assertEquals_(doneBefore, 1, 'ก่อนถูกตีกลับ แผนก Service ปิดไปแล้ว 1 ขั้นตอน');
 
-  var countBefore = Number(getWorkOrder(wo.woId)['Return_Count'] || 0);
+  var countBefore = Number((await getWorkOrder(wo.woId))['Return_Count'] || 0);
 
-  assertThrowsMessage_(function () { returnTask(svTask, '', users.service); },
+  await assertThrowsMessage_(async function () { await returnTask(svTask, '', users.service); },
     'เหตุผล', 'ตีกลับโดยไม่กรอกเหตุผลไม่ได้');
-  assertEquals_(getTask(svTask)['Status_Before_Return'], '',
+  assertEquals_((await getTask(svTask))['Status_Before_Return'], '',
     'รายการที่ถูกปฏิเสธต้องไม่ทิ้งค่าสถานะที่จำไว้ค้างในชีต');
 
   /* ---------- ข้อ 5: ตีกลับขณะกำลังทำงาน ---------- */
-  var returned = returnTask(svTask, 'ที่อยู่หน้างานไม่ตรงกับที่แจ้ง', users.service);
+  var returned = await returnTask(svTask, 'ที่อยู่หน้างานไม่ตรงกับที่แจ้ง', users.service);
 
-  assertEquals_(getTask(svTask)['Status_Before_Return'], TASK_STATUS.IN_PROGRESS,
+  assertEquals_((await getTask(svTask))['Status_Before_Return'], TASK_STATUS.IN_PROGRESS,
     'สถานะก่อนถูกพักของแผนกที่กดตีกลับ ต้องเป็นกำลังดำเนินการ');
-  assertEquals_(getTask(pjTask)['Status_Before_Return'], TASK_STATUS.IN_PROGRESS,
+  assertEquals_((await getTask(pjTask))['Status_Before_Return'], TASK_STATUS.IN_PROGRESS,
     'ต้องจำสถานะของ "ทุก" แผนกไว้ ไม่ใช่เฉพาะแผนกที่กดตีกลับ');
   assertEquals_(returned.remembered, 2, 'จำสถานะไว้ครบทั้งสองแผนก');
 
-  assertEquals_(getTask(svTask)['Status'], TASK_STATUS.IN_PROGRESS,
+  assertEquals_((await getTask(svTask))['Status'], TASK_STATUS.IN_PROGRESS,
     'สถานะงานของแผนกที่กดตีกลับต้องไม่ถูกเปลี่ยน');
-  assertEquals_(getTask(pjTask)['Status'], TASK_STATUS.IN_PROGRESS,
+  assertEquals_((await getTask(pjTask))['Status'], TASK_STATUS.IN_PROGRESS,
     'สถานะงานของอีกแผนกก็ต้องไม่ถูกเปลี่ยนเช่นกัน');
 
-  assertEquals_(getWorkOrder(wo.woId)['Overall_Status'], WO_STATUS.RETURNED, 'ใบงานถูกตีกลับ');
-  assertEquals_(Number(getWorkOrder(wo.woId)['Return_Count']), countBefore + 1,
+  assertEquals_((await getWorkOrder(wo.woId))['Overall_Status'], WO_STATUS.RETURNED, 'ใบงานถูกตีกลับ');
+  assertEquals_(Number((await getWorkOrder(wo.woId))['Return_Count']), countBefore + 1,
     'ตัวนับการตีกลับเพิ่มขึ้น 1');
   assertEquals_(returned.returnCount, countBefore + 1, 'ค่าที่คืนกลับตรงกับที่บันทึกลงชีต');
-  assertEquals_(getWorkOrder(wo.woId)['Return_Reason'], 'ที่อยู่หน้างานไม่ตรงกับที่แจ้ง',
+  assertEquals_((await getWorkOrder(wo.woId))['Return_Reason'], 'ที่อยู่หน้างานไม่ตรงกับที่แจ้ง',
     'บันทึกเหตุผลการตีกลับไว้ให้ผู้แจ้งอ่าน');
-  assertEquals_(getTask(svTask)['Return_Reason'], 'ที่อยู่หน้างานไม่ตรงกับที่แจ้ง',
+  assertEquals_((await getTask(svTask))['Return_Reason'], 'ที่อยู่หน้างานไม่ตรงกับที่แจ้ง',
     'เหตุผลถูกบันทึกที่งานของแผนกด้วย จะได้รู้ว่าแผนกไหนตีกลับ');
-  assertEquals_(auditCount_(wo.woId, ENTITY.TASK, ACTION.TASK_RETURN), 1,
+  assertEquals_(await auditCount_(wo.woId, ENTITY.TASK, ACTION.TASK_RETURN), 1,
     'Audit บันทึกการตีกลับของแผนก 1 แถว');
 
   /* ---------- ข้อ 8: ขณะถูกตีกลับ ทุก TASK_* ต้องถูกปฏิเสธ (กฎข้อ 13) ---------- */
-  var svStatusBefore = getTask(svTask)['Status'];
-  var pjStatusBefore = getTask(pjTask)['Status'];
+  var svStatusBefore = (await getTask(svTask))['Status'];
+  var pjStatusBefore = (await getTask(pjTask))['Status'];
   /*
    * ใช้ขั้นตอนของฝั่ง Service เพราะฝั่ง Project ไม่มีงวดตั้งต้นอีกแล้ว (SPEC 20.2)
    * สิ่งที่ข้อนี้พิสูจน์ไม่เปลี่ยน: ขณะใบงานถูกตีกลับ ทุกรายการ TASK_* ต้องถูกปฏิเสธ
    */
-  var svStepBefore = listStepsByTask(svTask)[1];
+  var svStepBefore = (await listStepsByTask(svTask))[1];
 
-  assertThrowsMessage_(function () {
-    updateTaskStep(svStepBefore['Step_ID'], { 'Status': STEP_STATUS.COMPLETED }, users.service);
+  await assertThrowsMessage_(async function () {
+    await updateTaskStep(svStepBefore['Step_ID'], { 'Status': STEP_STATUS.COMPLETED }, users.service);
   }, 'ถูกตีกลับ', 'ใบงานถูกตีกลับอยู่ อัปเดตขั้นตอนงานไม่ได้');
 
   // การเพิ่มงวดก็เป็นรายการ TASK_* เหมือนกัน ต้องถูกปฏิเสธด้วยเหตุผลเดียวกัน
-  assertThrowsMessage_(function () { addTaskPeriod(pjTask, 'งวดแทรกตอนถูกตีกลับ', users.project); },
+  await assertThrowsMessage_(async function () { await addTaskPeriod(pjTask, 'งวดแทรกตอนถูกตีกลับ', users.project); },
     'ถูกตีกลับ', 'ใบงานถูกตีกลับอยู่ เพิ่มงวดงานไม่ได้');
-  assertEquals_(listStepsByTask(pjTask).length, 0,
+  assertEquals_((await listStepsByTask(pjTask)).length, 0,
     'และต้องไม่มีงวดใดถูกเขียนลงชีตจากรายการที่ถูกปฏิเสธ');
 
-  assertThrowsMessage_(function () { completeTask(pjTask, users.project); },
+  await assertThrowsMessage_(async function () { await completeTask(pjTask, users.project); },
     'ถูกตีกลับ', 'ใบงานถูกตีกลับอยู่ ปิดงานไม่ได้');
 
-  assertThrowsMessage_(function () { cancelTask(pjTask, 'ขอยกเลิกระหว่างถูกตีกลับ', users.project); },
+  await assertThrowsMessage_(async function () { await cancelTask(pjTask, 'ขอยกเลิกระหว่างถูกตีกลับ', users.project); },
     'ถูกตีกลับ', 'ใบงานถูกตีกลับอยู่ ยกเลิกงานไม่ได้');
 
-  assertEquals_(getTask(svTask)['Status'], svStatusBefore, 'รายการที่ถูกปฏิเสธไม่เปลี่ยนสถานะงาน Service');
-  assertEquals_(getTask(pjTask)['Status'], pjStatusBefore, 'รายการที่ถูกปฏิเสธไม่เปลี่ยนสถานะงาน Project');
-  assertEquals_(getTask(pjTask)['Cancel_Reason'], '', 'เหตุผลการยกเลิกที่ถูกปฏิเสธต้องไม่ถูกเขียนลงชีต');
-  assertEquals_(getStep(svStepBefore['Step_ID'])['Status'], svStepBefore['Status'],
+  assertEquals_((await getTask(svTask))['Status'], svStatusBefore, 'รายการที่ถูกปฏิเสธไม่เปลี่ยนสถานะงาน Service');
+  assertEquals_((await getTask(pjTask))['Status'], pjStatusBefore, 'รายการที่ถูกปฏิเสธไม่เปลี่ยนสถานะงาน Project');
+  assertEquals_((await getTask(pjTask))['Cancel_Reason'], '', 'เหตุผลการยกเลิกที่ถูกปฏิเสธต้องไม่ถูกเขียนลงชีต');
+  assertEquals_((await getStep(svStepBefore['Step_ID']))['Status'], svStepBefore['Status'],
     'ขั้นตอนงานที่ถูกปฏิเสธต้องไม่ถูกเขียนลงชีต');
-  assertEquals_(getStep(svStepBefore['Step_ID'])['Completed_By'], '',
+  assertEquals_((await getStep(svStepBefore['Step_ID']))['Completed_By'], '',
     'และต้องไม่มีชื่อผู้ปิดขั้นตอนหลุดเข้าไป');
-  assertEquals_(getWorkOrder(wo.woId)['Overall_Status'], WO_STATUS.RETURNED,
+  assertEquals_((await getWorkOrder(wo.woId))['Overall_Status'], WO_STATUS.RETURNED,
     'หลังโดนปฏิเสธครบสามรายการ ใบงานยังเป็นตีกลับเหมือนเดิม');
 
   /* ---------- ข้อ 6: อนุมัติกลับมาแล้วต้องกลับไปสถานะที่จำไว้ ---------- */
-  var taskCountBefore = listTasksByWo(wo.woId).length;
+  var taskCountBefore = (await listTasksByWo(wo.woId)).length;
   // ใบที่ถูกตีกลับต้องส่งขออนุมัติใหม่ก่อน จึงจะอนุมัติได้อีกครั้ง (SPEC 5, 8)
-  submitWorkOrder(wo.woId, users.admin);
-  approveWorkOrder(wo.woId, ASSIGNMENT.SERVICE_PROJECT, users.approver);
+  await submitWorkOrder(wo.woId, users.admin);
+  await approveWorkOrder(wo.woId, ASSIGNMENT.SERVICE_PROJECT, users.approver);
 
-  assertEquals_(listTasksByWo(wo.woId).length, taskCountBefore,
+  assertEquals_((await listTasksByWo(wo.woId)).length, taskCountBefore,
     'อนุมัติซ้ำต้องไม่สร้างงานของแผนกชุดใหม่ (กฎข้อ 11)');
-  assertEquals_(getTask(svTask)['Status'], TASK_STATUS.IN_PROGRESS,
+  assertEquals_((await getTask(svTask))['Status'], TASK_STATUS.IN_PROGRESS,
     'งานของแผนกกลับไปเป็นกำลังดำเนินการตามที่จำไว้ ไม่ใช่ย้อนไปรอรับงานใหม่');
-  assertEquals_(getTask(pjTask)['Status'], TASK_STATUS.IN_PROGRESS,
+  assertEquals_((await getTask(pjTask))['Status'], TASK_STATUS.IN_PROGRESS,
     'อีกแผนกก็กลับไปเป็นกำลังดำเนินการเช่นกัน');
-  assertEquals_(getTask(svTask)['Status_Before_Return'], '',
+  assertEquals_((await getTask(svTask))['Status_Before_Return'], '',
     'ปลดพักแล้วค่าที่จำไว้ต้องถูกล้าง ไม่ค้างไปรบกวนการตีกลับครั้งถัดไป');
 
   /* ---------- ข้อ 7: Step ที่ทำไปแล้วต้องยังอยู่ครบ ---------- */
-  assertEquals_(listStepsByTask(svTask).length, svSteps.length,
+  assertEquals_((await listStepsByTask(svTask)).length, svSteps.length,
     'จำนวนขั้นตอนงานเท่าเดิม ไม่มีการสร้างชุดใหม่ทับ');
-  assertEquals_(stepProgressOf_(svTask).done, doneBefore,
+  assertEquals_((await stepProgressOf_(svTask)).done, doneBefore,
     'ขั้นตอนที่ปิดไปก่อนถูกตีกลับ ต้องยังปิดอยู่ ไม่ถูกล้าง');
-  assertEquals_(getStep(svSteps[0]['Step_ID'])['Completed_By'], users.service.email,
+  assertEquals_((await getStep(svSteps[0]['Step_ID']))['Completed_By'], users.service.email,
     'ชื่อผู้ปิดขั้นตอนเดิมยังอยู่ครบ');
 
   // ทำงานต่อได้ตามปกติ
-  finishAllSteps_(svTask, users.service);
-  attachRequiredReports_(svTask);
-  assertEquals_(completeTask(svTask, users.service).to, TASK_STATUS.COMPLETED,
+  await finishAllSteps_(svTask, users.service);
+  await attachRequiredReports_(svTask);
+  assertEquals_((await completeTask(svTask, users.service)).to, TASK_STATUS.COMPLETED,
     'อนุมัติกลับมาแล้วทำงานต่อจนปิดงานได้');
 
   return endTest_();
@@ -5530,36 +5535,36 @@ function test_task_returnKeepsWork() {
 /**
  * แผนกหนึ่งแตะงานของอีกแผนกไม่ได้ ทั้งที่อยู่ในใบงานเดียวกัน (SPEC 5 · Guard taskOwner)
  */
-function test_task_ownership() {
+async function test_task_ownership() {
   beginTest_('แผนกอื่นแตะงานที่ไม่ใช่ของตัวเองไม่ได้ — SPEC 5');
 
   var users = serviceTestUsers_();
-  var wo = approvedTestWo_(users, ASSIGNMENT.SERVICE_PROJECT,
+  var wo = await approvedTestWo_(users, ASSIGNMENT.SERVICE_PROJECT,
     { 'Location': 'จุดทดสอบความเป็นเจ้าของงาน' });
 
   var svTask = wo.taskOf(DEPT.SERVICE);
   var pjTask = wo.taskOf(DEPT.PROJECT);
 
-  acceptTask(svTask, users.service);
-  acceptTask(pjTask, users.project);
-  finishAllSteps_(pjTask, users.project);
-  attachRequiredReports_(pjTask);
+  await acceptTask(svTask, users.service);
+  await acceptTask(pjTask, users.project);
+  await finishAllSteps_(pjTask, users.project);
+  await attachRequiredReports_(pjTask);
 
   // เคสปฏิเสธ: แผนก Service ปิดงานของแผนก Project
-  assertThrowsMessage_(function () { completeTask(pjTask, users.service); },
+  await assertThrowsMessage_(async function () { await completeTask(pjTask, users.service); },
     'เฉพาะแผนกเจ้าของงาน', 'แผนก Service ปิดงานของแผนก Project ไม่ได้');
-  assertEquals_(getTask(pjTask)['Status'], TASK_STATUS.IN_PROGRESS, 'งานของแผนก Project ต้องไม่ถูกปิด');
+  assertEquals_((await getTask(pjTask))['Status'], TASK_STATUS.IN_PROGRESS, 'งานของแผนก Project ต้องไม่ถูกปิด');
 
-  assertThrows_(function () { acceptTask(pjTask, users.service); },
+  await assertThrows_(async function () { await acceptTask(pjTask, users.service); },
     'แผนก Service กดรับงานของแผนก Project ไม่ได้');
-  assertThrows_(function () {
-    updateTaskStep(listStepsByTask(pjTask)[0]['Step_ID'], { 'Status': STEP_STATUS.PENDING }, users.service);
+  await assertThrows_(async function () {
+    await updateTaskStep((await listStepsByTask(pjTask))[0]['Step_ID'], { 'Status': STEP_STATUS.PENDING }, users.service);
   }, 'แผนก Service อัปเดตขั้นตอนของแผนก Project ไม่ได้');
-  assertThrows_(function () { returnTask(pjTask, 'ขอตีกลับแทน', users.service); },
+  await assertThrows_(async function () { await returnTask(pjTask, 'ขอตีกลับแทน', users.service); },
     'แผนก Service ตีกลับใบงานผ่านงานของแผนก Project ไม่ได้');
 
   // เคสอนุญาต: เจ้าของงานตัวจริงทำได้
-  assertEquals_(completeTask(pjTask, users.project).to, TASK_STATUS.COMPLETED,
+  assertEquals_((await completeTask(pjTask, users.project)).to, TASK_STATUS.COMPLETED,
     'แผนกเจ้าของงานตัวจริงปิดงานของตัวเองได้');
 
   return endTest_();
@@ -5568,43 +5573,43 @@ function test_task_ownership() {
 /**
  * เงื่อนไขการชำระเงินกั้นการรับงานเพียงจุดเดียว (SPEC 12)
  */
-function test_task_paymentGate() {
+async function test_task_paymentGate() {
   beginTest_('ใบที่ต้องชำระก่อน แผนกกดรับงานไม่ได้จนกว่าจะบันทึกชำระ — SPEC 12');
 
   var users = serviceTestUsers_();
-  var wo = approvedTestWo_(users, ASSIGNMENT.SERVICE, {
+  var wo = await approvedTestWo_(users, ASSIGNMENT.SERVICE, {
     'Location': 'จุดที่ต้องชำระก่อนเริ่มงาน',
     'Payment_Required': true
   });
   var taskId = wo.taskOf(DEPT.SERVICE);
 
-  assertEquals_(getWorkOrder(wo.woId)['Payment_Status'], PAYMENT.UNPAID, 'ใบงานเริ่มต้นที่ยังไม่ชำระ');
+  assertEquals_((await getWorkOrder(wo.woId))['Payment_Status'], PAYMENT.UNPAID, 'ใบงานเริ่มต้นที่ยังไม่ชำระ');
 
   // เคสปฏิเสธ: ยังไม่ชำระ
-  assertThrowsMessage_(function () { acceptTask(taskId, users.service); },
+  await assertThrowsMessage_(async function () { await acceptTask(taskId, users.service); },
     'รอการชำระเงิน', 'ใบที่ต้องชำระก่อนและยังไม่ชำระ กดรับงานไม่ได้');
-  assertEquals_(getTask(taskId)['Status'], TASK_STATUS.PENDING_ACCEPT, 'งานยังรอรับอยู่เหมือนเดิม');
-  assertEquals_(getTask(taskId)['Accepted_By'], '', 'และต้องไม่มีชื่อผู้รับงานหลุดเข้าไปในชีต');
+  assertEquals_((await getTask(taskId))['Status'], TASK_STATUS.PENDING_ACCEPT, 'งานยังรอรับอยู่เหมือนเดิม');
+  assertEquals_((await getTask(taskId))['Accepted_By'], '', 'และต้องไม่มีชื่อผู้รับงานหลุดเข้าไปในชีต');
 
   // บันทึกรับชำระ — ไม่ทำให้สถานะใบงานเปลี่ยน เพราะการชำระเงินไม่ใช่สถานะงาน (SPEC 12)
-  var statusBefore = getWorkOrder(wo.woId)['Overall_Status'];
-  recordPayment(wo.woId, 'ใบเสร็จเลขที่ RC-0001', users.admin);
-  assertEquals_(getWorkOrder(wo.woId)['Payment_Status'], PAYMENT.PAID, 'บันทึกว่าได้รับชำระแล้ว');
-  assertEquals_(getWorkOrder(wo.woId)['Payment_By'], users.admin.email, 'บันทึกว่าใครเป็นผู้ยืนยันการรับเงิน');
-  assertEquals_(getWorkOrder(wo.woId)['Payment_Remark'], 'ใบเสร็จเลขที่ RC-0001', 'บันทึกหมายเหตุการชำระ');
-  assertEquals_(getWorkOrder(wo.woId)['Overall_Status'], statusBefore,
+  var statusBefore = (await getWorkOrder(wo.woId))['Overall_Status'];
+  await recordPayment(wo.woId, 'ใบเสร็จเลขที่ RC-0001', users.admin);
+  assertEquals_((await getWorkOrder(wo.woId))['Payment_Status'], PAYMENT.PAID, 'บันทึกว่าได้รับชำระแล้ว');
+  assertEquals_((await getWorkOrder(wo.woId))['Payment_By'], users.admin.email, 'บันทึกว่าใครเป็นผู้ยืนยันการรับเงิน');
+  assertEquals_((await getWorkOrder(wo.woId))['Payment_Remark'], 'ใบเสร็จเลขที่ RC-0001', 'บันทึกหมายเหตุการชำระ');
+  assertEquals_((await getWorkOrder(wo.woId))['Overall_Status'], statusBefore,
     'การชำระเงินต้องไม่ทำให้สถานะใบงานเปลี่ยน');
 
-  assertThrows_(function () { recordPayment(wo.woId, '', users.admin); },
+  await assertThrows_(async function () { await recordPayment(wo.woId, '', users.admin); },
     'บันทึกรับชำระซ้ำใบเดิมไม่ได้');
 
   // เคสอนุญาต: ชำระแล้วรับงานได้
-  assertEquals_(acceptTask(taskId, users.service).to, TASK_STATUS.IN_PROGRESS,
+  assertEquals_((await acceptTask(taskId, users.service)).to, TASK_STATUS.IN_PROGRESS,
     'บันทึกชำระแล้ว แผนกกดรับงานได้');
 
   // ใบที่ไม่ได้บังคับชำระ ต้องไม่ถูกกั้นเลย
-  var free = approvedTestWo_(users, ASSIGNMENT.SERVICE, { 'Location': 'จุดที่ไม่ต้องชำระก่อน' });
-  assertEquals_(acceptTask(free.taskOf(DEPT.SERVICE), users.service).to, TASK_STATUS.IN_PROGRESS,
+  var free = await approvedTestWo_(users, ASSIGNMENT.SERVICE, { 'Location': 'จุดที่ไม่ต้องชำระก่อน' });
+  assertEquals_((await acceptTask(free.taskOf(DEPT.SERVICE), users.service)).to, TASK_STATUS.IN_PROGRESS,
     'ใบที่ไม่ได้บังคับชำระก่อน กดรับงานได้ทันทีแม้ยังไม่ชำระ');
 
   return endTest_();
@@ -5638,17 +5643,17 @@ function test_task_paymentGate() {
  * @param {function()} fn สิ่งที่จะทำ
  * @return {*} ค่าที่ fn คืน
  */
-function withReports_(fn) {
+async function withReports_(fn) {
   var before = REPORT_DISABLED_;
   REPORT_DISABLED_ = false;
   try {
-    return fn();
+    return await fn();
   } finally {
     REPORT_DISABLED_ = before;
   }
 }
 
-function withTestUser_(user, fn) {
+async function withTestUser_(user, fn) {
   TEST_IDENTITY_ = {
     email:       user.email,
     displayName: user.displayName || user.email,
@@ -5658,7 +5663,7 @@ function withTestUser_(user, fn) {
     active:      true
   };
   try {
-    return fn();
+    return await fn();
   } finally {
     TEST_IDENTITY_ = null;
   }
@@ -5667,17 +5672,17 @@ function withTestUser_(user, fn) {
 /**
  * ใบงานที่รออนุมัติต้องแยกตามสายอย่างเด็ดขาด ผู้อนุมัติคนละสายต้องไม่เห็นของกันและกัน (SPEC 3)
  */
-function test_permission_pendingListByRoute() {
+async function test_permission_pendingListByRoute() {
   beginTest_('รายการรออนุมัติแยกตามสาย — SPEC 3');
 
   var users = serviceTestUsers_();
 
-  var spWo = createTestWo_(users, { 'Assignment_Type': ASSIGNMENT.SERVICE, 'Location': 'จุดสาย SP' });
-  var unspecWo = createTestWo_(users, { 'Assignment_Type': ASSIGNMENT.UNSPECIFIED, 'Location': 'จุดยังไม่ระบุ' });
-  var labWo = createTestWo_(users, { 'Assignment_Type': ASSIGNMENT.LAB, 'Location': 'จุดสายแล็บ' });
+  var spWo = await createTestWo_(users, { 'Assignment_Type': ASSIGNMENT.SERVICE, 'Location': 'จุดสาย SP' });
+  var unspecWo = await createTestWo_(users, { 'Assignment_Type': ASSIGNMENT.UNSPECIFIED, 'Location': 'จุดยังไม่ระบุ' });
+  var labWo = await createTestWo_(users, { 'Assignment_Type': ASSIGNMENT.LAB, 'Location': 'จุดสายแล็บ' });
 
 
-  var spList = withTestUser_(users.approver, function () { return api_listPendingApprovals(); });
+  var spList = await withTestUser_(users.approver, async function () { return await api_listPendingApprovals(); });
   assertEquals_(spList.ok, true, 'ผู้อนุมัติสาย SP เปิดรายการรออนุมัติได้');
   assertTrue_(containsWo_(spList.data.rows, spWo.woId), 'ผู้อนุมัติสาย SP เห็นใบงานสาย Service');
   assertTrue_(containsWo_(spList.data.rows, unspecWo.woId),
@@ -5685,7 +5690,7 @@ function test_permission_pendingListByRoute() {
   assertTrue_(!containsWo_(spList.data.rows, labWo.woId),
     'ใบงานสายแล็บต้องไม่โผล่ในรายการของผู้อนุมัติสาย SP');
 
-  var labList = withTestUser_(users.labApprover, function () { return api_listPendingApprovals(); });
+  var labList = await withTestUser_(users.labApprover, async function () { return await api_listPendingApprovals(); });
   assertTrue_(containsWo_(labList.data.rows, labWo.woId), 'ผู้อนุมัติสายแล็บเห็นใบงานสายแล็บ');
   assertTrue_(!containsWo_(labList.data.rows, spWo.woId),
     'ใบงานสาย Service ต้องไม่โผล่ในรายการของผู้อนุมัติสายแล็บ');
@@ -5700,7 +5705,7 @@ function test_permission_pendingListByRoute() {
   assertEquals_(spList.data.assignmentOptions.LAB.length, 1, 'สายแล็บเลือกได้แบบเดียว');
 
   // แผนกที่ไม่ใช่ผู้อนุมัติเปิดรายการได้แต่ต้องว่าง
-  var deptList = withTestUser_(users.service, function () { return api_listPendingApprovals(); });
+  var deptList = await withTestUser_(users.service, async function () { return await api_listPendingApprovals(); });
   assertEquals_(deptList.ok, true, 'ผู้ใช้ทั่วไปเปิดหน้าอนุมัติได้โดยไม่ error');
   assertEquals_(deptList.data.rows.length, 0, 'แต่ไม่เห็นใบงานให้อนุมัติเลย');
 
@@ -5711,12 +5716,12 @@ function test_permission_pendingListByRoute() {
  * Role ผู้อนุมัติสร้าง แก้ไข หรือส่งใบงานเองไม่ได้ (SPEC 2, 5)
  * ต้องปฏิเสธที่ชั้น API ไม่ใช่แค่ซ่อนปุ่มในหน้าจอ
  */
-function test_permission_approverCannotCreate() {
+async function test_permission_approverCannotCreate() {
   beginTest_('ผู้อนุมัติสร้างหรือส่งใบงานเองไม่ได้ — SPEC 2');
 
   var users = serviceTestUsers_();
   // ใบที่ส่งใหม่ได้ต้องอยู่ในสถานะถูกตีกลับ เพราะ EDIT และ SUBMIT ใช้ได้จากตรงนั้นเท่านั้น (SPEC 5)
-  var draft = returnedTestWo_(users, { 'Location': 'จุดที่ผู้อนุมัติจะลองแก้' });
+  var draft = await returnedTestWo_(users, { 'Location': 'จุดที่ผู้อนุมัติจะลองแก้' });
   var form = testWoForm_({ 'Customer_Code': draft.workOrder['Customer_Code'], 'Location': 'จุดใหม่ของผู้อนุมัติ' });
 
   var approvers = [
@@ -5726,21 +5731,21 @@ function test_permission_approverCannotCreate() {
 
   for (var i = 0; i < approvers.length; i++) {
     var who = approvers[i];
-    var before = listWorkOrders().length;
+    var before = (await listWorkOrders()).length;
 
-    var created = withTestUser_(who.user, function () { return api_createWorkOrder(form); });
+    var created = await withTestUser_(who.user, async function () { return await api_createWorkOrder(form); });
     assertEquals_(created.ok, false, who.name + ' สร้างใบงานเองไม่ได้');
-    assertEquals_(listWorkOrders().length, before, 'และต้องไม่มีแถวใหม่ถูกเขียนลงชีตเลย');
+    assertEquals_((await listWorkOrders()).length, before, 'และต้องไม่มีแถวใหม่ถูกเขียนลงชีตเลย');
 
-    var submitted = withTestUser_(who.user, function () {
-      return api_submitWorkOrder(draft.woId, toDate_(draft.workOrder['Updated_Date']).toISOString());
+    var submitted = await withTestUser_(who.user, async function () {
+      return await api_submitWorkOrder(draft.woId, toDate_(draft.workOrder['Updated_Date']).toISOString());
     });
     assertEquals_(submitted.ok, false, who.name + ' ส่งใบงานขออนุมัติเองไม่ได้');
-    assertEquals_(getWorkOrder(draft.woId)['Overall_Status'], WO_STATUS.RETURNED,
+    assertEquals_((await getWorkOrder(draft.woId))['Overall_Status'], WO_STATUS.RETURNED,
       'ใบงานต้องยังอยู่สถานะถูกตีกลับเหมือนเดิม');
 
-    var edited = withTestUser_(who.user, function () {
-      return api_editWorkOrder(draft.woId, form, null);
+    var edited = await withTestUser_(who.user, async function () {
+      return await api_editWorkOrder(draft.woId, form, null);
     });
     assertEquals_(edited.ok, false, who.name + ' แก้ไขใบงานเองไม่ได้');
   }
@@ -5753,26 +5758,26 @@ function test_permission_approverCannotCreate() {
    * เพราะ api_createWorkOrder ไม่รับตัวนำหน้า TEST- (และไม่ควรรับด้วย)
    */
   var adminForm = testWoForm_({ 'Customer_Code': '' });
-  var beforeAdmin = listWorkOrders().length;
-  var byAdmin = withTestUser_(users.admin, function () { return api_createWorkOrder(adminForm); });
+  var beforeAdmin = (await listWorkOrders()).length;
+  var byAdmin = await withTestUser_(users.admin, async function () { return await api_createWorkOrder(adminForm); });
   assertEquals_(byAdmin.ok, false, 'ฟอร์มที่ขาดรหัสลูกค้าถูกปฏิเสธตามปกติ');
   assertTrue_(String(byAdmin.message).indexOf('ไม่มีสิทธิ์') === -1,
     'แต่ธุรการต้องผ่านด่านสิทธิ์ไปแล้ว ข้อความที่ได้ต้องไม่ใช่เรื่องสิทธิ์');
   assertTrue_(String(byAdmin.message).indexOf('รหัสลูกค้า') !== -1,
     'และต้องเป็นข้อความเรื่องรหัสลูกค้าที่บอกทางออกให้ผู้ใช้');
-  assertEquals_(listWorkOrders().length, beforeAdmin, 'ไม่มีใบงานใดถูกสร้างระหว่างทดสอบสิทธิ์');
+  assertEquals_((await listWorkOrders()).length, beforeAdmin, 'ไม่มีใบงานใดถูกสร้างระหว่างทดสอบสิทธิ์');
 
   var both = { email: 'both@cnr.co.th', roles: [ROLE.ADMIN, ROLE.APPROVER_SP] };
-  var bySubmit = withTestUser_(both, function () {
-    return api_submitWorkOrder(draft.woId, toDate_(getWorkOrder(draft.woId)['Updated_Date']).toISOString());
+  var bySubmit = await withTestUser_(both, async function () {
+    return await api_submitWorkOrder(draft.woId, toDate_((await getWorkOrder(draft.woId))['Updated_Date']).toISOString());
   });
   assertEquals_(bySubmit.ok, true, 'คนที่มีทั้งบทบาทธุรการและผู้อนุมัติ ส่งใบงานได้ตามปกติ');
-  assertEquals_(getWorkOrder(draft.woId)['Overall_Status'], WO_STATUS.PENDING_APPROVE,
+  assertEquals_((await getWorkOrder(draft.woId))['Overall_Status'], WO_STATUS.PENDING_APPROVE,
     'ใบงานถูกส่งขออนุมัติจริง');
 
   // แต่คนคนนั้นยังอนุมัติใบที่ตัวเองส่งไม่ได้ ถ้าเป็นผู้สร้างเอง (SPEC 2)
-  var selfApprove = withTestUser_({ email: users.admin.email, roles: [ROLE.ADMIN, ROLE.APPROVER_SP] }, function () {
-    return api_approveWorkOrder(draft.woId, ASSIGNMENT.SERVICE, {});
+  var selfApprove = await withTestUser_({ email: users.admin.email, roles: [ROLE.ADMIN, ROLE.APPROVER_SP] }, async function () {
+    return await api_approveWorkOrder(draft.woId, ASSIGNMENT.SERVICE, {});
   });
   assertEquals_(selfApprove.ok, false, 'ผู้สร้างใบงานอนุมัติใบของตัวเองไม่ได้ แม้จะมีบทบาทผู้อนุมัติด้วย');
 
@@ -5782,50 +5787,50 @@ function test_permission_approverCannotCreate() {
 /**
  * ผู้อนุมัติทำได้เฉพาะใบงานในสายของตัวเอง และเลือกแผนกข้ามสายไม่ได้ (SPEC 3, 3.1)
  */
-function test_permission_approveAcrossRoute() {
+async function test_permission_approveAcrossRoute() {
   beginTest_('อนุมัติข้ามสายไม่ได้ — SPEC 3.1');
 
   var users = serviceTestUsers_();
 
-  var spWo = createTestWo_(users, { 'Assignment_Type': ASSIGNMENT.SERVICE, 'Location': 'จุดของสาย SP' });
+  var spWo = await createTestWo_(users, { 'Assignment_Type': ASSIGNMENT.SERVICE, 'Location': 'จุดของสาย SP' });
 
-  var wrongApprover = withTestUser_(users.labApprover, function () {
-    return api_approveWorkOrder(spWo.woId, ASSIGNMENT.SERVICE, {});
+  var wrongApprover = await withTestUser_(users.labApprover, async function () {
+    return await api_approveWorkOrder(spWo.woId, ASSIGNMENT.SERVICE, {});
   });
   assertEquals_(wrongApprover.ok, false, 'ผู้อนุมัติสายแล็บอนุมัติใบงานสาย SP ไม่ได้');
-  assertEquals_(getWorkOrder(spWo.woId)['Overall_Status'], WO_STATUS.PENDING_APPROVE,
+  assertEquals_((await getWorkOrder(spWo.woId))['Overall_Status'], WO_STATUS.PENDING_APPROVE,
     'ใบงานต้องยังรออนุมัติอยู่เหมือนเดิม');
 
-  var wrongReturn = withTestUser_(users.labApprover, function () {
-    return api_returnWorkOrder(spWo.woId, 'ไม่ใช่งานของแล็บ', null);
+  var wrongReturn = await withTestUser_(users.labApprover, async function () {
+    return await api_returnWorkOrder(spWo.woId, 'ไม่ใช่งานของแล็บ', null);
   });
   assertEquals_(wrongReturn.ok, false, 'ผู้อนุมัติสายแล็บตีกลับใบงานสาย SP ก็ไม่ได้');
 
   // ใบที่ยังไม่ระบุแผนก ส่งให้แผนกแล็บไม่ได้ เพราะไม่มีการส่งต่อข้ามสายแล้ว
-  var unspec = createTestWo_(users, { 'Assignment_Type': ASSIGNMENT.UNSPECIFIED, 'Location': 'จุดที่ยังไม่รู้แผนก' });
+  var unspec = await createTestWo_(users, { 'Assignment_Type': ASSIGNMENT.UNSPECIFIED, 'Location': 'จุดที่ยังไม่รู้แผนก' });
 
-  var toLab = withTestUser_(users.approver, function () {
-    return api_approveWorkOrder(unspec.woId, ASSIGNMENT.LAB, {});
+  var toLab = await withTestUser_(users.approver, async function () {
+    return await api_approveWorkOrder(unspec.woId, ASSIGNMENT.LAB, {});
   });
   assertEquals_(toLab.ok, false, 'อนุมัติใบที่ยังไม่ระบุแผนกแล้วส่งให้แผนก Lab ไม่ได้');
   assertTrue_(String(toLab.message).indexOf('สายบริการและโครงการ') !== -1,
     'ข้อความต้องบอกว่าใบงานอยู่สายไหน ไม่ใช่ศัพท์ระบบ');
   assertTrue_(String(toLab.message).indexOf('ตีกลับ') !== -1,
     'และต้องบอกทางออกว่าให้ตีกลับไปแก้สายงานในใบเดิม');
-  assertEquals_(getWorkOrder(unspec.woId)['Overall_Status'], WO_STATUS.PENDING_APPROVE,
+  assertEquals_((await getWorkOrder(unspec.woId))['Overall_Status'], WO_STATUS.PENDING_APPROVE,
     'ใบงานต้องยังรออนุมัติอยู่');
 
-  var stillUnspecified = withTestUser_(users.approver, function () {
-    return api_approveWorkOrder(unspec.woId, ASSIGNMENT.UNSPECIFIED, {});
+  var stillUnspecified = await withTestUser_(users.approver, async function () {
+    return await api_approveWorkOrder(unspec.woId, ASSIGNMENT.UNSPECIFIED, {});
   });
   assertEquals_(stillUnspecified.ok, false, 'อนุมัติโดยยังไม่เลือกแผนกไม่ได้');
 
   // เคสอนุญาต: ผู้อนุมัติสายเดียวกันเลือกแผนกในสายตัวเองได้
-  var ok = withTestUser_(users.approver, function () {
-    return api_approveWorkOrder(unspec.woId, ASSIGNMENT.PROJECT, {});
+  var ok = await withTestUser_(users.approver, async function () {
+    return await api_approveWorkOrder(unspec.woId, ASSIGNMENT.PROJECT, {});
   });
   assertEquals_(ok.ok, true, 'ผู้อนุมัติสาย SP เลือกแผนก Project ให้ใบที่ยังไม่ระบุได้');
-  assertEquals_(getWorkOrder(unspec.woId)['Assignment_Type'], ASSIGNMENT.PROJECT,
+  assertEquals_((await getWorkOrder(unspec.woId))['Assignment_Type'], ASSIGNMENT.PROJECT,
     'แผนกที่ผู้อนุมัติเลือกถูกบันทึกลงใบงาน');
 
   return endTest_();
@@ -5834,61 +5839,61 @@ function test_permission_approveAcrossRoute() {
 /**
  * เส้นทางแก้สายงานผิด — ใช้ RETURN แล้วให้ผู้แจ้งแก้สายในใบเดิม ไม่มีการส่งต่อข้ามสาย (SPEC 3.1)
  */
-function test_permission_fixWrongRoute() {
+async function test_permission_fixWrongRoute() {
   beginTest_('แก้สายงานที่เลือกผิดด้วยการตีกลับ — SPEC 3.1');
 
   var users = serviceTestUsers_();
 
   // Admin เลือกสาย Service มาผิด ทั้งที่เป็นงานวิเคราะห์น้ำ
-  var wo = createTestWo_(users, {
+  var wo = await createTestWo_(users, {
     'Assignment_Type': ASSIGNMENT.SERVICE,
     'Location': 'จุดเก็บตัวอย่างน้ำ',
     'Job_Description': 'ขอผลวิเคราะห์คุณภาพน้ำ'
   });
-  assertEquals_(getWorkOrder(wo.woId)['Route'], ROUTE.SP, 'ตอนแรกใบงานอยู่สาย SP ตามที่เลือกมา');
+  assertEquals_((await getWorkOrder(wo.woId))['Route'], ROUTE.SP, 'ตอนแรกใบงานอยู่สาย SP ตามที่เลือกมา');
 
   // ผู้อนุมัติสาย SP เห็นว่าไม่ใช่งานของตัวเอง จึงตีกลับพร้อมเหตุผล
-  var returned = withTestUser_(users.approver, function () {
-    return api_returnWorkOrder(wo.woId, 'งานนี้เป็นงานวิเคราะห์น้ำ กรุณาแก้สายงานเป็นแล็บแล้วส่งใหม่',
-      toDate_(getWorkOrder(wo.woId)['Updated_Date']).toISOString());
+  var returned = await withTestUser_(users.approver, async function () {
+    return await api_returnWorkOrder(wo.woId, 'งานนี้เป็นงานวิเคราะห์น้ำ กรุณาแก้สายงานเป็นแล็บแล้วส่งใหม่',
+      toDate_((await getWorkOrder(wo.woId))['Updated_Date']).toISOString());
   });
   assertEquals_(returned.ok, true, 'ผู้อนุมัติตีกลับใบที่มาผิดสายได้');
-  assertEquals_(getWorkOrder(wo.woId)['Overall_Status'], WO_STATUS.RETURNED, 'ใบงานกลับมาให้แก้ไข');
-  assertTrue_(String(getWorkOrder(wo.woId)['Return_Reason']).indexOf('แล็บ') !== -1,
+  assertEquals_((await getWorkOrder(wo.woId))['Overall_Status'], WO_STATUS.RETURNED, 'ใบงานกลับมาให้แก้ไข');
+  assertTrue_(String((await getWorkOrder(wo.woId))['Return_Reason']).indexOf('แล็บ') !== -1,
     'เหตุผลถูกบันทึกไว้ให้ผู้แจ้งเห็นว่าต้องแก้อะไร');
 
   // ผู้แจ้งแก้สายงานในใบเดิมแล้วส่งใหม่
-  var edited = withTestUser_(users.admin, function () {
-    return api_editWorkOrder(wo.woId, testWoForm_({
+  var edited = await withTestUser_(users.admin, async function () {
+    return await api_editWorkOrder(wo.woId, testWoForm_({
       'Customer_Code': wo.workOrder['Customer_Code'],
       'Location': 'จุดเก็บตัวอย่างน้ำ',
       'Assignment_Type': ASSIGNMENT.LAB,
       'Job_Description': 'ขอผลวิเคราะห์คุณภาพน้ำ'
-    }), toDate_(getWorkOrder(wo.woId)['Updated_Date']).toISOString());
+    }), toDate_((await getWorkOrder(wo.woId))['Updated_Date']).toISOString());
   });
   assertEquals_(edited.ok, true, 'ผู้แจ้งแก้สายงานในใบเดิมได้');
-  assertEquals_(getWorkOrder(wo.woId)['Route'], ROUTE.LAB, 'ใบงานย้ายไปอยู่สายแล็บแล้ว');
-  assertEquals_(getWorkOrder(wo.woId)['WO_ID'], wo.woId, 'ยังเป็นใบเดิม ไม่ได้ออกเลขใหม่');
+  assertEquals_((await getWorkOrder(wo.woId))['Route'], ROUTE.LAB, 'ใบงานย้ายไปอยู่สายแล็บแล้ว');
+  assertEquals_((await getWorkOrder(wo.woId))['WO_ID'], wo.woId, 'ยังเป็นใบเดิม ไม่ได้ออกเลขใหม่');
 
-  var resubmitted = withTestUser_(users.admin, function () {
-    return api_submitWorkOrder(wo.woId, toDate_(getWorkOrder(wo.woId)['Updated_Date']).toISOString());
+  var resubmitted = await withTestUser_(users.admin, async function () {
+    return await api_submitWorkOrder(wo.woId, toDate_((await getWorkOrder(wo.woId))['Updated_Date']).toISOString());
   });
   assertEquals_(resubmitted.ok, true, 'ส่งขออนุมัติใหม่ได้');
 
   // ใบงานต้องไปโผล่ที่ผู้อนุมัติสายแล็บ และหายไปจากรายการของสาย SP
-  var labList = withTestUser_(users.labApprover, function () { return api_listPendingApprovals(); });
+  var labList = await withTestUser_(users.labApprover, async function () { return await api_listPendingApprovals(); });
   assertTrue_(containsWo_(labList.data.rows, wo.woId), 'ใบงานไปโผล่ที่ผู้อนุมัติสายแล็บแล้ว');
 
-  var spList = withTestUser_(users.approver, function () { return api_listPendingApprovals(); });
+  var spList = await withTestUser_(users.approver, async function () { return await api_listPendingApprovals(); });
   assertTrue_(!containsWo_(spList.data.rows, wo.woId),
     'และต้องไม่อยู่ในรายการของผู้อนุมัติสาย SP อีก');
 
   // ผู้อนุมัติสายแล็บอนุมัติต่อได้
-  var approved = withTestUser_(users.labApprover, function () {
-    return api_approveWorkOrder(wo.woId, ASSIGNMENT.LAB, {});
+  var approved = await withTestUser_(users.labApprover, async function () {
+    return await api_approveWorkOrder(wo.woId, ASSIGNMENT.LAB, {});
   });
   assertEquals_(approved.ok, true, 'ผู้อนุมัติสายแล็บอนุมัติใบที่แก้สายมาแล้วได้');
-  assertEquals_(auditCount_(wo.woId, ENTITY.WO, ACTION.RETURN), 1,
+  assertEquals_(await auditCount_(wo.woId, ENTITY.WO, ACTION.RETURN), 1,
     'การตีกลับถูกบันทึกไว้ในประวัติ ทำให้ย้อนดูได้ว่าเลือกสายผิดบ่อยแค่ไหน');
 
   return endTest_();
@@ -5897,7 +5902,7 @@ function test_permission_fixWrongRoute() {
 /**
  * ระบบไม่มีกลไกส่งต่อข้ามสายแล้ว — ต้องไม่เหลือร่องรอยไว้ให้เรียกได้อีก (SPEC 3)
  */
-function test_permission_noRerouteLeft() {
+async function test_permission_noRerouteLeft() {
   beginTest_('ไม่มีกลไกส่งต่อข้ามสายเหลืออยู่ — SPEC 3');
 
   var scope = (typeof globalThis !== 'undefined') ? globalThis : this;
@@ -5912,12 +5917,12 @@ function test_permission_noRerouteLeft() {
   }
 
   var users = serviceTestUsers_();
-  var wo = createTestWo_(users, { 'Assignment_Type': ASSIGNMENT.SERVICE, 'Location': 'จุดที่ลองส่งต่อ' });
+  var wo = await createTestWo_(users, { 'Assignment_Type': ASSIGNMENT.SERVICE, 'Location': 'จุดที่ลองส่งต่อ' });
 
-  assertThrows_(function () {
-    changeStatus(ENTITY.WO, wo.woId, 'REROUTE', users.approver, { reason: 'ลองส่งต่อ', targetRoute: ROUTE.LAB });
+  await assertThrows_(async function () {
+    await changeStatus(ENTITY.WO, wo.woId, 'REROUTE', users.approver, { reason: 'ลองส่งต่อ', targetRoute: ROUTE.LAB });
   }, 'ต่อให้ยิง Action ส่งต่อเข้ามาตรง ๆ ระบบก็ต้องปฏิเสธ');
-  assertEquals_(getWorkOrder(wo.woId)['Route'], ROUTE.SP, 'สายงานของใบงานต้องไม่ถูกเปลี่ยน');
+  assertEquals_((await getWorkOrder(wo.woId))['Route'], ROUTE.SP, 'สายงานของใบงานต้องไม่ถูกเปลี่ยน');
 
   return endTest_();
 }
@@ -5949,14 +5954,14 @@ function test_timezone() {
  * ข้อนี้สำคัญที่สุดในกลุ่ม เพราะเป็นข้อเดียวที่จับการเลื่อนโซนเวลาได้
  * ถ้าที่ไหนสักแห่งเผลอใช้ toISOString() เวลา 09:00 จะกลายเป็น 02:00 ทันที
  */
-function test_service_appointmentTime() {
+async function test_service_appointmentTime() {
   beginTest_('เวลานัดหมายต้องไม่เลื่อนชั่วโมง — กฎข้อ 18');
 
   var users = serviceTestUsers_();
 
   /* ---------- 1) บันทึก 09:00 แล้วต้องอ่านกลับได้ 09:00 ---------- */
   // ใบนี้ถูกแก้ไขระหว่างทาง จึงต้องอยู่ในสถานะถูกตีกลับ (SPEC 5)
-  var wo = returnedTestWo_(users, {
+  var wo = await returnedTestWo_(users, {
     'Location': 'จุดทดสอบเวลานัดหมาย',
     'Start_Date': '2026-10-15T09:00',
     'End_Date': '2026-10-15T17:30'
@@ -5969,7 +5974,7 @@ function test_service_appointmentTime() {
    * มันจริงทั้งตอนค่าถูกและตอนค่าเพี้ยน เพราะ 09:00 กับ 02:00 ต่างก็เป็น Date
    * ทั้งคู่ · สัญญาใหม่ตรวจค่าจริง จึงแน่นกว่าเดิมมาก
    */
-  var stored = getWorkOrder(wo.woId)['Start_Date'];
+  var stored = (await getWorkOrder(wo.woId))['Start_Date'];
   assertEquals_(typeof stored, 'string', 'เวลานัดหมายต้องเป็นข้อความ ไม่ใช่วัตถุ Date');
   assertTrue_(!(stored instanceof Date), 'และต้องไม่ใช่ Date — ชนิดที่ผิดคือจุดเริ่มของการเลื่อนโซนเวลา');
   assertEquals_(stored.indexOf('Z'), -1, 'ต้องไม่มีตัว Z ต่อท้าย ซึ่งแปลว่าเวลา UTC');
@@ -5982,9 +5987,9 @@ function test_service_appointmentTime() {
    */
   var edges = ['2026-09-30T23:30', '2026-10-01T00:30'];
   for (var e = 0; e < edges.length; e++) {
-    var edgeWo = returnedTestWo_(users, { 'Location': 'จุดทดสอบขอบเดือน ' + e,
+    var edgeWo = await returnedTestWo_(users, { 'Location': 'จุดทดสอบขอบเดือน ' + e,
       'Start_Date': edges[e], 'End_Date': edges[e] });
-    var readBack = getWorkOrder(edgeWo.woId);
+    var readBack = await getWorkOrder(edgeWo.woId);
     assertEquals_(readBack['Start_Date'], edges[e],
       'เวลา ' + edges[e] + ' ต้องอ่านกลับมาได้เหมือนเดิมตัวต่อตัว');
     assertEquals_(readBack['End_Date'], edges[e], 'และช่องออกงานก็ต้องเหมือนกัน');
@@ -6002,7 +6007,7 @@ function test_service_appointmentTime() {
     'เวลาที่เก็บต้องเป็นสตริงเดิมตัวต่อตัว ทั้งวัน ชั่วโมง และนาที');
 
   // เส้นทางจริงที่หน้าเว็บใช้ ต้องได้ข้อความเดิมกลับไปเป๊ะ ๆ
-  var sent = jsonSafe_(getWorkOrder(wo.woId));
+  var sent = jsonSafe_(await getWorkOrder(wo.woId));
   assertEquals_(sent['Start_Date'], '2026-10-15T09:00',
     'ค่าที่ส่งกลับหน้าเว็บต้องเป็น 09:00 ตามที่กรอก ไม่ใช่เวลา UTC');
   assertEquals_(sent['End_Date'], '2026-10-15T17:30', 'กำหนดออกงานก็ต้องไม่เลื่อนเช่นกัน');
@@ -6015,68 +6020,68 @@ function test_service_appointmentTime() {
     'เวลาที่เครื่องบันทึกยังเป็น ISO เต็มรูปแบบ ไม่ถูกตัดเป็นเวลานัดหมาย');
 
   // แก้ไขแล้วส่งค่าเดิมกลับไป ต้องยังเป็นเวลาเดิม (เส้นทางไป-กลับครบวง)
-  editWorkOrder(wo.woId, testWoForm_({
+  await editWorkOrder(wo.woId, testWoForm_({
     'Customer_Code': wo.workOrder['Customer_Code'],
     'Location': 'จุดทดสอบเวลานัดหมาย',
     'Start_Date': sent['Start_Date'],
     'End_Date': sent['End_Date']
   }), users.admin);
-  assertEquals_(jsonSafe_(getWorkOrder(wo.woId))['Start_Date'], '2026-10-15T09:00',
+  assertEquals_(jsonSafe_(await getWorkOrder(wo.woId))['Start_Date'], '2026-10-15T09:00',
     'ส่งค่าที่ได้รับกลับไปบันทึกซ้ำ เวลาต้องยังเท่าเดิม ไม่สะสมความคลาดเคลื่อน');
 
   /* ---------- 2) เว้นว่างทั้งสองช่องต้องบันทึกผ่าน ---------- */
-  var blank = createTestWo_(users, {
+  var blank = await createTestWo_(users, {
     'Location': 'จุดที่ยังไม่นัดเวลา', 'Start_Date': '', 'End_Date': ''
   });
   assertEquals_(blank.workOrder['Overall_Status'], WO_STATUS.PENDING_APPROVE,
     'เว้นกำหนดการว่างทั้งคู่ เปิดใบงานได้ตามปกติ เพราะไม่ใช่ช่องบังคับ');
-  assertEquals_(jsonSafe_(getWorkOrder(blank.woId))['Start_Date'], '',
+  assertEquals_(jsonSafe_(await getWorkOrder(blank.woId))['Start_Date'], '',
     'ช่องที่เว้นว่างต้องส่งกลับเป็นค่าว่าง ไม่ใช่วันที่มั่ว ๆ');
 
   // กรอกมาช่องเดียวก็ได้ ยังไม่ถือว่าผิด
-  var onlyStart = createTestWo_(users, {
+  var onlyStart = await createTestWo_(users, {
     'Location': 'จุดที่นัดแต่วันเข้า', 'Start_Date': '2026-10-20T08:30', 'End_Date': ''
   });
-  assertEquals_(jsonSafe_(getWorkOrder(onlyStart.woId))['Start_Date'], '2026-10-20T08:30',
+  assertEquals_(jsonSafe_(await getWorkOrder(onlyStart.woId))['Start_Date'], '2026-10-20T08:30',
     'กรอกเฉพาะกำหนดเข้างานก็บันทึกได้');
 
   /* ---------- 3) กำหนดออกงานมาก่อนกำหนดเข้างาน ต้องถูกปฏิเสธที่ฝั่งเซิร์ฟเวอร์ ---------- */
-  var before = listWorkOrders().length;
-  assertThrowsMessage_(function () {
-    createWorkOrder(testWoForm_({
+  var before = (await listWorkOrders()).length;
+  await assertThrowsMessage_(async function () {
+    await createWorkOrder(testWoForm_({
       'Location': 'จุดที่เวลาสลับกัน',
       'Start_Date': '2026-10-15T17:00',
       'End_Date': '2026-10-15T09:00'
     }), users.admin, { woIdPrefix: testWoPrefix_() });
   }, 'กำหนดออกงานอยู่ก่อนกำหนดเข้างาน', 'กำหนดออกงานมาก่อนกำหนดเข้างาน ต้องถูกปฏิเสธ');
-  assertEquals_(listWorkOrders().length, before, 'และต้องไม่มีแถวใดถูกเขียนลงชีตเลย');
+  assertEquals_((await listWorkOrders()).length, before, 'และต้องไม่มีแถวใดถูกเขียนลงชีตเลย');
 
   // วันเดียวกันแต่คนละนาที ก็ต้องจับได้
-  assertThrows_(function () {
-    createWorkOrder(testWoForm_({
+  await assertThrows_(async function () {
+    await createWorkOrder(testWoForm_({
       'Location': 'จุดที่ต่างกันนาทีเดียว',
       'Start_Date': '2026-10-15T09:01', 'End_Date': '2026-10-15T09:00'
     }), users.admin, { woIdPrefix: testWoPrefix_() });
   }, 'ต่างกันแค่นาทีเดียวก็ต้องถูกปฏิเสธ');
 
   // เวลาเท่ากันพอดี ถือว่าผ่าน เพราะงานที่เริ่มและจบเวลาเดียวกันเป็นไปได้
-  var sameTime = createTestWo_(users, {
+  var sameTime = await createTestWo_(users, {
     'Location': 'จุดที่เข้าและออกเวลาเดียวกัน',
     'Start_Date': '2026-10-15T09:00', 'End_Date': '2026-10-15T09:00'
   });
-  assertEquals_(jsonSafe_(getWorkOrder(sameTime.woId))['End_Date'], '2026-10-15T09:00',
+  assertEquals_(jsonSafe_(await getWorkOrder(sameTime.woId))['End_Date'], '2026-10-15T09:00',
     'เข้างานและออกงานเวลาเดียวกัน บันทึกได้');
 
   // แก้ไขก็ต้องตรวจเหมือนกัน และต้องไม่เขียนอะไรลงไปเมื่อไม่ผ่าน
-  var beforeEdit = jsonSafe_(getWorkOrder(wo.woId))['Start_Date'];
-  assertThrows_(function () {
-    editWorkOrder(wo.woId, testWoForm_({
+  var beforeEdit = jsonSafe_(await getWorkOrder(wo.woId))['Start_Date'];
+  await assertThrows_(async function () {
+    await editWorkOrder(wo.woId, testWoForm_({
       'Customer_Code': wo.workOrder['Customer_Code'],
       'Location': 'จุดทดสอบเวลานัดหมาย',
       'Start_Date': '2026-11-01T10:00', 'End_Date': '2026-10-01T10:00'
     }), users.admin);
   }, 'แก้ไขโดยสลับเวลาก็ต้องถูกปฏิเสธ');
-  assertEquals_(jsonSafe_(getWorkOrder(wo.woId))['Start_Date'], beforeEdit,
+  assertEquals_(jsonSafe_(await getWorkOrder(wo.woId))['Start_Date'], beforeEdit,
     'ข้อมูลเดิมต้องไม่ถูกแก้เมื่อรายการถูกปฏิเสธ');
 
   return endTest_();
@@ -6092,37 +6097,37 @@ function test_service_appointmentTime() {
  *
  * เทสต์นี้ปลอมให้ getActiveUser() คืนค่าว่าง แล้วยิงทุก api_ ที่เปลี่ยนข้อมูล
  */
-function test_permission_anonymousIsRejected() {
+async function test_permission_anonymousIsRejected() {
   beginTest_('ระบุตัวตนไม่ได้ ต้องปฏิเสธทุกคำสั่งที่เปลี่ยนข้อมูล — กฎข้อ 16');
 
   var users = serviceTestUsers_();
-  var wo = approvedTestWo_(users, ASSIGNMENT.SERVICE, { 'Location': 'จุดทดสอบผู้ใช้นิรนาม' });
+  var wo = await approvedTestWo_(users, ASSIGNMENT.SERVICE, { 'Location': 'จุดทดสอบผู้ใช้นิรนาม' });
   var taskId = wo.taskOf(DEPT.SERVICE);
   var form = testWoForm_({ 'Location': 'จุดที่ผู้ใช้นิรนามพยายามสร้าง' });
 
-  var before = countAllRows_();
+  var before = await countAllRows_();
 
   /*
    * ทุก api_ ที่เปลี่ยนข้อมูล ต้องถูกปฏิเสธทั้งหมดเมื่อระบุตัวตนไม่ได้
    * ไม่ใช่แค่ตัวที่ตรวจ Role เพราะตัวที่ไม่ได้ตรวจ Role ก็ยังเขียนข้อมูลได้อยู่ดี
    */
   var calls = [
-    { name: 'สร้างใบงาน',        run: function () { return api_createWorkOrder(form); } },
-    { name: 'แก้ไขใบงาน',        run: function () { return api_editWorkOrder(wo.woId, form, null); } },
-    { name: 'ส่งขออนุมัติ',      run: function () { return api_submitWorkOrder(wo.woId, null); } },
-    { name: 'อนุมัติใบงาน',      run: function () { return api_approveWorkOrder(wo.woId, ASSIGNMENT.SERVICE, {}); } },
-    { name: 'ตีกลับใบงาน',       run: function () { return api_returnWorkOrder(wo.woId, 'เหตุผล', null); } },
-    { name: 'ยกเลิกใบงาน',       run: function () { return api_cancelWorkOrder(wo.woId, 'เหตุผล', null); } },
-    { name: 'เปิดงานใหม่',       run: function () { return api_reopenWorkOrder(wo.woId, 'เหตุผล', DEPT.SERVICE, {}); } },
-    { name: 'รับงานของแผนก',     run: function () { return api_acceptTask(taskId); } },
-    { name: 'บันทึกความคืบหน้า', run: function () { return api_updateTaskStep('any-step', { 'Status': STEP_STATUS.COMPLETED }); } },
-    { name: 'ปิดงานของแผนก',     run: function () { return api_completeTask(taskId); } },
-    { name: 'ตีกลับผ่านงานแผนก', run: function () { return api_returnTask(taskId, 'เหตุผล'); } },
-    { name: 'ยกเลิกงานของแผนก',  run: function () { return api_cancelTask(taskId, 'เหตุผล'); } },
-    { name: 'บันทึกรับชำระเงิน', run: function () { return api_recordPayment(wo.woId, 'หมายเหตุ'); } }
+    { name: 'สร้างใบงาน',        run: async function () { return await api_createWorkOrder(form); } },
+    { name: 'แก้ไขใบงาน',        run: async function () { return await api_editWorkOrder(wo.woId, form, null); } },
+    { name: 'ส่งขออนุมัติ',      run: async function () { return await api_submitWorkOrder(wo.woId, null); } },
+    { name: 'อนุมัติใบงาน',      run: async function () { return await api_approveWorkOrder(wo.woId, ASSIGNMENT.SERVICE, {}); } },
+    { name: 'ตีกลับใบงาน',       run: async function () { return await api_returnWorkOrder(wo.woId, 'เหตุผล', null); } },
+    { name: 'ยกเลิกใบงาน',       run: async function () { return await api_cancelWorkOrder(wo.woId, 'เหตุผล', null); } },
+    { name: 'เปิดงานใหม่',       run: async function () { return await api_reopenWorkOrder(wo.woId, 'เหตุผล', DEPT.SERVICE, {}); } },
+    { name: 'รับงานของแผนก',     run: async function () { return await api_acceptTask(taskId); } },
+    { name: 'บันทึกความคืบหน้า', run: async function () { return await api_updateTaskStep('any-step', { 'Status': STEP_STATUS.COMPLETED }); } },
+    { name: 'ปิดงานของแผนก',     run: async function () { return await api_completeTask(taskId); } },
+    { name: 'ตีกลับผ่านงานแผนก', run: async function () { return await api_returnTask(taskId, 'เหตุผล'); } },
+    { name: 'ยกเลิกงานของแผนก',  run: async function () { return await api_cancelTask(taskId, 'เหตุผล'); } },
+    { name: 'บันทึกรับชำระเงิน', run: async function () { return await api_recordPayment(wo.woId, 'หมายเหตุ'); } }
   ];
 
-  withAnonymousUser_(function () {
+  await withAnonymousUser_(function () {
     for (var i = 0; i < calls.length; i++) {
       var result = calls[i].run();
       assertEquals_(result.ok, false, 'ผู้ใช้ที่ระบุตัวตนไม่ได้ ต้อง' + calls[i].name + 'ไม่ได้');
@@ -6132,7 +6137,7 @@ function test_permission_anonymousIsRejected() {
   });
 
   // ข้อสำคัญที่สุด: ต้องไม่มีแถวใดถูกเขียนลงชีตเลยแม้แต่แถวเดียว
-  var after = countAllRows_();
+  var after = await countAllRows_();
   assertEquals_(after.total, before.total,
     'ผู้ใช้ที่ระบุตัวตนไม่ได้ ต้องไม่ทำให้มีแถวใหม่ในชีตแม้แต่แถวเดียว');
   for (var sheet in before.perSheet) {
@@ -6142,23 +6147,23 @@ function test_permission_anonymousIsRejected() {
   }
 
   // และสถานะของข้อมูลเดิมต้องไม่ขยับ
-  assertEquals_(getWorkOrder(wo.woId)['Overall_Status'], WO_STATUS.APPROVED,
+  assertEquals_((await getWorkOrder(wo.woId))['Overall_Status'], WO_STATUS.APPROVED,
     'สถานะใบงานเดิมต้องไม่ถูกเปลี่ยน');
-  assertEquals_(getTask(taskId)['Status'], TASK_STATUS.PENDING_ACCEPT,
+  assertEquals_((await getTask(taskId))['Status'], TASK_STATUS.PENDING_ACCEPT,
     'สถานะงานของแผนกต้องไม่ถูกเปลี่ยน');
-  assertEquals_(getTask(taskId)['Accepted_By'], '', 'ต้องไม่มีชื่อผู้รับงานหลุดลงชีต');
+  assertEquals_((await getTask(taskId))['Accepted_By'], '', 'ต้องไม่มีชื่อผู้รับงานหลุดลงชีต');
 
   /* ---------- ตัวระบุตัวตนต้องไม่ถอยไปใช้บัญชีอื่น ---------- */
-  withAnonymousUser_(function () {
+  await withAnonymousUser_(async function () {
     assertEquals_(currentUserEmail_(), '',
       'อ่าน getActiveUser ไม่ได้ ต้องคืนค่าว่าง ห้ามถอยไปใช้ getEffectiveUser');
-    assertThrowsMessage_(function () { getCurrentUser_(); }, NEED_LOGIN_MESSAGE,
+    await assertThrowsMessage_(async function () { await getCurrentUser_(); }, NEED_LOGIN_MESSAGE,
       'getCurrentUser_ ต้องปฏิเสธ ไม่ใช่คืนตัวตนของบัญชีอื่น');
   });
 
   // อ่านอย่างเดียวก็ต้องถูกปฏิเสธเช่นกัน เพราะทุก api_ เรียก getCurrentUser_() ก่อนเสมอ
-  withAnonymousUser_(function () {
-    assertEquals_(api_getWorkOrder(wo.woId).ok, false,
+  await withAnonymousUser_(async function () {
+    assertEquals_((await api_getWorkOrder(wo.woId)).ok, false,
       'แม้แต่การเปิดดูใบงาน ก็ต้องระบุตัวตนได้ก่อน');
   });
 
@@ -6174,13 +6179,13 @@ function test_permission_anonymousIsRejected() {
  * @param {function()} fn สิ่งที่ต้องการรันในสภาพนั้น
  * @return {*} ค่าที่ fn คืนมา
  */
-function withAnonymousUser_(fn) {
+async function withAnonymousUser_(fn) {
   var original = Session.getActiveUser;
   Session.getActiveUser = function () {
     return { getEmail: function () { return ''; } };
   };
   try {
-    return fn();
+    return await fn();
   } finally {
     Session.getActiveUser = original;
   }
@@ -6190,7 +6195,7 @@ function withAnonymousUser_(fn) {
  * นับจำนวนแถวของทุกแท็บที่ระบบเขียนได้ ใช้ยืนยันว่า "ไม่มีอะไรถูกเขียนลงชีตเลย"
  * @return {Object} {total, perSheet}
  */
-function countAllRows_() {
+async function countAllRows_() {
   var sheets = [SHEET.WORK_ORDER, SHEET.DEPARTMENT_TASK, SHEET.TASK_STEP,
     SHEET.PROJECT_LOCATION, SHEET.COUNTER, SHEET.AUDIT_LOG];
   var perSheet = {};
@@ -6199,7 +6204,7 @@ function countAllRows_() {
   for (var i = 0; i < sheets.length; i++) {
     var count = 0;
     try {
-      count = readAll_(sheets[i]).length;
+      count = (await readAll_(sheets[i])).length;
     } catch (e) {
       count = -1;   // อ่านไม่ได้ก็บันทึกไว้แบบนั้น จะได้เทียบก่อน–หลังได้เหมือนกัน
     }
@@ -6215,7 +6220,7 @@ function countAllRows_() {
  * สคริปต์ทำงานด้วยสิทธิ์ของคนที่เปิด คนที่ยังไม่ได้รับแชร์ชีตจะเจอข้อความดิบจาก Google
  * ซึ่งเป็นภาษาอังกฤษและมักมีรหัสไฟล์ติดมาด้วย
  */
-function test_permission_accessDeniedMessage() {
+async function test_permission_accessDeniedMessage() {
   beginTest_('ข้อความตอนไม่มีสิทธิ์เข้าถึงข้อมูล');
 
   // ประกอบชื่อบริการตอนรัน เหตุผลเดียวกับ driveAppName_() คือกันตัวสแกนฟ้องไฟล์เทสต์เอง
@@ -6327,7 +6332,7 @@ function test_permission_accessDeniedMessage() {
   /* ---------- ตัวตรวจสิทธิ์ต้องมีอยู่จริงและรายงานครบทุกสิทธิ์ที่ประกาศ ---------- */
   assertEquals_(typeof checkPermissions, 'function',
     'ต้องมีเครื่องมือให้ผู้ดูแลกดรันเพื่อดูว่าสิทธิ์ครบหรือยัง');
-  var report = String(checkPermissions());
+  var report = String(await checkPermissions());
   var scopes = requiredOAuthScopes_();
   for (var c = 0; c < scopes.length; c++) {
     var shortName = scopes[c].split('/').pop();
@@ -6336,8 +6341,8 @@ function test_permission_accessDeniedMessage() {
   }
 
   /* ---------- ชั้น API ต้องใช้ตัวแปลงนี้จริง ---------- */
-  var denied = withTestUser_(users_(), function () {
-    return api_createWorkOrder(testWoForm_({ 'Customer_Code': '' }));
+  var denied = await withTestUser_(users_(), async function () {
+    return await api_createWorkOrder(testWoForm_({ 'Customer_Code': '' }));
   });
   assertEquals_(denied.ok, false, 'ฟอร์มที่ขาดรหัสลูกค้าถูกปฏิเสธตามปกติ');
   assertTrue_(String(denied.message).indexOf('รหัสลูกค้า') !== -1,
@@ -6375,10 +6380,10 @@ function postEvent_(payload) {
  * @param {Object} payload สิ่งที่หน้าบ้านส่งมา
  * @return {Object}
  */
-function callDoPost_(payload) {
+async function callDoPost_(payload) {
   // ชนิดคำขอเป็น api เว้นแต่ข้อทดสอบจะระบุมาเอง เพราะเกือบทุกข้อทดสอบรายการปกติ
   if (!Object.prototype.hasOwnProperty.call(payload, 'mode')) payload.mode = GATEWAY_MODE.API;
-  return JSON.parse(doPost(postEvent_(payload)).getContent());
+  return JSON.parse((await doPost(postEvent_(payload))).getContent());
 }
 
 /**
@@ -6393,9 +6398,9 @@ function callDoPost_(payload) {
  * @param {string} department แผนก
  * @return {string} อีเมลที่เพิ่มเข้าไป
  */
-function addTestUserRow_(suffix, role, department) {
+async function addTestUserRow_(suffix, role, department) {
   var email = testPrefix_() + suffix + '@cnr.co.th';
-  appendRow_(SHEET.USER_ROLE, {
+  await appendRow_(SHEET.USER_ROLE, {
     'Email': email,
     'Display_Name': 'ผู้ใช้ทดสอบ ' + suffix,
     'Role': role,
@@ -6411,7 +6416,7 @@ function addTestUserRow_(suffix, role, department) {
  * ถ้าเพิ่มฟังก์ชันใหม่แล้วลืมลงทะเบียน หน้าเว็บจะเรียกไม่ได้โดยไม่มีใครรู้จนกว่าจะมีคนกดใช้
  * และถ้าลงทะเบียนชื่อที่ไม่มีฟังก์ชันจริง จะพังตอนมีคนเรียกเท่านั้น
  */
-function test_permission_gatewayActionRegistry() {
+async function test_permission_gatewayActionRegistry() {
   beginTest_('ทะเบียนรายการที่เรียกได้ต้องครบและตรง');
 
   var registry = apiActions_();
@@ -6450,7 +6455,7 @@ function test_permission_gatewayActionRegistry() {
   var forbidden = ['getDb_', 'apiActions_', 'updateRow_', 'doGet', 'login', 'resetPassword',
     'createFirstAdmin', 'listCustomers', 'constructor', 'toString', ''];
   for (var f = 0; f < forbidden.length; f++) {
-    var blocked = api_call(forbidden[f], [], 'โทเคนอะไรก็ได้');
+    var blocked = await api_call(forbidden[f], [], 'โทเคนอะไรก็ได้');
     assertEquals_(blocked.ok, false, 'เรียก "' + forbidden[f] + '" ผ่านทางเข้าไม่ได้');
     assertTrue_(String(blocked.message).indexOf('ไม่รู้จักรายการที่เรียก') !== -1,
       'และต้องตอบว่าไม่รู้จักรายการ ไม่ใช่ไปเรียกฟังก์ชันนั้นจริง');
@@ -6549,12 +6554,12 @@ function gatewaySource_() {
 /**
  * เมนูแสดงครบทุกรายการเสมอ และธงสิทธิ์ต้องตรงกับ Role ของผู้ใช้ (SPEC 17.2 · 17.3)
  */
-function test_permission_menuVisibility() {
+async function test_permission_menuVisibility() {
   beginTest_('เมนูแสดงครบเสมอ ธงสิทธิ์ตรงตาม Role — SPEC 17.3');
 
   var users = serviceTestUsers_();
 
-  var menu = withTestUser_(users.admin, function () { return api_getMenu(); });
+  var menu = await withTestUser_(users.admin, async function () { return await api_getMenu(); });
   assertEquals_(menu.ok, true, 'ทุกคนที่ระบุตัวตนได้ต้องเปิดเมนูได้');
   assertEquals_(menu.data.menu.length, MENU_ITEMS.length, 'เมนูมีครบทุกรายการ');
 
@@ -6584,7 +6589,7 @@ function test_permission_menuVisibility() {
   ];
 
   for (var e = 0; e < everyone.length; e++) {
-    var result = withTestUser_(everyone[e].who, function () { return api_getMenu(); });
+    var result = await withTestUser_(everyone[e].who, async function () { return await api_getMenu(); });
     assertEquals_(result.data.menu.length, MENU_ITEMS.length,
       'ผู้ใช้ทุกคนเห็นเมนูครบทุกรายการ ไม่ซ่อนตาม Role');
 
@@ -6613,9 +6618,9 @@ function test_permission_menuVisibility() {
   assertEquals_(pe.dept, DEPT.PROJECT, 'PE ส่งพารามิเตอร์บอกแผนก Project');
 
   // คนที่ Role ตรงแต่สังกัดคนละแผนก ต้องไม่ถือว่ามีสิทธิ์ในเมนูของอีกแผนก
-  var crossed = withTestUser_(
+  var crossed = await withTestUser_(
     { email: 'x@cnr.co.th', roles: [ROLE.SERVICE], department: DEPT.PROJECT },
-    function () { return api_getMenu(); });
+    async function () { return await api_getMenu(); });
   var crossedKeys = [];
   for (var c = 0; c < crossed.data.menu.length; c++) {
     if (crossed.data.menu[c].allowed) crossedKeys.push(crossed.data.menu[c].key);
@@ -6639,23 +6644,23 @@ function test_permission_menuVisibility() {
  * ข้อนี้สำคัญที่สุดของงานรอบนี้ เพราะการทำให้ปุ่มกดได้ทุกปุ่มคือการเพิ่มโอกาส
  * ที่คนไม่มีสิทธิ์จะยิงเข้ามาจริง ถ้าด่านที่ชั้น API หย่อนตาม ระบบจะเปิดทันที
  */
-function test_permission_menuDoesNotWeakenApi() {
+async function test_permission_menuDoesNotWeakenApi() {
   beginTest_('เมนูกดได้ทุกปุ่ม แต่ชั้น API ยังปฏิเสธเหมือนเดิม — SPEC 17.3');
 
   var users = serviceTestUsers_();
-  var wo = approvedTestWo_(users, ASSIGNMENT.SERVICE, { 'Location': 'จุดทดสอบเมนู' });
+  var wo = await approvedTestWo_(users, ASSIGNMENT.SERVICE, { 'Location': 'จุดทดสอบเมนู' });
   var taskId = wo.taskOf(DEPT.SERVICE);
   var form = testWoForm_({ 'Location': 'จุดที่คนไม่มีสิทธิ์พยายามสร้าง' });
 
-  var rowsBefore = countAllRows_();
+  var rowsBefore = await countAllRows_();
 
   /* ---------- แผนกเปิดหน้าอนุมัติได้ แต่ทำอะไรไม่ได้ ---------- */
-  var byService = withTestUser_(users.service, function () {
+  var byService = await withTestUser_(users.service, async function () {
     return {
-      pending: api_listPendingApprovals('SP'),
-      approve: api_approveWorkOrder(wo.woId, ASSIGNMENT.SERVICE, {}),
-      ret: api_returnWorkOrder(wo.woId, 'ขอตีกลับ', null),
-      create: api_createWorkOrder(form)
+      pending: await api_listPendingApprovals('SP'),
+      approve: await api_approveWorkOrder(wo.woId, ASSIGNMENT.SERVICE, {}),
+      ret: await api_returnWorkOrder(wo.woId, 'ขอตีกลับ', null),
+      create: await api_createWorkOrder(form)
     };
   });
   assertEquals_(byService.pending.ok, true, 'เปิดหน้ารายการรออนุมัติได้ ไม่ error');
@@ -6665,12 +6670,12 @@ function test_permission_menuDoesNotWeakenApi() {
   assertEquals_(byService.create.ok, false, 'แผนกสร้างใบงานไม่ได้');
 
   /* ---------- ผู้อนุมัติเปิดหน้าแผนกได้ แต่ทำงานของแผนกไม่ได้ ---------- */
-  var byApprover = withTestUser_(users.approver, function () {
+  var byApprover = await withTestUser_(users.approver, async function () {
     return {
-      tasks: api_listMyTasks(),
-      accept: api_acceptTask(taskId),
-      complete: api_completeTask(taskId),
-      ret: api_returnTask(taskId, 'ขอตีกลับ')
+      tasks: await api_listMyTasks(),
+      accept: await api_acceptTask(taskId),
+      complete: await api_completeTask(taskId),
+      ret: await api_returnTask(taskId, 'ขอตีกลับ')
     };
   });
   assertEquals_(byApprover.tasks.ok, true, 'เปิดหน้างานของแผนกได้ ไม่ error');
@@ -6680,21 +6685,21 @@ function test_permission_menuDoesNotWeakenApi() {
   assertEquals_(byApprover.ret.ok, false, 'ผู้อนุมัติตีกลับผ่านงานของแผนกไม่ได้');
 
   /* ---------- ธุรการเปิดได้ทุกหน้า แต่ทำได้เฉพาะของตัวเอง ---------- */
-  var byAdmin = withTestUser_(users.admin, function () {
-    return { accept: api_acceptTask(taskId), approve: api_approveWorkOrder(wo.woId, ASSIGNMENT.SERVICE, {}) };
+  var byAdmin = await withTestUser_(users.admin, async function () {
+    return { accept: await api_acceptTask(taskId), approve: await api_approveWorkOrder(wo.woId, ASSIGNMENT.SERVICE, {}) };
   });
   assertEquals_(byAdmin.accept.ok, false, 'ธุรการกดรับงานแทนแผนกไม่ได้');
   assertEquals_(byAdmin.approve.ok, false, 'ธุรการอนุมัติใบงานเองไม่ได้');
 
   /* ---------- คนที่ไม่มี Role เลย เปิดเมนูได้ แต่ทำอะไรไม่ได้สักอย่าง ---------- */
   var nobody = { email: 'nobody@cnr.co.th', roles: [] };
-  var byNobody = withTestUser_(nobody, function () {
+  var byNobody = await withTestUser_(nobody, async function () {
     return {
-      menu: api_getMenu(),
-      create: api_createWorkOrder(form),
-      approve: api_approveWorkOrder(wo.woId, ASSIGNMENT.SERVICE, {}),
-      accept: api_acceptTask(taskId),
-      pay: api_recordPayment(wo.woId, 'จ่ายแล้ว')
+      menu: await api_getMenu(),
+      create: await api_createWorkOrder(form),
+      approve: await api_approveWorkOrder(wo.woId, ASSIGNMENT.SERVICE, {}),
+      accept: await api_acceptTask(taskId),
+      pay: await api_recordPayment(wo.woId, 'จ่ายแล้ว')
     };
   });
   assertEquals_(byNobody.menu.ok, true, 'คนที่ยังไม่มีสิทธิ์ ต้องเปิดเมนูได้ ไม่งั้นจะไม่รู้ว่าต้องขออะไร');
@@ -6704,12 +6709,12 @@ function test_permission_menuDoesNotWeakenApi() {
   assertEquals_(byNobody.pay.ok, false, 'บันทึกรับชำระไม่ได้');
 
   // และต้องไม่มีแถวใดถูกเขียนลงชีตจากความพยายามทั้งหมดข้างบน
-  var rowsAfter = countAllRows_();
+  var rowsAfter = await countAllRows_();
   assertEquals_(rowsAfter.perSheet[SHEET.WORK_ORDER], rowsBefore.perSheet[SHEET.WORK_ORDER],
     'ไม่มีใบงานใหม่เกิดขึ้นจากคนที่ไม่มีสิทธิ์');
-  assertEquals_(getTask(taskId)['Status'], TASK_STATUS.PENDING_ACCEPT,
+  assertEquals_((await getTask(taskId))['Status'], TASK_STATUS.PENDING_ACCEPT,
     'สถานะงานของแผนกต้องไม่ถูกเปลี่ยน');
-  assertEquals_(getWorkOrder(wo.woId)['Payment_Status'], PAYMENT.UNPAID,
+  assertEquals_((await getWorkOrder(wo.woId))['Payment_Status'], PAYMENT.UNPAID,
     'สถานะการชำระต้องไม่ถูกเปลี่ยน');
 
   return endTest_();
@@ -6721,47 +6726,47 @@ function test_permission_menuDoesNotWeakenApi() {
  * กรองที่เซิร์ฟเวอร์ ไม่ใช่ให้หน้าเว็บซ่อนเอง เพราะการส่งใบงานสายอื่นไปถึงเบราว์เซอร์
  * แล้วค่อยซ่อน แปลว่าข้อมูลนั้นออกจากเซิร์ฟเวอร์ไปแล้ว
  */
-function test_permission_approveRouteSeparation() {
+async function test_permission_approveRouteSeparation() {
   beginTest_('หน้าอนุมัติสองสายต้องไม่ปนกัน — SPEC 17.2');
 
   var users = serviceTestUsers_();
-  var spWo = createTestWo_(users, { 'Assignment_Type': ASSIGNMENT.SERVICE, 'Location': 'จุดสาย SP' });
-  var labWo = createTestWo_(users, { 'Assignment_Type': ASSIGNMENT.LAB, 'Location': 'จุดสายแล็บ' });
+  var spWo = await createTestWo_(users, { 'Assignment_Type': ASSIGNMENT.SERVICE, 'Location': 'จุดสาย SP' });
+  var labWo = await createTestWo_(users, { 'Assignment_Type': ASSIGNMENT.LAB, 'Location': 'จุดสายแล็บ' });
 
   /* ---------- คนที่เป็นผู้อนุมัติทั้งสองสาย ต้องเห็นคนละชุดในแต่ละหน้า ---------- */
   var both = { email: 'both@cnr.co.th', roles: [ROLE.APPROVER_SP, ROLE.APPROVER_LAB] };
 
-  var spPage = withTestUser_(both, function () { return api_listPendingApprovals('SP'); });
+  var spPage = await withTestUser_(both, async function () { return await api_listPendingApprovals('SP'); });
   assertTrue_(containsWo_(spPage.data.rows, spWo.woId), 'หน้าอนุมัติสาย SP เห็นใบงานสาย SP');
   assertTrue_(!containsWo_(spPage.data.rows, labWo.woId),
     'ใบงานสายแล็บต้องไม่โผล่ในหน้าอนุมัติสาย SP');
 
-  var labPage = withTestUser_(both, function () { return api_listPendingApprovals('LAB'); });
+  var labPage = await withTestUser_(both, async function () { return await api_listPendingApprovals('LAB'); });
   assertTrue_(containsWo_(labPage.data.rows, labWo.woId), 'หน้าอนุมัติ Lab เห็นใบงานสายแล็บ');
   assertTrue_(!containsWo_(labPage.data.rows, spWo.woId),
     'ใบงานสาย SP ต้องไม่โผล่ในหน้าอนุมัติ Lab เด็ดขาด');
 
   /* ---------- ขอสายที่ตัวเองไม่ได้อนุมัติ ต้องได้รายการว่าง ---------- */
-  var spOnly = withTestUser_(users.approver, function () { return api_listPendingApprovals('LAB'); });
+  var spOnly = await withTestUser_(users.approver, async function () { return await api_listPendingApprovals('LAB'); });
   assertEquals_(spOnly.data.rows.length, 0,
     'ผู้อนุมัติสาย SP ขอดูรายการสายแล็บ ต้องได้รายการว่าง');
 
-  var labOnly = withTestUser_(users.labApprover, function () { return api_listPendingApprovals('SP'); });
+  var labOnly = await withTestUser_(users.labApprover, async function () { return await api_listPendingApprovals('SP'); });
   assertEquals_(labOnly.data.rows.length, 0,
     'ผู้อนุมัติสายแล็บขอดูรายการสาย SP ต้องได้รายการว่าง');
 
   // และยังอนุมัติข้ามสายไม่ได้เหมือนเดิม
-  var crossApprove = withTestUser_(users.labApprover, function () {
-    return api_approveWorkOrder(spWo.woId, ASSIGNMENT.SERVICE, {});
+  var crossApprove = await withTestUser_(users.labApprover, async function () {
+    return await api_approveWorkOrder(spWo.woId, ASSIGNMENT.SERVICE, {});
   });
   assertEquals_(crossApprove.ok, false, 'ผู้อนุมัติสายแล็บอนุมัติใบงานสาย SP ไม่ได้');
 
   /* ---------- สาย Lab อนุมัติแล้วได้แผนก LAB เสมอ ไม่ต้องเลือก ---------- */
-  var approved = withTestUser_(users.labApprover, function () {
-    return api_approveWorkOrder(labWo.woId, ASSIGNMENT.LAB, {});
+  var approved = await withTestUser_(users.labApprover, async function () {
+    return await api_approveWorkOrder(labWo.woId, ASSIGNMENT.LAB, {});
   });
   assertEquals_(approved.ok, true, 'ผู้อนุมัติสายแล็บอนุมัติใบงานสายแล็บได้');
-  assertEquals_(getWorkOrder(labWo.woId)['Assignment_Type'], ASSIGNMENT.LAB,
+  assertEquals_((await getWorkOrder(labWo.woId))['Assignment_Type'], ASSIGNMENT.LAB,
     'ใบงานสายแล็บได้แผนก LAB เสมอ');
 
   return endTest_();
@@ -6771,130 +6776,130 @@ function test_permission_approveRouteSeparation() {
  * เมทริกซ์สิทธิ์ของทุก api_ ที่เพิ่มมาพร้อมงานของแผนก (กฎข้อ 17)
  * ทุกฟังก์ชันต้องมีทั้งเคสอนุญาตและเคสปฏิเสธคู่กัน และเคสปฏิเสธต้องพิสูจน์ว่าไม่มีอะไรถูกเขียนลงชีต
  */
-function test_permission_taskApi() {
+async function test_permission_taskApi() {
   beginTest_('สิทธิ์ของงานแผนกที่ชั้น API — กฎข้อ 7, 17');
 
   var users = serviceTestUsers_();
-  var wo = approvedTestWo_(users, ASSIGNMENT.SERVICE_PROJECT,
+  var wo = await approvedTestWo_(users, ASSIGNMENT.SERVICE_PROJECT,
     { 'Location': 'จุดทดสอบสิทธิ์งานแผนก' });
 
   var svTask = wo.taskOf(DEPT.SERVICE);
   var pjTask = wo.taskOf(DEPT.PROJECT);
 
   /* ---------- api_acceptTask ---------- */
-  var byAdmin = withTestUser_(users.admin, function () { return api_acceptTask(svTask); });
+  var byAdmin = await withTestUser_(users.admin, async function () { return await api_acceptTask(svTask); });
   assertEquals_(byAdmin.ok, false, 'ธุรการกดรับงานแทนแผนกไม่ได้');
   assertTrue_(String(byAdmin.message).indexOf('ไม่มีสิทธิ์') !== -1, 'และต้องถูกปฏิเสธด้วยเหตุผลเรื่องสิทธิ์');
 
-  var byWrongDept = withTestUser_(users.project, function () { return api_acceptTask(svTask); });
+  var byWrongDept = await withTestUser_(users.project, async function () { return await api_acceptTask(svTask); });
   assertEquals_(byWrongDept.ok, false, 'แผนก Project กดรับงานของแผนก Service ไม่ได้');
-  assertEquals_(getTask(svTask)['Status'], TASK_STATUS.PENDING_ACCEPT, 'งานยังรอรับอยู่เหมือนเดิม');
-  assertEquals_(getTask(svTask)['Accepted_By'], '', 'และไม่มีชื่อผู้รับงานหลุดลงชีต');
+  assertEquals_((await getTask(svTask))['Status'], TASK_STATUS.PENDING_ACCEPT, 'งานยังรอรับอยู่เหมือนเดิม');
+  assertEquals_((await getTask(svTask))['Accepted_By'], '', 'และไม่มีชื่อผู้รับงานหลุดลงชีต');
 
-  var byOwner = withTestUser_(users.service, function () { return api_acceptTask(svTask); });
+  var byOwner = await withTestUser_(users.service, async function () { return await api_acceptTask(svTask); });
   assertEquals_(byOwner.ok, true, 'แผนกเจ้าของงานกดรับงานของตัวเองได้');
-  assertEquals_(getTask(svTask)['Status'], TASK_STATUS.IN_PROGRESS, 'งานเปลี่ยนเป็นกำลังดำเนินการจริง');
+  assertEquals_((await getTask(svTask))['Status'], TASK_STATUS.IN_PROGRESS, 'งานเปลี่ยนเป็นกำลังดำเนินการจริง');
 
-  withTestUser_(users.project, function () { return api_acceptTask(pjTask); });
+  await withTestUser_(users.project, async function () { return await api_acceptTask(pjTask); });
 
   /* ---------- api_updateTaskStep ---------- */
-  var svStep = listStepsByTask(svTask)[0];
-  var stepDenied = withTestUser_(users.project, function () {
-    return api_updateTaskStep(svStep['Step_ID'], { 'Status': STEP_STATUS.COMPLETED });
+  var svStep = (await listStepsByTask(svTask))[0];
+  var stepDenied = await withTestUser_(users.project, async function () {
+    return await api_updateTaskStep(svStep['Step_ID'], { 'Status': STEP_STATUS.COMPLETED });
   });
   assertEquals_(stepDenied.ok, false, 'แผนกอื่นบันทึกความคืบหน้าให้งานที่ไม่ใช่ของตัวเองไม่ได้');
-  assertEquals_(getStep(svStep['Step_ID'])['Status'], svStep['Status'], 'ขั้นตอนงานต้องไม่ถูกเขียนลงชีต');
+  assertEquals_((await getStep(svStep['Step_ID']))['Status'], svStep['Status'], 'ขั้นตอนงานต้องไม่ถูกเขียนลงชีต');
 
-  var stepAllowed = withTestUser_(users.service, function () {
-    return api_updateTaskStep(svStep['Step_ID'], { 'Status': STEP_STATUS.COMPLETED });
+  var stepAllowed = await withTestUser_(users.service, async function () {
+    return await api_updateTaskStep(svStep['Step_ID'], { 'Status': STEP_STATUS.COMPLETED });
   });
   assertEquals_(stepAllowed.ok, true, 'แผนกเจ้าของงานบันทึกความคืบหน้าได้');
-  assertEquals_(getStep(svStep['Step_ID'])['Status'], STEP_STATUS.COMPLETED, 'ขั้นตอนถูกปิดจริง');
+  assertEquals_((await getStep(svStep['Step_ID']))['Status'], STEP_STATUS.COMPLETED, 'ขั้นตอนถูกปิดจริง');
 
   /* ---------- api_completeTask ---------- */
-  var closeSteps = listStepsByTask(svTask);
+  var closeSteps = await listStepsByTask(svTask);
   for (var i = 0; i < closeSteps.length; i++) {
-    withTestUser_(users.service, function () {
-      return api_updateTaskStep(closeSteps[i]['Step_ID'], { 'Status': STEP_STATUS.COMPLETED });
+    await withTestUser_(users.service, async function () {
+      return await api_updateTaskStep(closeSteps[i]['Step_ID'], { 'Status': STEP_STATUS.COMPLETED });
     });
   }
 
-  var closeDenied = withTestUser_(users.project, function () { return api_completeTask(svTask); });
+  var closeDenied = await withTestUser_(users.project, async function () { return await api_completeTask(svTask); });
   assertEquals_(closeDenied.ok, false, 'แผนก Project ปิดงานของแผนก Service ไม่ได้');
-  assertEquals_(getTask(svTask)['Status'], TASK_STATUS.IN_PROGRESS, 'งานต้องยังไม่ถูกปิด');
+  assertEquals_((await getTask(svTask))['Status'], TASK_STATUS.IN_PROGRESS, 'งานต้องยังไม่ถูกปิด');
 
-  var closeByApprover = withTestUser_(users.approver, function () { return api_completeTask(svTask); });
+  var closeByApprover = await withTestUser_(users.approver, async function () { return await api_completeTask(svTask); });
   assertEquals_(closeByApprover.ok, false, 'ผู้อนุมัติปิดงานแทนแผนกไม่ได้');
 
   /* ---------- api_returnTask ---------- */
-  var returnDenied = withTestUser_(users.approver, function () {
-    return api_returnTask(svTask, 'ขอตีกลับแทนแผนก');
+  var returnDenied = await withTestUser_(users.approver, async function () {
+    return await api_returnTask(svTask, 'ขอตีกลับแทนแผนก');
   });
   assertEquals_(returnDenied.ok, false, 'ผู้อนุมัติตีกลับผ่านงานของแผนกไม่ได้ ต้องใช้การตีกลับใบงานของตัวเอง');
-  assertEquals_(getTask(svTask)['Status_Before_Return'], '',
+  assertEquals_((await getTask(svTask))['Status_Before_Return'], '',
     'รายการที่ถูกปฏิเสธต้องไม่ทิ้งสถานะที่จำไว้ค้างในชีต');
-  assertEquals_(getWorkOrder(wo.woId)['Overall_Status'], WO_STATUS.IN_PROGRESS, 'ใบงานต้องไม่ถูกตีกลับ');
+  assertEquals_((await getWorkOrder(wo.woId))['Overall_Status'], WO_STATUS.IN_PROGRESS, 'ใบงานต้องไม่ถูกตีกลับ');
 
-  var returnWrongDept = withTestUser_(users.project, function () {
-    return api_returnTask(svTask, 'ขอตีกลับงานของแผนกอื่น');
+  var returnWrongDept = await withTestUser_(users.project, async function () {
+    return await api_returnTask(svTask, 'ขอตีกลับงานของแผนกอื่น');
   });
   assertEquals_(returnWrongDept.ok, false, 'แผนกอื่นตีกลับผ่านงานที่ไม่ใช่ของตัวเองไม่ได้');
 
-  var returnAllowed = withTestUser_(users.service, function () {
-    return api_returnTask(svTask, 'ข้อมูลหน้างานไม่ตรงกับที่แจ้ง');
+  var returnAllowed = await withTestUser_(users.service, async function () {
+    return await api_returnTask(svTask, 'ข้อมูลหน้างานไม่ตรงกับที่แจ้ง');
   });
   assertEquals_(returnAllowed.ok, true, 'แผนกเจ้าของงานตีกลับใบงานได้');
-  assertEquals_(getWorkOrder(wo.woId)['Overall_Status'], WO_STATUS.RETURNED, 'ใบงานถูกตีกลับจริง');
+  assertEquals_((await getWorkOrder(wo.woId))['Overall_Status'], WO_STATUS.RETURNED, 'ใบงานถูกตีกลับจริง');
 
   // กลับเข้าสู่การทำงานปกติเพื่อทดสอบการยกเลิกต่อ
   // ใบที่ถูกตีกลับต้องส่งขออนุมัติใหม่ก่อน จึงจะอนุมัติได้อีกครั้ง (SPEC 5, 8)
-  submitWorkOrder(wo.woId, users.admin);
-  approveWorkOrder(wo.woId, ASSIGNMENT.SERVICE_PROJECT, users.approver);
+  await submitWorkOrder(wo.woId, users.admin);
+  await approveWorkOrder(wo.woId, ASSIGNMENT.SERVICE_PROJECT, users.approver);
 
   /* ---------- api_cancelTask ---------- */
-  var cancelWrongDept = withTestUser_(users.service, function () {
-    return api_cancelTask(pjTask, 'ขอยกเลิกงานของแผนกอื่น');
+  var cancelWrongDept = await withTestUser_(users.service, async function () {
+    return await api_cancelTask(pjTask, 'ขอยกเลิกงานของแผนกอื่น');
   });
   assertEquals_(cancelWrongDept.ok, false, 'แผนก Service ยกเลิกงานของแผนก Project ไม่ได้');
-  assertEquals_(getTask(pjTask)['Cancel_Reason'], '', 'เหตุผลของรายการที่ถูกปฏิเสธต้องไม่ถูกเขียนลงชีต');
+  assertEquals_((await getTask(pjTask))['Cancel_Reason'], '', 'เหตุผลของรายการที่ถูกปฏิเสธต้องไม่ถูกเขียนลงชีต');
 
-  var cancelNoReason = withTestUser_(users.project, function () { return api_cancelTask(pjTask, ''); });
+  var cancelNoReason = await withTestUser_(users.project, async function () { return await api_cancelTask(pjTask, ''); });
   assertEquals_(cancelNoReason.ok, false, 'ยกเลิกงานโดยไม่กรอกเหตุผลไม่ได้แม้เป็นเจ้าของงาน');
 
-  var cancelByApprover = withTestUser_(users.approver, function () {
-    return api_cancelTask(pjTask, 'ยกเลิกตามคำสั่งลูกค้า');
+  var cancelByApprover = await withTestUser_(users.approver, async function () {
+    return await api_cancelTask(pjTask, 'ยกเลิกตามคำสั่งลูกค้า');
   });
   assertEquals_(cancelByApprover.ok, true, 'ผู้อนุมัติของสายนั้นยกเลิกงานของแผนกแทนได้ (SPEC 8)');
-  assertEquals_(getTask(pjTask)['Status'], TASK_STATUS.CANCELLED, 'งานของแผนก Project ถูกยกเลิกจริง');
+  assertEquals_((await getTask(pjTask))['Status'], TASK_STATUS.CANCELLED, 'งานของแผนก Project ถูกยกเลิกจริง');
 
-  var cancelByLabApprover = withTestUser_(users.labApprover, function () {
-    return api_cancelTask(svTask, 'ยกเลิกข้ามสาย');
+  var cancelByLabApprover = await withTestUser_(users.labApprover, async function () {
+    return await api_cancelTask(svTask, 'ยกเลิกข้ามสาย');
   });
   assertEquals_(cancelByLabApprover.ok, false, 'ผู้อนุมัติสายแล็บยกเลิกงานในสาย SP ไม่ได้');
-  assertEquals_(getTask(svTask)['Status'], TASK_STATUS.IN_PROGRESS, 'งานของแผนก Service ต้องไม่ถูกแตะ');
+  assertEquals_((await getTask(svTask))['Status'], TASK_STATUS.IN_PROGRESS, 'งานของแผนก Service ต้องไม่ถูกแตะ');
 
   /* ---------- api_recordPayment ---------- */
-  var payDenied = withTestUser_(users.service, function () { return api_recordPayment(wo.woId, 'จ่ายแล้ว'); });
+  var payDenied = await withTestUser_(users.service, async function () { return await api_recordPayment(wo.woId, 'จ่ายแล้ว'); });
   assertEquals_(payDenied.ok, false, 'แผนกบันทึกรับชำระเงินเองไม่ได้');
-  assertEquals_(getWorkOrder(wo.woId)['Payment_Status'], PAYMENT.UNPAID, 'สถานะการชำระต้องไม่เปลี่ยน');
+  assertEquals_((await getWorkOrder(wo.woId))['Payment_Status'], PAYMENT.UNPAID, 'สถานะการชำระต้องไม่เปลี่ยน');
 
-  var payAllowed = withTestUser_(users.admin, function () {
-    return api_recordPayment(wo.woId, 'ใบเสร็จเลขที่ RC-9999');
+  var payAllowed = await withTestUser_(users.admin, async function () {
+    return await api_recordPayment(wo.woId, 'ใบเสร็จเลขที่ RC-9999');
   });
   assertEquals_(payAllowed.ok, true, 'ธุรการบันทึกรับชำระเงินได้');
-  assertEquals_(getWorkOrder(wo.woId)['Payment_Status'], PAYMENT.PAID, 'บันทึกลงชีตจริง');
+  assertEquals_((await getWorkOrder(wo.woId))['Payment_Status'], PAYMENT.PAID, 'บันทึกลงชีตจริง');
 
   /* ---------- api_listMyTasks ---------- */
-  var svList = withTestUser_(users.service, function () { return api_listMyTasks(); });
+  var svList = await withTestUser_(users.service, async function () { return await api_listMyTasks(); });
   assertEquals_(svList.ok, true, 'แผนกเปิดรายการงานของตัวเองได้');
   assertTrue_(containsTask_(svList.data.rows, svTask), 'แผนก Service เห็นงานของตัวเอง');
   assertTrue_(!containsTask_(svList.data.rows, pjTask), 'และต้องไม่เห็นงานของแผนกอื่น');
 
-  var adminList = withTestUser_(users.admin, function () { return api_listMyTasks(); });
+  var adminList = await withTestUser_(users.admin, async function () { return await api_listMyTasks(); });
   assertEquals_(adminList.ok, true, 'ผู้ที่ไม่ได้สังกัดแผนกเปิดหน้านี้ได้โดยไม่ error');
   assertEquals_(adminList.data.rows.length, 0, 'แต่ไม่มีงานของแผนกให้ทำเลย');
 
-  var pjList = withTestUser_(users.project, function () { return api_listMyTasks(true); });
+  var pjList = await withTestUser_(users.project, async function () { return await api_listMyTasks(true); });
   assertTrue_(containsTask_(pjList.data.rows, pjTask),
     'เมื่อขอให้รวมงานที่ปิดแล้ว จะเห็นงานที่ยกเลิกไปด้วย');
 
@@ -6951,7 +6956,7 @@ function test_textColumns() {
  * และผิดเป็นจำนวนชั่วโมงที่ลงตัวพอดี จนดูเหมือนเวลาปกติของอีกกะหนึ่ง
  * เทสต์ชุดนี้จึงใช้ค่าที่รู้คำตอบแน่นอนล่วงหน้า ไม่ใช่ค่าที่คำนวณจากเวลาปัจจุบัน
  */
-function test_formatForDisplay() {
+async function test_formatForDisplay() {
   beginTest_('เวลาที่แสดงต้องเป็นเวลาไทย — กฎข้อ 19');
 
   /* ---------- 1) Date ที่รู้คำตอบแน่นอน ---------- */
@@ -7018,21 +7023,21 @@ function test_formatForDisplay() {
   /* ---------- 4) ชั้นข้อมูลต้องไม่ถูกแตะเลย ---------- */
   var users = serviceTestUsers_();
   // ใบนี้ถูกแก้ไขระหว่างทาง จึงต้องอยู่ในสถานะถูกตีกลับ (SPEC 5)
-  var wo = returnedTestWo_(users, { 'Location': 'จุดทดสอบเวลาที่แสดง' });
+  var wo = await returnedTestWo_(users, { 'Location': 'จุดทดสอบเวลาที่แสดง' });
 
-  var stored = getWorkOrder(wo.woId)['Created_Date'];
+  var stored = (await getWorkOrder(wo.woId))['Created_Date'];
   assertTrue_(stored instanceof Date,
     'ค่าที่เก็บลงชีตยังเป็น Date จริง ไม่ได้ถูกแปลงเป็นข้อความตอนแสดงผล');
   assertTrue_(typeof formatForDisplay_(stored) === 'string',
     'ส่วนค่าที่เอาไปแสดง เป็นข้อความคนละตัวกับค่าที่เก็บ');
 
   // ค่าที่ใช้เทียบ Optimistic Lock ต้องยังเป็น ISO เต็มรูปแบบพร้อมเศษมิลลิวินาที
-  var sent = jsonSafe_(getWorkOrder(wo.woId));
+  var sent = jsonSafe_(await getWorkOrder(wo.woId));
   assertTrue_(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/.test(String(sent['Updated_Date'])),
     'ค่าที่ส่งให้หน้าเว็บถือไว้ ยังเป็น ISO เต็มรูปแบบ ไม่ถูกเปลี่ยนเป็นรูปแบบที่คนอ่าน');
 
   var stamp = sent['Updated_Date'];
-  var edited = editWorkOrder(wo.woId, testWoForm_({
+  var edited = await editWorkOrder(wo.woId, testWoForm_({
     'Customer_Code': wo.workOrder['Customer_Code'],
     'Location': 'จุดทดสอบเวลาที่แสดง',
     'Remark': 'แก้ไขด้วยค่าเวลาที่ถือไว้'
@@ -7041,15 +7046,15 @@ function test_formatForDisplay() {
 
   // และค่าที่ผ่านการจัดรูปแบบเพื่อแสดงผลแล้ว ต้องใช้ทำ Optimistic Lock ไม่ได้
   // เพราะเศษมิลลิวินาทีหายไป — ถ้าวันหนึ่งมีคนเผลอส่งค่านี้มา ต้องถูกปฏิเสธ ไม่ใช่ผ่านแบบเงียบ ๆ
-  assertThrows_(function () {
-    editWorkOrder(wo.woId, testWoForm_({
+  await assertThrows_(async function () {
+    await editWorkOrder(wo.woId, testWoForm_({
       'Customer_Code': wo.workOrder['Customer_Code'],
       'Location': 'จุดทดสอบเวลาที่แสดง'
-    }), users.admin, formatForDisplay_(getWorkOrder(wo.woId)['Updated_Date']));
+    }), users.admin, formatForDisplay_((await getWorkOrder(wo.woId))['Updated_Date']));
   }, 'ค่าเวลาที่จัดรูปแบบเพื่อแสดงผลแล้ว ใช้ทำ Optimistic Lock ไม่ได้');
 
   /* ---------- 5) Audit_Log ที่คนเปิดอ่านย้อนหลัง ต้องเป็นเวลาไทยด้วย ---------- */
-  var auditRow = findAuditRow_(wo.woId, ENTITY.WO, ACTION.CREATE);
+  var auditRow = await findAuditRow_(wo.woId, ENTITY.WO, ACTION.CREATE);
   assertTrue_(auditRow['Timestamp'] instanceof Date, 'คอลัมน์เวลาของ Audit ยังเก็บเป็น Date จริง');
   assertEquals_(auditValue_(known), '12-09-2026 17:08',
     'ค่าเวลาที่ Audit เก็บเป็นข้อความ ต้องเป็นเวลาไทย');
@@ -7075,7 +7080,7 @@ function test_formatForDisplay() {
  * ตารางนี้มี 6 แถว และแต่ละแถวมีกติกาของตัวเอง ถ้าเทสต์แค่แถวเดียวจะพลาดอีก 5 แถว
  * จุดที่ผิดง่ายที่สุดคือตัวนำหน้า — ต้องเป็น SV_ID / LAB_ID ไม่ใช่ WO_ID และห้ามเป็น PJ_ID
  */
-function test_files_naming() {
+async function test_files_naming() {
   beginTest_('ตั้งชื่อไฟล์ถูกตามตารางหัวข้อ 14.1 ทุกรูปแบบ');
 
   var woId = 'WO-2609-0001';
@@ -7161,7 +7166,7 @@ function test_files_naming() {
     'ใบงานทดสอบต้องยังคง TEST- ไว้หน้าสุด เพื่อให้ test_cleanup จับได้');
 
   /* ---------- ข้อมูลไม่พอ ต้องบอกให้รู้เรื่อง ไม่ใช่ตั้งชื่อมั่ว ---------- */
-  assertThrowsMessage_(function () {
+  await assertThrowsMessage_(function () {
     fileNamePlan_({ woId: woId, scope: FILE_SCOPE.SERVICE, formNo: 'FM-SV-01', stepNo: 0,
       mimeType: 'application/pdf', fileName: 'a.pdf' });
   }, 'Step', 'Report ของ Service ที่ไม่บอกว่าเป็น Step ที่เท่าไร ต้องถูกปฏิเสธ');
@@ -7175,7 +7180,7 @@ function test_files_naming() {
  * เดินผ่านทะเบียน File_Index จริง เพราะจุดที่ต้องพิสูจน์คือการไล่เลขจากข้อมูลที่บันทึกไว้
  * ไม่ใช่การนับในหน่วยความจำ
  */
-function test_files_sequence() {
+async function test_files_sequence() {
   beginTest_('อัปโหลดซ้ำหัวข้อเดิมได้ลำดับถัดไป ไม่ทับของเดิม — SPEC 14.2');
 
   /*
@@ -7188,14 +7193,14 @@ function test_files_sequence() {
   var plan = fileNamePlan_({ woId: woId, scope: FILE_SCOPE.WO, topicName: 'ใบเสนอราคา',
     mimeType: 'application/pdf', fileName: 'a.pdf' });
 
-  assertEquals_(nextFileSeq_(woId, plan), 1, 'หัวข้อที่ยังไม่เคยแนบ ต้องเริ่มที่ 1');
+  assertEquals_(await nextFileSeq_(woId, plan), 1, 'หัวข้อที่ยังไม่เคยแนบ ต้องเริ่มที่ 1');
 
   // แนบไฟล์แรกลงทะเบียน (ไม่ต้องแตะ Drive — สิ่งที่ต้องพิสูจน์คือการไล่เลข)
-  insertFile(testFileRow_(woId, buildSavedFileName_(plan, 1), 1, { 'Topic_ID': 'T-QUOTE' }));
-  assertEquals_(nextFileSeq_(woId, plan), 2, 'แนบหัวข้อเดิมซ้ำ ต้องได้เลขถัดไป');
+  await insertFile(testFileRow_(woId, buildSavedFileName_(plan, 1), 1, { 'Topic_ID': 'T-QUOTE' }));
+  assertEquals_(await nextFileSeq_(woId, plan), 2, 'แนบหัวข้อเดิมซ้ำ ต้องได้เลขถัดไป');
 
-  insertFile(testFileRow_(woId, buildSavedFileName_(plan, 2), 2, { 'Topic_ID': 'T-QUOTE' }));
-  var third = nextFileSeq_(woId, plan);
+  await insertFile(testFileRow_(woId, buildSavedFileName_(plan, 2), 2, { 'Topic_ID': 'T-QUOTE' }));
+  var third = await nextFileSeq_(woId, plan);
   assertEquals_(third, 3, 'ไฟล์ที่สามของหัวข้อเดิม ได้เลข 3');
   assertEquals_(buildSavedFileName_(plan, third), plan.prefix + '_ใบเสนอราคา_03.pdf',
     'ชื่อไฟล์ที่สามต้องไม่ซ้ำกับสองไฟล์แรก จึงไม่ทับของเดิม');
@@ -7203,20 +7208,20 @@ function test_files_sequence() {
   /* ---------- หัวข้ออื่นของใบเดียวกัน ต้องนับแยก ---------- */
   var other = fileNamePlan_({ woId: woId, scope: FILE_SCOPE.WO, topicName: 'ใบสั่งซื้อสินค้า',
     mimeType: 'application/pdf', fileName: 'b.pdf' });
-  assertEquals_(nextFileSeq_(woId, other), 1, 'หัวข้ออื่นเริ่มนับใหม่ที่ 1 — ลำดับนับแยกตามหัวข้อ');
+  assertEquals_(await nextFileSeq_(woId, other), 1, 'หัวข้ออื่นเริ่มนับใหม่ที่ 1 — ลำดับนับแยกตามหัวข้อ');
 
   /* ---------- ใบงานอื่น ต้องนับแยกจากกัน ---------- */
   var otherWoId = syntheticTestWoId_('9102');
   var samePlanOtherWo = fileNamePlan_({ woId: otherWoId, scope: FILE_SCOPE.WO,
     topicName: 'ใบเสนอราคา', mimeType: 'application/pdf', fileName: 'a.pdf' });
-  assertEquals_(nextFileSeq_(otherWoId, samePlanOtherWo), 1,
+  assertEquals_(await nextFileSeq_(otherWoId, samePlanOtherWo), 1,
     'หัวข้อเดียวกันของอีกใบงาน ต้องเริ่มที่ 1 ไม่ใช่นับต่อจากใบก่อน');
 
   /* ---------- ลบไฟล์แล้ว เลขเดิมต้องไม่ถูกใช้ซ้ำ ---------- */
   // ถ้านับจาก "จำนวนแถวที่ยังใช้งานอยู่" เลขจะถอยหลังแล้วไฟล์ใหม่จะไปทับไฟล์เก่าใน Drive
-  var toRemove = filterRows_(listFiles(), 'WO_ID', woId)[0];
-  deactivateFile(toRemove['File_ID']);
-  assertEquals_(nextFileSeq_(woId, plan), 3,
+  var toRemove = filterRows_(await listFiles(), 'WO_ID', woId)[0];
+  await deactivateFile(toRemove['File_ID']);
+  assertEquals_(await nextFileSeq_(woId, plan), 3,
     'ลบไฟล์ไปแล้ว เลขลำดับต้องไม่ถอยกลับ ไม่งั้นไฟล์ใหม่จะไปทับไฟล์เดิมใน Drive');
 
   return endTest_();
@@ -7353,20 +7358,20 @@ function repeatText_(text, times) {
  * ชุดนี้ครอบทั้งข้อ 5 (ไม่ครบ ถูกปฏิเสธ สถานะไม่เปลี่ยน) และข้อ 6 (ครบ ผ่านปกติ)
  * ไว้ด้วยกัน เพราะใช้ข้อมูลตั้งต้นชุดเดียวกัน — ต้นทุนส่วนใหญ่อยู่ที่การเตรียมข้อมูล
  */
-function test_files_approveRequiresFiles() {
+async function test_files_approveRequiresFiles() {
   beginTest_('ACCEPT บังคับไฟล์แนบที่ Required จริง — SPEC 5 · 9.4');
 
   var users = serviceTestUsers_();
 
   // หัวข้อบังคับของชุดทดสอบเอง ไม่ไปแตะหัวข้อจริงในชีตซึ่งแก้ไม่ได้และไม่ควรแก้
   var topicId = testPrefix_() + 'TOPIC-QUOTE';
-  appendRow_(SHEET.ATTACHMENT_TOPIC, {
+  await appendRow_(SHEET.ATTACHMENT_TOPIC, {
     'Topic_ID': topicId, 'Scope': FILE_SCOPE.WO, 'Topic_Name': 'ใบเสนอราคา (ทดสอบ)',
     'Required': true, 'Multiple': false, 'Active': true
   });
 
   var optionalId = testPrefix_() + 'TOPIC-PHOTO';
-  appendRow_(SHEET.ATTACHMENT_TOPIC, {
+  await appendRow_(SHEET.ATTACHMENT_TOPIC, {
     'Topic_ID': optionalId, 'Scope': FILE_SCOPE.WO, 'Topic_Name': 'รูปภาพ (ทดสอบ)',
     'Required': false, 'Multiple': true, 'Active': true
   });
@@ -7376,60 +7381,60 @@ function test_files_approveRequiresFiles() {
    * ข้อนี้คือผลของการย้ายเงื่อนไขไฟล์จาก SUBMIT ไป ACCEPT — ตอนนี้ใบงานเกิดพร้อม
    * สถานะรออนุมัติทันที ถ้ายังบังคับไฟล์ตอนสร้าง จะเปิดใบงานไม่ได้เลยสักใบ
    */
-  var wo = createTestWo_(users, null, { skipRequiredFiles: true });
-  assertEquals_(getWorkOrder(wo.woId)['Overall_Status'], WO_STATUS.PENDING_APPROVE,
+  var wo = await createTestWo_(users, null, { skipRequiredFiles: true });
+  assertEquals_((await getWorkOrder(wo.woId))['Overall_Status'], WO_STATUS.PENDING_APPROVE,
     'เปิดใบงานได้ตามปกติ แม้เอกสารยังไม่ครบ — ไปรอที่ผู้อนุมัติ');
 
-  var missing = missingRequiredTopics_(wo.woId);
+  var missing = await missingRequiredTopics_(wo.woId);
   assertTrue_(missing.indexOf('ใบเสนอราคา (ทดสอบ)') !== -1,
     'ระบบต้องรู้ว่าขาดหัวข้อไหน ไม่ใช่รู้แค่ว่าไม่ครบ');
 
   /* ---------- ข้อ 4: อนุมัติทั้งที่ไฟล์บังคับไม่ครบ ต้องถูกปฏิเสธ ---------- */
-  assertThrowsMessage_(
-    function () { approveWorkOrder(wo.woId, ASSIGNMENT.SERVICE, users.approver); },
+  await assertThrowsMessage_(
+    async function () { await approveWorkOrder(wo.woId, ASSIGNMENT.SERVICE, users.approver); },
     'ใบเสนอราคา (ทดสอบ)',
     'อนุมัติทั้งที่ไฟล์บังคับไม่ครบ ต้องถูกปฏิเสธ และข้อความต้องบอกชื่อหัวข้อที่ขาด');
 
-  assertEquals_(getWorkOrder(wo.woId)['Overall_Status'], WO_STATUS.PENDING_APPROVE,
+  assertEquals_((await getWorkOrder(wo.woId))['Overall_Status'], WO_STATUS.PENDING_APPROVE,
     'ถูกปฏิเสธแล้วสถานะต้องยังรออนุมัติเหมือนเดิม ห้ามเปลี่ยนไปครึ่งทาง');
-  assertEquals_(listTasksByWo(wo.woId).length, 0,
+  assertEquals_((await listTasksByWo(wo.woId)).length, 0,
     'และต้องไม่มีงานของแผนกเกิดขึ้นเลย');
 
   /* ---------- แนบหัวข้อที่ไม่บังคับ ยังไม่พอ ---------- */
-  insertFile(testFileRow_(wo.woId, wo.woId + '_รูปภาพ (ทดสอบ)_01.jpg', 1, { 'Topic_ID': optionalId }));
-  assertThrowsMessage_(
-    function () { approveWorkOrder(wo.woId, ASSIGNMENT.SERVICE, users.approver); },
+  await insertFile(testFileRow_(wo.woId, wo.woId + '_รูปภาพ (ทดสอบ)_01.jpg', 1, { 'Topic_ID': optionalId }));
+  await assertThrowsMessage_(
+    async function () { await approveWorkOrder(wo.woId, ASSIGNMENT.SERVICE, users.approver); },
     'ใบเสนอราคา (ทดสอบ)',
     'แนบเฉพาะหัวข้อที่ไม่บังคับ ยังอนุมัติไม่ได้');
 
   /* ---------- ผู้อนุมัติต้องตีกลับพร้อมเหตุผลได้ ---------- */
   // เอกสารไม่ครบไม่ใช่ทางตัน ผู้อนุมัติต้องส่งกลับให้ผู้เปิดใบงานแนบเพิ่มได้
-  var other = createTestWo_(users, { 'Location': 'จุดที่เอกสารไม่ครบ' }, { skipRequiredFiles: true });
-  assertEquals_(returnWorkOrder(other.woId, 'ขาดใบเสนอราคา กรุณาแนบเพิ่ม', users.approver).to,
+  var other = await createTestWo_(users, { 'Location': 'จุดที่เอกสารไม่ครบ' }, { skipRequiredFiles: true });
+  assertEquals_((await returnWorkOrder(other.woId, 'ขาดใบเสนอราคา กรุณาแนบเพิ่ม', users.approver)).to,
     WO_STATUS.RETURNED, 'เอกสารไม่ครบ ผู้อนุมัติยังตีกลับพร้อมเหตุผลได้');
 
   /* ---------- ข้อ 5: ไฟล์ครบแล้ว ต้องผ่านปกติ ---------- */
-  insertFile(testFileRow_(wo.woId, wo.woId + '_ใบเสนอราคา (ทดสอบ)_01.pdf', 1, { 'Topic_ID': topicId }));
-  assertEquals_(missingRequiredTopics_(wo.woId).length, 0, 'แนบครบแล้ว ต้องไม่เหลือหัวข้อที่ขาด');
+  await insertFile(testFileRow_(wo.woId, wo.woId + '_ใบเสนอราคา (ทดสอบ)_01.pdf', 1, { 'Topic_ID': topicId }));
+  assertEquals_((await missingRequiredTopics_(wo.woId)).length, 0, 'แนบครบแล้ว ต้องไม่เหลือหัวข้อที่ขาด');
 
-  var approved = approveWorkOrder(wo.woId, ASSIGNMENT.SERVICE, users.approver);
+  var approved = await approveWorkOrder(wo.woId, ASSIGNMENT.SERVICE, users.approver);
   assertEquals_(approved.plan.to, WO_STATUS.APPROVED, 'ไฟล์บังคับครบแล้ว อนุมัติต้องผ่านปกติ');
-  assertEquals_(getWorkOrder(wo.woId)['Overall_Status'], WO_STATUS.APPROVED,
+  assertEquals_((await getWorkOrder(wo.woId))['Overall_Status'], WO_STATUS.APPROVED,
     'สถานะในชีตต้องเปลี่ยนตามจริง');
   assertEquals_(approved.tasks.length, 1, 'และเกิดงานของแผนกตามปกติ');
 
   /* ---------- ไฟล์ที่ถูกลบไปแล้ว ต้องไม่นับว่าแนบครบ ---------- */
-  var another = createTestWo_(users, { 'Location': 'จุดที่ลบไฟล์ทิ้ง' }, { skipRequiredFiles: true });
-  var row = insertFile(testFileRow_(another.woId, another.woId + '_ใบเสนอราคา (ทดสอบ)_01.pdf', 1,
+  var another = await createTestWo_(users, { 'Location': 'จุดที่ลบไฟล์ทิ้ง' }, { skipRequiredFiles: true });
+  var row = await insertFile(testFileRow_(another.woId, another.woId + '_ใบเสนอราคา (ทดสอบ)_01.pdf', 1,
     { 'Topic_ID': topicId }));
-  assertEquals_(missingRequiredTopics_(another.woId).length, 0, 'แนบแล้วถือว่าครบ');
-  deactivateFile(row['File_ID']);
-  assertTrue_(missingRequiredTopics_(another.woId).length > 0,
+  assertEquals_((await missingRequiredTopics_(another.woId)).length, 0, 'แนบแล้วถือว่าครบ');
+  await deactivateFile(row['File_ID']);
+  assertTrue_((await missingRequiredTopics_(another.woId)).length > 0,
     'ไฟล์ที่ถูกลบไปแล้ว ต้องไม่ถูกนับว่ายังแนบอยู่');
 
   /* ---------- หัวข้อที่ปิดใช้งาน ต้องไม่บังคับ ---------- */
-  updateRow_(SHEET.ATTACHMENT_TOPIC, 'Topic_ID', topicId, { 'Active': false });
-  assertEquals_(missingRequiredTopics_(another.woId).length, 0,
+  await updateRow_(SHEET.ATTACHMENT_TOPIC, 'Topic_ID', topicId, { 'Active': false });
+  assertEquals_((await missingRequiredTopics_(another.woId)).length, 0,
     'หัวข้อที่ผู้ดูแลปิดใช้งานแล้ว ต้องไม่บังคับกับใบงานใหม่');
 
   return endTest_();
@@ -7442,7 +7447,7 @@ function test_files_approveRequiresFiles() {
  * วิธี "หาโฟลเดอร์ตามชื่อ ถ้าไม่มีก็สร้าง" จึงได้โฟลเดอร์ซ้ำเมื่อ 2 คนอัปโหลดพร้อมกัน
  * แล้วไฟล์กระจัดกระจายโดยไม่มีใครรู้จนกว่าจะไปตามหาไฟล์
  */
-function test_files_folderReuse() {
+async function test_files_folderReuse() {
   beginTest_('เก็บ Folder ID ในแถว WO และไม่สร้างโฟลเดอร์ซ้ำ — SPEC 16 · 21');
 
   if (!getProp_(PROP_KEY.DRIVE_ROOT_FOLDER, false)) {
@@ -7453,19 +7458,19 @@ function test_files_folderReuse() {
   }
 
   var users = serviceTestUsers_();
-  var wo = createTestWo_(users);
+  var wo = await createTestWo_(users);
 
   /*
    * ในการใช้งานจริง ใบงานจะมีโฟลเดอร์ตั้งแต่เปิดใบ เพราะใบสั่งงาน PDF ถูกเขียนลงไปทันที
    * ซึ่งก็ยังเป็นการสร้างเมื่อจะใช้จริงอยู่ดี · ชุดนี้ปิดการออกเอกสารไว้ (ดู beginTestRun_)
    * สิ่งที่พิสูจน์ตรงนี้จึงเป็นเส้นทางของการอัปโหลดล้วน ๆ ว่าไม่สร้างโฟลเดอร์ทิ้งไว้ก่อนเวลา
    */
-  assertEquals_(String(getWorkOrder(wo.woId)['Folder_ID'] || ''), '',
+  assertEquals_(String((await getWorkOrder(wo.woId))['Folder_ID'] || ''), '',
     'ใบงานที่ยังไม่มีไฟล์ ต้องยังไม่มีโฟลเดอร์ — สร้างเมื่อจะใช้จริงเท่านั้น (Lazy)');
 
   /* ---------- ครั้งแรก: สร้างโฟลเดอร์แล้วจำรหัสไว้ในแถว WO ---------- */
-  var first = ensureWoFolder_(wo.woId, 'Attachments');
-  var afterFirst = getWorkOrder(wo.woId);
+  var first = await ensureWoFolder_(wo.woId, 'Attachments');
+  var afterFirst = await getWorkOrder(wo.woId);
   assertTrue_(!!afterFirst['Folder_ID'], 'รหัสโฟลเดอร์หลักต้องถูกเก็บลงแถวใบงาน');
   assertTrue_(!!afterFirst['Folder_URL'], 'และต้องมีลิงก์โฟลเดอร์ให้ผู้ใช้กดเปิดได้');
 
@@ -7474,20 +7479,20 @@ function test_files_folderReuse() {
 
   /* ---------- ครั้งที่สอง: ต้องได้โฟลเดอร์เดิม ไม่สร้างใหม่ ---------- */
   var rootBefore = afterFirst['Folder_ID'];
-  var second = ensureWoFolder_(wo.woId, 'Attachments');
+  var second = await ensureWoFolder_(wo.woId, 'Attachments');
   assertEquals_(second, first, 'เรียกซ้ำต้องได้โฟลเดอร์เดิม ไม่ใช่โฟลเดอร์ใหม่ที่ชื่อเหมือนกัน');
-  assertEquals_(getWorkOrder(wo.woId)['Folder_ID'], rootBefore,
+  assertEquals_((await getWorkOrder(wo.woId))['Folder_ID'], rootBefore,
     'และรหัสโฟลเดอร์หลักต้องไม่เปลี่ยน');
 
   /* ---------- โฟลเดอร์ย่อยคนละเส้นทาง ต้องเป็นคนละอัน แต่อยู่ใต้ใบงานเดียวกัน ---------- */
-  var picture = ensureWoFolder_(wo.woId, 'Picture');
+  var picture = await ensureWoFolder_(wo.woId, 'Picture');
   assertTrue_(picture !== first, 'โฟลเดอร์รูปภาพต้องแยกจากโฟลเดอร์ไฟล์เอกสาร');
 
-  var stepFolder = ensureWoFolder_(wo.woId, 'Service/Step 2');
-  var mapAfter = parseFolderMap_(getWorkOrder(wo.woId)['Folder_Map']);
+  var stepFolder = await ensureWoFolder_(wo.woId, 'Service/Step 2');
+  var mapAfter = parseFolderMap_((await getWorkOrder(wo.woId))['Folder_Map']);
   assertTrue_(!!mapAfter['Service'], 'เส้นทางหลายชั้น ต้องจำรหัสของทุกชั้นไว้');
   assertEquals_(mapAfter['Service/Step 2'], stepFolder, 'รวมถึงชั้นล่างสุด');
-  assertEquals_(ensureWoFolder_(wo.woId, 'Service/Step 2'), stepFolder,
+  assertEquals_(await ensureWoFolder_(wo.woId, 'Service/Step 2'), stepFolder,
     'เรียกเส้นทางหลายชั้นซ้ำ ต้องได้อันเดิมเช่นกัน');
 
   return endTest_();
@@ -7497,7 +7502,7 @@ function test_files_folderReuse() {
  * นามสกุลไฟล์นอกรายการที่อนุญาต ต้องถูกปฏิเสธ (SPEC 14.2)
  * ปฏิเสธตั้งแต่ยังไม่แตะ Drive เพื่อไม่ให้เสียเวลาและไม่ให้ไฟล์ที่รันได้เข้าระบบ
  */
-function test_files_extensionAllowlist() {
+async function test_files_extensionAllowlist() {
   beginTest_('นามสกุลนอกรายการที่อนุญาตถูกปฏิเสธ — SPEC 14.2');
 
   var allowed = ['pdf', 'jpg', 'png', 'docx', 'xlsx', 'dwg'];
@@ -7523,17 +7528,17 @@ function test_files_extensionAllowlist() {
   assertEquals_(fileExtensionOf_('ลงท้ายด้วยจุด.'), '', 'ชื่อที่ลงท้ายด้วยจุดไม่ถือว่ามีนามสกุล');
 
   /* ---------- ต้องถูกปฏิเสธที่ทางเข้าจริง พร้อมข้อความที่บอกทางออก ---------- */
-  assertThrowsMessage_(function () {
+  await assertThrowsMessage_(function () {
     validateUploadRequest_({ woId: 'WO-2609-0001', fileName: 'ตัวติดตั้ง.exe', content: 'AAAA' });
   }, '.exe', 'ไฟล์นามสกุลต้องห้ามถูกปฏิเสธที่ทางเข้า และข้อความต้องบอกนามสกุลที่แนบได้');
 
-  assertThrowsMessage_(function () {
+  await assertThrowsMessage_(function () {
     validateUploadRequest_({ woId: 'WO-2609-0001', fileName: 'ไม่มีนามสกุล', content: 'AAAA' });
   }, 'นามสกุล', 'ไฟล์ที่ไม่มีนามสกุลถูกปฏิเสธ');
 
   /* ---------- ขนาดเกินเพดาน ต้องถูกปฏิเสธพร้อมบอกตัวเลข ---------- */
   var tooBig = repeatText_('A', Math.ceil(MAX_UPLOAD_BYTES * 4 / 3) + 100);
-  assertThrowsMessage_(function () {
+  await assertThrowsMessage_(function () {
     validateUploadRequest_({ woId: 'WO-2609-0001', fileName: 'ใหญ่มาก.pdf', content: tooBig });
   }, maxUploadLabel_(), 'ไฟล์ใหญ่เกินเพดานถูกปฏิเสธ และข้อความต้องบอกตัวเลขชัด ๆ');
 
@@ -7549,7 +7554,7 @@ function test_files_extensionAllowlist() {
  *
  * เส้นทางรายการว่างเป็นเส้นทางที่เทสต์มักไม่เคยเดินผ่าน แล้วไปพังหน้าผู้ใช้จริง
  */
-function test_files_emptyState() {
+async function test_files_emptyState() {
   beginTest_('ใบงานที่ยังไม่มีไฟล์แนบ แสดงสถานะว่างได้ — SPEC 17.3');
 
   var users = serviceTestUsers_();
@@ -7557,20 +7562,20 @@ function test_files_emptyState() {
   var woId = syntheticTestWoId_('9103');
 
   /* ---------- ชั้นข้อมูล: ต้องคืนรายการว่าง ไม่ใช่ null และไม่ใช่ error ---------- */
-  var views = listWoFileViews(woId);
+  var views = await listWoFileViews(woId);
   assertTrue_(Array.isArray(views), 'ใบงานที่ยังไม่มีไฟล์ ต้องได้รายการว่าง ไม่ใช่ค่าว่างเปล่า');
   assertEquals_(views.length, 0, 'และต้องไม่มีรายการใดติดมา');
 
   /* ---------- ชั้น API: ต้องสำเร็จ และส่งคีย์ครบเหมือนกรณีมีข้อมูล ---------- */
-  var api = withTestUser_(users.admin, function () { return api_listWoFiles(woId); });
+  var api = await withTestUser_(users.admin, async function () { return await api_listWoFiles(woId); });
   assertEquals_(api.ok, true, 'ขอรายการไฟล์ของใบที่ยังไม่มีไฟล์ ต้องสำเร็จ ไม่ใช่ข้อผิดพลาด');
   assertEquals_(api.data.files.length, 0, 'รายการไฟล์ว่าง');
   assertTrue_(Array.isArray(api.data.missingTopics), 'และต้องบอกได้ว่ายังขาดหัวข้อบังคับใดบ้าง');
   assertTrue_(isJsonSafe_(api.data), 'ผลลัพธ์ต้องส่งผ่าน google.script.run ได้ (กฎข้อ 14)');
 
   /* ---------- ก้อนข้อมูลของหน้าสร้างใบงาน ต้องมีคีย์ครบแม้ยังไม่มีไฟล์ ---------- */
-  var boot = withTestUser_(users.admin, function () {
-    return pageBootstrap_('create', { wo: woId });
+  var boot = await withTestUser_(users.admin, async function () {
+    return await pageBootstrap_('create', { wo: woId });
   });
   assertEquals_(boot.error, '', 'หน้าสร้างใบงานต้องเปิดได้ตามปกติ');
   assertTrue_(Array.isArray(boot.files), 'ก้อนข้อมูลต้องมีรายการไฟล์ แม้จะว่าง');
@@ -7605,7 +7610,7 @@ function testFileContent_(bytes) {
  * @param {string} name ชื่อหัวข้อ
  * @return {string} Topic_ID
  */
-function testAttachTopic_(suffix, name) {
+async function testAttachTopic_(suffix, name) {
   var topicId = testPrefix_() + 'TOPIC-' + suffix;
 
   /*
@@ -7613,11 +7618,11 @@ function testAttachTopic_(suffix, name) {
    * ปฏิเสธคีย์ซ้ำด้วยข้อความกลาง ๆ ว่า "เชื่อมต่อฐานข้อมูลไม่สำเร็จ" ซึ่งชี้ไปผิดทาง
    * ทั้งหมด · ฟ้องตรงนี้ด้วยถ้อยคำที่บอกว่าเกิดอะไรขึ้นจริง
    */
-  assertEquals_(getAttachmentTopic(topicId), null,
+  assertEquals_(await getAttachmentTopic(topicId), null,
     'หัวข้อทดสอบ ' + topicId + ' ถูกสร้างไปแล้วโดยชุดอื่นในกลุ่มนี้ — ' +
     'ต้องตั้งตัวต่อท้ายให้ไม่ซ้ำกัน ไม่ใช่ใช้ของเดิมร่วมกัน');
 
-  appendRow_(SHEET.ATTACHMENT_TOPIC, {
+  await appendRow_(SHEET.ATTACHMENT_TOPIC, {
     'Topic_ID': topicId, 'Scope': FILE_SCOPE.WO, 'Topic_Name': name,
     'Required': false, 'Multiple': true, 'Active': true
   });
@@ -7630,8 +7635,8 @@ function testAttachTopic_(suffix, name) {
  * @param {Object} request คำขอแนบไฟล์
  * @return {Object} ผลจาก api_uploadFile
  */
-function uploadThroughApi_(user, request) {
-  return withTestUser_(user, function () { return api_uploadFile(request); });
+async function uploadThroughApi_(user, request) {
+  return await withTestUser_(user, async function () { return await api_uploadFile(request); });
 }
 
 /**
@@ -7642,21 +7647,21 @@ function uploadThroughApi_(user, request) {
  * แต่คือ **ลำดับ** — ใบสั่งงานต้องยังไม่ออกจนกว่าไฟล์จะขึ้นครบ ไม่งั้นเอกสารจะ
  * เขียนว่าไม่มีเอกสารแนบ ทั้งที่ผู้ใช้เลือกไฟล์ไว้แล้ว
  */
-function test_files_batchUploadKeepsReportLast() {
+async function test_files_batchUploadKeepsReportLast() {
   beginTest_('เลือกหลายหัวข้อแล้วส่งครั้งเดียว · ใบสั่งงานต้องออกทีหลัง — SPEC 16.1 · 21');
 
   var users = serviceTestUsers_();
-  var quote = testAttachTopic_('B2QUOTE', 'ใบเสนอราคา (ทดสอบ)');
-  var draw  = testAttachTopic_('B2DRAW', 'แบบ (ทดสอบ)');
+  var quote = await testAttachTopic_('B2QUOTE', 'ใบเสนอราคา (ทดสอบ)');
+  var draw  = await testAttachTopic_('B2DRAW', 'แบบ (ทดสอบ)');
 
   /* ---------- สร้างใบงานโดยบอกว่ามีไฟล์รออยู่ 3 ไฟล์ ---------- */
-  var created = withTestUser_(users.admin, function () {
-    return api_createWorkOrder(testWoForm_(), 3);
+  var created = await withTestUser_(users.admin, async function () {
+    return await api_createWorkOrder(testWoForm_(), 3);
   });
   assertEquals_(created.ok, true, 'สร้างใบงานต้องสำเร็จ');
 
   var woId = created.data.woId;
-  assertEquals_(String(getWorkOrder(woId)['Report_URL'] || ''), '',
+  assertEquals_(String((await getWorkOrder(woId))['Report_URL'] || ''), '',
     'ยังมีไฟล์รออยู่ ใบสั่งงานจึงต้องยังไม่ออก — ถ้าออกตอนนี้จะได้กระดาษที่เขียนว่าไม่มีเอกสารแนบ');
 
   /* ---------- ส่งทีละไฟล์ สามไฟล์สองหัวข้อ เหมือนที่เบราว์เซอร์ทำ ---------- */
@@ -7666,7 +7671,7 @@ function test_files_batchUploadKeepsReportLast() {
     { topicId: draw,  fileName: 'แบบชั้นสอง.pdf' }
   ];
   for (var i = 0; i < sent.length; i++) {
-    var result = uploadThroughApi_(users.admin, {
+    var result = await uploadThroughApi_(users.admin, {
       woId: woId, scope: FILE_SCOPE.WO, topicId: sent[i].topicId,
       fileName: sent[i].fileName, mimeType: 'application/pdf',
       content: testFileContent_(64)
@@ -7674,23 +7679,23 @@ function test_files_batchUploadKeepsReportLast() {
     assertEquals_(result.ok, true, 'ไฟล์ "' + sent[i].fileName + '" ต้องขึ้นสำเร็จ');
   }
 
-  assertEquals_(listFilesByWo(woId).length, 3, 'ต้องได้ครบสามไฟล์จากการกดครั้งเดียว');
+  assertEquals_((await listFilesByWo(woId)).length, 3, 'ต้องได้ครบสามไฟล์จากการกดครั้งเดียว');
 
   /* ---------- ไฟล์คนละหัวข้อต้องได้ชื่อของหัวข้อตัวเอง (SPEC 14.1) ---------- */
-  var names = listWoFileViews(woId).map(function (one) { return one.savedName; }).join(' ');
+  var names = (await listWoFileViews(woId)).map(function (one) { return one.savedName; }).join(' ');
   assertTrue_(names.indexOf('ใบเสนอราคา (ทดสอบ)') !== -1,
     'ไฟล์ของหัวข้อแรกต้องถูกตั้งชื่อตามหัวข้อของตัวเอง');
   assertTrue_(names.indexOf('แบบ (ทดสอบ)') !== -1,
     'และไฟล์ของหัวข้อที่สองต้องเป็นชื่อของหัวข้อนั้น ไม่ใช่หัวข้อเดียวกันทั้งชุด');
 
   /* ---------- สั่งออกเอกสารหลังไฟล์ขึ้นครบ ---------- */
-  withReports_(function () {
-    var made = withTestUser_(users.admin, function () { return api_ensureWoReport(woId); });
+  await withReports_(async function () {
+    var made = await withTestUser_(users.admin, async function () { return await api_ensureWoReport(woId); });
     assertEquals_(made.ok, true, 'สั่งออกเอกสารหลังไฟล์ขึ้นครบต้องสำเร็จ');
     assertEquals_(made.data.issued, true, 'และต้องออกให้จริง เพราะใบนี้ยังไม่มีเอกสาร');
   });
 
-  assertTrue_(!!String(getWorkOrder(woId)['Report_URL'] || ''),
+  assertTrue_(!!String((await getWorkOrder(woId))['Report_URL'] || ''),
     'ลิงก์เอกสารต้องถูกเขียนกลับลงแถวใบงาน');
 
   /* ---------- เรียกซ้ำต้องไม่ออกฉบับใหม่ ---------- */
@@ -7698,17 +7703,17 @@ function test_files_batchUploadKeepsReportLast() {
    * ตาข่ายรองถูกเรียกทุกครั้งที่ผู้อนุมัติเปิดดูเอกสารของใบนั้น · ถ้ามันออกฉบับใหม่
    * ทุกครั้ง ใบงานที่มีคนเปิดดูสิบรอบจะมีเอกสารสิบฉบับใน _archive โดยไม่มีอะไรเปลี่ยน
    */
-  var again = withReports_(function () {
-    return withTestUser_(users.admin, function () { return api_ensureWoReport(woId); });
+  var again = await withReports_(async function () {
+    return await withTestUser_(users.admin, async function () { return await api_ensureWoReport(woId); });
   });
   assertEquals_(again.data.issued, false,
     'ใบที่มีเอกสารแล้ว ต้องไม่ถูกออกซ้ำ — ตาข่ายรองมีไว้อุดช่องว่าง ไม่ใช่ออกเอกสารทุกครั้งที่มีคนเปิดดู');
 
   /* ---------- ใบที่ไม่ได้เลือกไฟล์ไว้เลย ต้องได้เอกสารทันที ---------- */
-  var plain = withReports_(function () {
-    return withTestUser_(users.admin, function () { return api_createWorkOrder(testWoForm_(), 0); });
+  var plain = await withReports_(async function () {
+    return await withTestUser_(users.admin, async function () { return await api_createWorkOrder(testWoForm_(), 0); });
   });
-  assertTrue_(!!String(getWorkOrder(plain.data.woId)['Report_URL'] || ''),
+  assertTrue_(!!String((await getWorkOrder(plain.data.woId))['Report_URL'] || ''),
     'ไม่ได้เลือกไฟล์ไว้เลย ต้องออกเอกสารให้ทันทีหลังสร้างใบงาน ไม่ต้องรออะไร');
 
   return endTest_();
@@ -7720,25 +7725,25 @@ function test_files_batchUploadKeepsReportLast() {
  * ข้อนี้คือเหตุผลทั้งหมดที่การส่งเป็นทีละไฟล์ ไม่ใช่ก้อนเดียว · ถ้าล้มทั้งชุด
  * เพราะไฟล์เดียว ผู้ใช้ต้องเลือกไฟล์ใหม่หมดทุกครั้ง แล้วจะเลิกใช้ระบบ
  */
-function test_files_oneFailsRestStillUpload() {
+async function test_files_oneFailsRestStillUpload() {
   beginTest_('ไฟล์หนึ่งล้ม ที่เหลือต้องยังขึ้น และใบงานต้องไม่ล้มตาม — SPEC 21');
 
   var users = serviceTestUsers_();
-  var topic = testAttachTopic_('B2MIXED', 'เอกสารผสม (ทดสอบ)');
+  var topic = await testAttachTopic_('B2MIXED', 'เอกสารผสม (ทดสอบ)');
 
-  var created = withTestUser_(users.admin, function () {
-    return api_createWorkOrder(testWoForm_(), 3);
+  var created = await withTestUser_(users.admin, async function () {
+    return await api_createWorkOrder(testWoForm_(), 3);
   });
   var woId = created.data.woId;
 
-  var first = uploadThroughApi_(users.admin, {
+  var first = await uploadThroughApi_(users.admin, {
     woId: woId, scope: FILE_SCOPE.WO, topicId: topic,
     fileName: 'ไฟล์ดีใบแรก.pdf', mimeType: 'application/pdf', content: testFileContent_(64)
   });
   assertEquals_(first.ok, true, 'ไฟล์แรกต้องขึ้นสำเร็จ');
 
   /* ---------- ไฟล์กลางชุดถูกปฏิเสธ ---------- */
-  var bad = uploadThroughApi_(users.admin, {
+  var bad = await uploadThroughApi_(users.admin, {
     woId: woId, scope: FILE_SCOPE.WO, topicId: topic,
     fileName: 'โปรแกรมแปลกปลอม.exe', mimeType: 'application/octet-stream',
     content: testFileContent_(64)
@@ -7748,17 +7753,17 @@ function test_files_oneFailsRestStillUpload() {
     'และต้องบอกว่าไฟล์ไหนผิดเพราะอะไร ไม่ใช่บอกแค่ว่าล้มเหลว');
 
   /* ---------- ไฟล์ถัดไปต้องยังขึ้นได้ตามปกติ ---------- */
-  var third = uploadThroughApi_(users.admin, {
+  var third = await uploadThroughApi_(users.admin, {
     woId: woId, scope: FILE_SCOPE.WO, topicId: topic,
     fileName: 'ไฟล์ดีใบสอง.pdf', mimeType: 'application/pdf', content: testFileContent_(64)
   });
   assertEquals_(third.ok, true, 'ไฟล์หลังตัวที่ล้ม ต้องยังขึ้นได้ ไม่ใช่ล้มตามกันทั้งชุด');
 
-  assertEquals_(listFilesByWo(woId).length, 2,
+  assertEquals_((await listFilesByWo(woId)).length, 2,
     'ต้องเหลือสองไฟล์ที่สำเร็จ · ไฟล์ที่ถูกปฏิเสธต้องไม่ทิ้งแถวไว้ในทะเบียน');
 
   /* ---------- ใบงานต้องยังอยู่ครบ ---------- */
-  var wo = getWorkOrder(woId);
+  var wo = await getWorkOrder(woId);
   assertTrue_(!!wo, 'ใบงานต้องยังอยู่ แม้ไฟล์จะขึ้นไม่ครบ');
   assertEquals_(wo['Overall_Status'], WO_STATUS.PENDING_APPROVE,
     'และต้องยังรออนุมัติอยู่ตามเดิม — ความล้มเหลวของไฟล์ห้ามย้อนสถานะที่บันทึกไปแล้ว');
@@ -7776,7 +7781,7 @@ function test_files_oneFailsRestStillUpload() {
  * ชั้นเบราว์เซอร์ถูกดึงตัวฟังก์ชันจริงออกมาจากหน้าเว็บที่เสิร์ฟจริงแล้วเรียกใช้
  * ไม่ใช่เขียนกฎซ้ำในเทสต์ ซึ่งจะพิสูจน์ได้แค่ว่าสำเนาสองชุดเหมือนกัน
  */
-function test_files_tooBigIsRefusedBeforeSending() {
+async function test_files_tooBigIsRefusedBeforeSending() {
   beginTest_('ไฟล์ใหญ่เกินเพดานถูกปฏิเสธตั้งแต่ตอนเลือก ไม่ใช่ตอนส่งแล้วล้ม — SPEC 21');
 
   /* ---------- ชั้นเบราว์เซอร์ ---------- */
@@ -7804,12 +7809,12 @@ function test_files_tooBigIsRefusedBeforeSending() {
 
   /* ---------- ชั้นเซิร์ฟเวอร์ — ด่านจริงที่ปลอมไม่ได้ ---------- */
   var users = serviceTestUsers_();
-  var topic = testAttachTopic_('B2BIG', 'ไฟล์ใหญ่ (ทดสอบ)');
-  var created = withTestUser_(users.admin, function () {
-    return api_createWorkOrder(testWoForm_(), 1);
+  var topic = await testAttachTopic_('B2BIG', 'ไฟล์ใหญ่ (ทดสอบ)');
+  var created = await withTestUser_(users.admin, async function () {
+    return await api_createWorkOrder(testWoForm_(), 1);
   });
 
-  var refused = uploadThroughApi_(users.admin, {
+  var refused = await uploadThroughApi_(users.admin, {
     woId: created.data.woId, scope: FILE_SCOPE.WO, topicId: topic,
     fileName: 'ใหญ่เกิน.pdf', mimeType: 'application/pdf',
     content: testFileContent_(MAX_UPLOAD_BYTES + 1024)
@@ -7818,7 +7823,7 @@ function test_files_tooBigIsRefusedBeforeSending() {
     'ถึงหน้าเว็บจะถูกดัดแปลงให้ข้ามด่านแรกไปได้ เซิร์ฟเวอร์ต้องปฏิเสธอยู่ดี (กฎข้อ 7)');
   assertTrue_(String(refused.message).indexOf(maxUploadLabel_()) !== -1,
     'และต้องบอกเพดานเป็นตัวเลขชัด ๆ ในข้อความ');
-  assertEquals_(listFilesByWo(created.data.woId).length, 0,
+  assertEquals_((await listFilesByWo(created.data.woId)).length, 0,
     'ไฟล์ที่ถูกปฏิเสธต้องไม่ทิ้งแถวไว้ในทะเบียน');
 
   return endTest_();
@@ -7889,35 +7894,35 @@ function sliceFunctionSource_(source, name) {
  * แผงนี้อ่านอย่างเดียว และต้องคัดเฉพาะไฟล์ที่แนบมาตอนเปิดใบงาน · เอกสารของแผนก
  * และหลักฐานการชำระเงินเกิดขึ้นหลังการอนุมัติ จึงไม่ใช่สิ่งที่ผู้อนุมัติกำลังตัดสินใจอยู่
  */
-function test_approve_seesAttachmentsByTopic() {
+async function test_approve_seesAttachmentsByTopic() {
   beginTest_('หน้าอนุมัติต้องเห็นไฟล์แนบแยกตามหัวข้อ และเห็นรูปเป็นภาพย่อ — SPEC 17.2');
 
   var users = serviceTestUsers_();
-  var photo = testAttachTopic_('B2PHOTO', 'รูปภาพ (ทดสอบ)');
-  var quote = testAttachTopic_('B2QT2', 'ใบเสนอราคา (ทดสอบ)');
+  var photo = await testAttachTopic_('B2PHOTO', 'รูปภาพ (ทดสอบ)');
+  var quote = await testAttachTopic_('B2QT2', 'ใบเสนอราคา (ทดสอบ)');
 
-  var created = withTestUser_(users.admin, function () {
-    return api_createWorkOrder(testWoForm_(), 2);
+  var created = await withTestUser_(users.admin, async function () {
+    return await api_createWorkOrder(testWoForm_(), 2);
   });
   var woId = created.data.woId;
 
-  uploadThroughApi_(users.admin, {
+  await uploadThroughApi_(users.admin, {
     woId: woId, scope: FILE_SCOPE.WO, topicId: quote,
     fileName: 'ราคา.pdf', mimeType: 'application/pdf', content: testFileContent_(64)
   });
-  var shot = uploadThroughApi_(users.admin, {
+  var shot = await uploadThroughApi_(users.admin, {
     woId: woId, scope: FILE_SCOPE.WO, topicId: photo,
     fileName: 'หน้างาน.jpg', mimeType: 'image/jpeg', content: testFileContent_(128)
   });
   assertEquals_(shot.ok, true, 'รูปต้องแนบขึ้นได้');
 
   /* ---------- หลักฐานการชำระเงินต้องไม่โผล่ในแผงของผู้อนุมัติ ---------- */
-  uploadThroughApi_(users.admin, {
+  await uploadThroughApi_(users.admin, {
     woId: woId, scope: FILE_SCOPE.PAYMENT,
     fileName: 'สลิป.jpg', mimeType: 'image/jpeg', content: testFileContent_(64)
   });
 
-  var seen = withTestUser_(users.approver, function () { return api_listWoAttachments(woId); });
+  var seen = await withTestUser_(users.approver, async function () { return await api_listWoAttachments(woId); });
   assertEquals_(seen.ok, true, 'ผู้อนุมัติต้องเปิดดูเอกสารของใบงานได้');
 
   var groups = seen.data.groups;
@@ -7942,8 +7947,8 @@ function test_approve_seesAttachmentsByTopic() {
    * ลิงก์ Drive เปิดได้เฉพาะบัญชีเจ้าของระบบ เพราะไฟล์อยู่ใน Drive บัญชีเดียว
    * และไม่ได้ถูกแชร์ (SPEC 16) · ถ้าหน้าจอพึ่งลิงก์ ผู้อนุมัติจะเห็นแต่หน้าปฏิเสธสิทธิ์
    */
-  var thumb = withTestUser_(users.approver, function () {
-    return api_fileImage(shot.data.file.fileId);
+  var thumb = await withTestUser_(users.approver, async function () {
+    return await api_fileImage(shot.data.file.fileId);
   });
   assertEquals_(thumb.ok, true, 'ขอภาพย่อต้องสำเร็จ');
   assertEquals_(thumb.data.found, true, 'และต้องได้ภาพจริงกลับมา');
@@ -7951,17 +7956,17 @@ function test_approve_seesAttachmentsByTopic() {
     'ต้องเป็นไบต์ที่หน้าเว็บแสดงได้เอง ไม่ใช่ลิงก์ที่ต้องมีสิทธิ์ Drive');
 
   /* ---------- ไฟล์ที่ไม่ใช่รูป ต้องไม่ถูกส่งเป็นก้อน ---------- */
-  var docFile = listWoFileViews(woId).filter(function (one) { return !one.isImage; })[0];
-  var notImage = withTestUser_(users.approver, function () {
-    return api_fileImage(docFile.fileId);
+  var docFile = (await listWoFileViews(woId)).filter(function (one) { return !one.isImage; })[0];
+  var notImage = await withTestUser_(users.approver, async function () {
+    return await api_fileImage(docFile.fileId);
   });
   assertEquals_(notImage.data.found, false,
     'เอกสารต้องไม่ถูกส่งเป็นก้อนผ่านช่องทางของรูป — ก้อนละหลายเมกะไบต์และแสดงในหน้าไม่ได้อยู่ดี');
 
   /* ---------- ไฟล์ที่ถูกลบไปแล้ว ต้องเปิดดูไม่ได้อีก ---------- */
-  withTestUser_(users.admin, function () { return api_removeFile(shot.data.file.fileId); });
-  var gone = withTestUser_(users.approver, function () {
-    return api_fileImage(shot.data.file.fileId);
+  await withTestUser_(users.admin, async function () { return await api_removeFile(shot.data.file.fileId); });
+  var gone = await withTestUser_(users.approver, async function () {
+    return await api_fileImage(shot.data.file.fileId);
   });
   assertEquals_(gone.data.found, false,
     'ไฟล์ที่ลบแล้วต้องเปิดดูไม่ได้ · การลบของระบบคือปิดใช้งาน ตัวไฟล์ยังอยู่ในถังขยะและเปิดด้วยรหัสได้');
@@ -7976,26 +7981,26 @@ function test_approve_seesAttachmentsByTopic() {
  * ไฟล์ทั้ง Drive ของเจ้าของ ไม่ใช่แค่ไฟล์ของระบบ · ชุดนี้จึงพิสูจน์ **การปฏิเสธ**
  * เป็นหลัก ไม่ใช่พิสูจน์ว่าทางที่ถูกทำงานได้ ซึ่งพิสูจน์ง่ายและไม่ได้กันอะไรเลย
  */
-function test_files_byteEndpointRefusesEveryWrongWay() {
+async function test_files_byteEndpointRefusesEveryWrongWay() {
   beginTest_('ปลายทางที่คืนไบต์ต้องปฏิเสธให้ครบทุกทาง — กฎข้อ 34');
 
   var users = serviceTestUsers_();
-  var topic = testAttachTopic_('BYTES', 'เอกสารทดสอบไบต์');
+  var topic = await testAttachTopic_('BYTES', 'เอกสารทดสอบไบต์');
 
-  var mine = withTestUser_(users.admin, function () {
-    return api_createWorkOrder(testWoForm_(), 1);
+  var mine = await withTestUser_(users.admin, async function () {
+    return await api_createWorkOrder(testWoForm_(), 1);
   });
-  var other = withTestUser_(users.admin, function () {
-    return api_createWorkOrder(testWoForm_({ 'Location': 'อีกใบหนึ่ง' }), 1);
+  var other = await withTestUser_(users.admin, async function () {
+    return await api_createWorkOrder(testWoForm_({ 'Location': 'อีกใบหนึ่ง' }), 1);
   });
 
-  var put = uploadThroughApi_(users.admin, {
+  var put = await uploadThroughApi_(users.admin, {
     woId: other.data.woId, scope: FILE_SCOPE.WO, topicId: topic,
     fileName: 'ของใบอื่น.pdf', mimeType: 'application/pdf', content: testFileContent_(64)
   });
   assertEquals_(put.ok, true, 'เตรียมไฟล์ของใบงานอีกใบต้องสำเร็จ ไม่งั้นการทดสอบไม่มีความหมาย');
   var otherFileId = put.data.file.fileId;
-  var driveId = getFile(otherFileId)['Drive_File_ID'];
+  var driveId = (await getFile(otherFileId))['Drive_File_ID'];
 
   /* ---------- ไฟล์ของใบงานอื่น ส่งมาคู่กับใบงานของตัวเอง ---------- */
   /*
@@ -8003,8 +8008,8 @@ function test_files_byteEndpointRefusesEveryWrongWay() {
    * ใครก็ตามที่เดาเลขที่ไฟล์ได้จะอ่านไฟล์ของใบงานใดก็ได้ โดยส่งเลขที่ใบงาน
    * ที่ตัวเองเห็นได้มาเป็นฉากบัง
    */
-  var crossed = withTestUser_(users.admin, function () {
-    return api_woDocument(mine.data.woId, DOC_KIND.FILE, otherFileId);
+  var crossed = await withTestUser_(users.admin, async function () {
+    return await api_woDocument(mine.data.woId, DOC_KIND.FILE, otherFileId);
   });
   assertEquals_(crossed.ok, true, 'คำขอต้องไม่ล้ม แต่ต้องไม่คืนไฟล์');
   assertEquals_(crossed.data.found, false,
@@ -8018,15 +8023,15 @@ function test_files_byteEndpointRefusesEveryWrongWay() {
    * การทดสอบนี้จึงพิสูจน์ว่าด่านกันที่ "รูปแบบของรหัส" ไม่ใช่กันเพราะรหัสใช้ไม่ได้
    */
   assertTrue_(!!driveBytesOf_(driveId), 'รหัส Drive ที่ใช้ทดสอบต้องเปิดได้จริง ไม่งั้นด่านนี้ผ่านฟรี');
-  var raw = withTestUser_(users.admin, function () {
-    return api_woDocument(other.data.woId, DOC_KIND.FILE, driveId);
+  var raw = await withTestUser_(users.admin, async function () {
+    return await api_woDocument(other.data.woId, DOC_KIND.FILE, driveId);
   });
   assertEquals_(raw.data.found, false,
     'รหัสของที่เก็บที่ส่งมาจากเบราว์เซอร์ต้องไม่ถูกใช้ ต้องหา Drive_File_ID เองที่ฝั่งเซิร์ฟเวอร์');
 
   /* ---------- เลขที่ไฟล์ที่ไม่มีอยู่ ต้องตอบเหมือนกับกรณีที่มีแต่ไม่มีสิทธิ์ ---------- */
-  var ghost = withTestUser_(users.admin, function () {
-    return api_woDocument(mine.data.woId, DOC_KIND.FILE, testPrefix_() + 'FILE-ไม่มีจริง');
+  var ghost = await withTestUser_(users.admin, async function () {
+    return await api_woDocument(mine.data.woId, DOC_KIND.FILE, testPrefix_() + 'FILE-ไม่มีจริง');
   });
   assertEquals_(ghost.data.found, false, 'เลขที่ไฟล์ที่ไม่มีอยู่ต้องถูกปฏิเสธ');
   assertEquals_(JSON.stringify(ghost.data), JSON.stringify(crossed.data),
@@ -8034,16 +8039,16 @@ function test_files_byteEndpointRefusesEveryWrongWay() {
     'ถ้าต่างกัน คนที่ไล่สุ่มเลขที่ไฟล์จะรู้ได้ว่าเลขไหนมีอยู่จริงในระบบ');
 
   /* ---------- ไฟล์ที่ถูกลบแล้ว ---------- */
-  withTestUser_(users.admin, function () { return api_removeFile(otherFileId); });
-  var removed = withTestUser_(users.admin, function () {
-    return api_woDocument(other.data.woId, DOC_KIND.FILE, otherFileId);
+  await withTestUser_(users.admin, async function () { return await api_removeFile(otherFileId); });
+  var removed = await withTestUser_(users.admin, async function () {
+    return await api_woDocument(other.data.woId, DOC_KIND.FILE, otherFileId);
   });
   assertEquals_(removed.data.found, false,
     'ไฟล์ที่ลบแล้วต้องเปิดไม่ได้ · การลบของระบบคือปิดใช้งาน ตัวไฟล์ยังอยู่ในถังขยะและเปิดด้วยรหัสได้');
 
   /* ---------- ใบงานที่ไม่มีอยู่ ---------- */
-  var noWo = withTestUser_(users.admin, function () {
-    return api_woDocument(testPrefix_() + 'WO-ไม่มีจริง', DOC_KIND.REPORT, '');
+  var noWo = await withTestUser_(users.admin, async function () {
+    return await api_woDocument(testPrefix_() + 'WO-ไม่มีจริง', DOC_KIND.REPORT, '');
   });
   assertEquals_(noWo.data.found, false, 'ใบงานที่ไม่มีอยู่ต้องถูกปฏิเสธ');
 
@@ -8061,15 +8066,15 @@ function test_files_byteEndpointRefusesEveryWrongWay() {
   var everyone = [ROLE.SALE, ROLE.APPROVER_SP, ROLE.APPROVER_LAB, ROLE.SERVICE, ROLE.PROJECT, ROLE.LAB];
   for (var d = 0; d < everyone.length; d++) {
     var who = { email: 'TEST-bytes@cnr.co.th', roles: [everyone[d]], department: DEPT.SERVICE };
-    var tried = withTestUser_(who, function () {
-      return api_woDocument(mine.data.woId, DOC_KIND.FILE, otherFileId);
+    var tried = await withTestUser_(who, async function () {
+      return await api_woDocument(mine.data.woId, DOC_KIND.FILE, otherFileId);
     });
     assertEquals_(tried.ok, true, everyone[d] + ' ต้องเรียกปลายทางเอกสารได้');
     assertEquals_(tried.data.found, false,
       everyone[d] + ' ยังต้องถูกปฏิเสธเมื่อขอไฟล์ที่ไม่ได้อยู่ในใบงานที่ส่งมา — ' +
       'การเปิดให้ทุกคนเรียกได้ ไม่ได้แปลว่าเปิดให้ขออะไรก็ได้');
 
-    var padded = withTestUser_(who, function () { return api_probePaddingBytes(16); });
+    var padded = await withTestUser_(who, async function () { return await api_probePaddingBytes(16); });
     assertEquals_(padded.ok, false, everyone[d] + ' ต้องขอก้อนของเครื่องมือวัดไม่ได้');
   }
 
@@ -8078,23 +8083,23 @@ function test_files_byteEndpointRefusesEveryWrongWay() {
    * ล้มเหลวแบบปิด — ไม่รู้ว่าใครขอ = ปฏิเสธ · ห้ามถอยไปใช้ตัวตนของเจ้าของสคริปต์
    * ซึ่งเป็นบัญชีที่มีสิทธิ์อ่านไฟล์ทุกไฟล์ใน Drive
    */
-  var anonymous = api_call('api_woDocument', [mine.data.woId, DOC_KIND.REPORT, ''], '');
+  var anonymous = await api_call('api_woDocument', [mine.data.woId, DOC_KIND.REPORT, ''], '');
   assertEquals_(anonymous.ok, false, 'ไม่มีโทเคนต้องเรียกไม่ได้ แม้เป็นการอ่าน (กฎข้อ 16)');
   assertEquals_(anonymous.message, NEED_LOGIN_MESSAGE, 'และต้องบอกให้เข้าสู่ระบบก่อน');
 
-  var expired = api_call('api_woDocument', [mine.data.woId, DOC_KIND.REPORT, ''], 'โทเคนที่แต่งขึ้นมาเอง');
+  var expired = await api_call('api_woDocument', [mine.data.woId, DOC_KIND.REPORT, ''], 'โทเคนที่แต่งขึ้นมาเอง');
   assertEquals_(expired.ok, false, 'โทเคนที่ใช้ไม่ได้ก็ต้องเรียกไม่ได้');
 
   /* ---------- ทางที่ถูกต้อง ต้องได้ไบต์จริง ---------- */
   /*
    * ต้องมีข้อนี้ ไม่งั้นด่านที่ปฏิเสธทุกอย่างจะผ่านทุกข้อข้างบนโดยไม่ทำงานเลย
    */
-  var good = uploadThroughApi_(users.admin, {
+  var good = await uploadThroughApi_(users.admin, {
     woId: mine.data.woId, scope: FILE_SCOPE.WO, topicId: topic,
     fileName: 'ของใบตัวเอง.pdf', mimeType: 'application/pdf', content: testFileContent_(64)
   });
-  var got = withTestUser_(users.admin, function () {
-    return api_woDocument(mine.data.woId, DOC_KIND.FILE, good.data.file.fileId);
+  var got = await withTestUser_(users.admin, async function () {
+    return await api_woDocument(mine.data.woId, DOC_KIND.FILE, good.data.file.fileId);
   });
   assertEquals_(got.data.found, true, 'ไฟล์ของใบงานตัวเองต้องเปิดได้จริง');
   assertTrue_(got.data.size > 0, 'และต้องได้ไบต์จริง ไม่ใช่ก้อนว่าง');
@@ -8114,8 +8119,8 @@ function test_files_byteEndpointRefusesEveryWrongWay() {
    * ดูเฉพาะบรรทัดของผู้ใช้ทดสอบ ซึ่งเป็นบรรทัดที่คำขอนี้สร้างขึ้น · อ่านทั้งตาราง
    * ไม่ได้ เพราะตารางบันทึกโตเกินเพดานอ่าน แล้วจะได้แต่หน้าแรกที่ไม่มีของเรา
    */
-  var logs = testRowsFromDb_(SHEET.SYSTEM_LOG, 'User')
-    .concat(testRowsFromDb_(SHEET.AUDIT_LOG, 'User'));
+  var logs = (await testRowsFromDb_(SHEET.SYSTEM_LOG, 'User'))
+    .concat(await testRowsFromDb_(SHEET.AUDIT_LOG, 'User'));
   for (var i = 0; i < logs.length; i++) {
     var text = JSON.stringify(logs[i]);
     if (text.indexOf(head) !== -1) leaked.push(logs[i]);
@@ -8198,7 +8203,7 @@ function test_web_filesTravelThroughServer() {
 /**
  * ฉบับเก่าใน _archive เปิดได้ด้วยลำดับ ไม่ใช่ด้วยชื่อไฟล์ (SPEC 16.1 · กฎข้อ 34)
  */
-function test_files_archiveOpensByPosition() {
+async function test_files_archiveOpensByPosition() {
   beginTest_('ฉบับเก่าใน _archive เปิดด้วยลำดับที่เซิร์ฟเวอร์กำหนด — กฎข้อ 34');
 
   if (!getProp_(PROP_KEY.WO_REPORT_TEMPLATE, false)) {
@@ -8208,8 +8213,8 @@ function test_files_archiveOpensByPosition() {
   }
 
   var users = serviceTestUsers_();
-  var created = withTestUser_(users.admin, function () {
-    return api_createWorkOrder(testWoForm_(), 0);
+  var created = await withTestUser_(users.admin, async function () {
+    return await api_createWorkOrder(testWoForm_(), 0);
   });
   var woId = created.data.woId;
 
@@ -8219,19 +8224,19 @@ function test_files_archiveOpensByPosition() {
    * จำนวนครั้งที่ออกอยู่หนึ่งเสมอ · ชุดทดสอบปิดการออกเอกสารไว้ตอนสร้างใบงาน
    * (ดู REPORT_DISABLED_) ใบนี้จึงเริ่มต้นโดยยังไม่มีเอกสารเลย
    */
-  withReports_(function () {
-    generateWorkOrderReport(woId, users.admin);
-    generateWorkOrderReport(woId, users.admin);
-    generateWorkOrderReport(woId, users.admin);
+  await withReports_(async function () {
+    await generateWorkOrderReport(woId, users.admin);
+    await generateWorkOrderReport(woId, users.admin);
+    await generateWorkOrderReport(woId, users.admin);
   });
 
   clearRowCache_(SHEET.WORK_ORDER);
-  var archive = reportArchiveList_(getWorkOrder(woId));
+  var archive = reportArchiveList_(await getWorkOrder(woId));
   assertEquals_(archive.length, 2, 'ต้องมีฉบับเก่าสองฉบับ ไม่งั้นการทดสอบไม่มีความหมาย');
   assertEquals_(archive[0].at, 0, 'ลำดับต้องมาจากเซิร์ฟเวอร์ ไม่ใช่ให้หน้าเว็บนับเอง');
 
-  var got = withTestUser_(users.service, function () {
-    return api_woDocument(woId, DOC_KIND.ARCHIVE, 0);
+  var got = await withTestUser_(users.service, async function () {
+    return await api_woDocument(woId, DOC_KIND.ARCHIVE, 0);
   });
   assertEquals_(got.data.found, true, 'เปิดฉบับเก่าด้วยลำดับได้');
   assertTrue_(got.data.size > 0, 'และต้องได้ไบต์จริง');
@@ -8239,24 +8244,24 @@ function test_files_archiveOpensByPosition() {
     'ชื่อที่คืนมาต้องเป็นชื่อฉบับเก่าที่มีเลขเวอร์ชัน ไม่ใช่ชื่อฉบับปัจจุบัน');
 
   /* ---------- ลำดับนอกช่วง ต้องถูกปฏิเสธ ---------- */
-  var over = withTestUser_(users.service, function () {
-    return api_woDocument(woId, DOC_KIND.ARCHIVE, 99);
+  var over = await withTestUser_(users.service, async function () {
+    return await api_woDocument(woId, DOC_KIND.ARCHIVE, 99);
   });
   assertEquals_(over.data.found, false, 'ลำดับที่ไม่มีอยู่ต้องถูกปฏิเสธ');
 
-  var negative = withTestUser_(users.service, function () {
-    return api_woDocument(woId, DOC_KIND.ARCHIVE, -1);
+  var negative = await withTestUser_(users.service, async function () {
+    return await api_woDocument(woId, DOC_KIND.ARCHIVE, -1);
   });
   assertEquals_(negative.data.found, false, 'ลำดับติดลบต้องถูกปฏิเสธ');
 
-  var notNumber = withTestUser_(users.service, function () {
-    return api_woDocument(woId, DOC_KIND.ARCHIVE, 'ไม่ใช่ตัวเลข');
+  var notNumber = await withTestUser_(users.service, async function () {
+    return await api_woDocument(woId, DOC_KIND.ARCHIVE, 'ไม่ใช่ตัวเลข');
   });
   assertEquals_(notNumber.data.found, false, 'ค่าที่ไม่ใช่ตัวเลขต้องถูกปฏิเสธ ไม่ใช่กลายเป็นศูนย์');
 
   /* ---------- ชนิดที่ไม่รู้จัก ต้องไม่กลายเป็นอย่างอื่นเงียบ ๆ ---------- */
-  var weird = withTestUser_(users.service, function () {
-    return api_woDocument(woId, 'อะไรก็ไม่รู้', '');
+  var weird = await withTestUser_(users.service, async function () {
+    return await api_woDocument(woId, 'อะไรก็ไม่รู้', '');
   });
   assertEquals_(weird.data.kind, DOC_KIND.REPORT,
     'ชนิดที่ไม่รู้จักถอยไปเป็นใบสั่งงานฉบับปัจจุบัน ซึ่งเป็นของที่ผู้ขอเห็นได้อยู่แล้ว');
@@ -8291,7 +8296,7 @@ function probeLineWith_(lines, text) {
  * ไม่เรียก checkFilesAndReport() ตัวเต็มในเทสต์ เพราะตัวเต็มออกใบสั่งงานจริงหนึ่งฉบับ
  * ซึ่งเป็นสิ่งที่ชุดทดสอบปิดไว้โดยตั้งใจ (ดู REPORT_DISABLED_ ใน beginTestRun_)
  */
-function test_files_probeFindsBrokenLinks() {
+async function test_files_probeFindsBrokenLinks() {
   beginTest_('เครื่องมือตรวจระบบไฟล์แยก "ค่าเพี้ยน" ออกจาก "โฟลเดอร์หาย" ได้ — SPEC 22.5');
 
   if (!getProp_(PROP_KEY.DRIVE_ROOT_FOLDER, false)) {
@@ -8302,8 +8307,8 @@ function test_files_probeFindsBrokenLinks() {
   }
 
   var users = serviceTestUsers_();
-  var wo = createTestWo_(users);
-  ensureWoFolder_(wo.woId, 'Attachments');
+  var wo = await createTestWo_(users);
+  await ensureWoFolder_(wo.woId, 'Attachments');
 
   /* ---------- ของที่ระบบเขียนเอง ต้องไม่ถูกฟ้อง ---------- */
   /*
@@ -8312,7 +8317,7 @@ function test_files_probeFindsBrokenLinks() {
    */
   var lines = [];
   var score = { fail: 0 };
-  var row = filesProbeWoRow_(lines, score, wo.woId);
+  var row = await filesProbeWoRow_(lines, score, wo.woId);
 
   assertTrue_(!!row, 'ต้องอ่านแถวใบงานจากฐานข้อมูลได้โดยตรง');
   assertEquals_(score.fail, 0, 'Folder_Map ที่ระบบเพิ่งเขียนเอง ต้องไม่ถูกฟ้องว่าเสีย');
@@ -8324,12 +8329,12 @@ function test_files_probeFindsBrokenLinks() {
   assertEquals_(score.fail, 0, 'โฟลเดอร์ที่เพิ่งสร้าง ต้องเปิดได้ทุกตัว');
 
   /* ---------- อาการที่ 1: ค่าเพี้ยน ---------- */
-  updateWorkOrder(wo.woId, { 'Folder_Map': '{"Attachments":"abc' });
+  await updateWorkOrder(wo.woId, { 'Folder_Map': '{"Attachments":"abc' });
   clearRowCache_(SHEET.WORK_ORDER);
 
   lines = [];
   score = { fail: 0 };
-  filesProbeWoRow_(lines, score, wo.woId);
+  await filesProbeWoRow_(lines, score, wo.woId);
   assertEquals_(score.fail, 1, 'JSON ที่แปลไม่ผ่าน ต้องถูกฟ้องหนึ่งจุด');
   assertTrue_(!!probeLineWith_(lines, 'แปล JSON ไม่ผ่าน'),
     'และต้องบอกว่าแปลไม่ผ่าน ไม่ใช่เงียบแล้วถือว่า "ยังไม่มีโฟลเดอร์ย่อย" แบบที่ระบบทำ');
@@ -8337,22 +8342,22 @@ function test_files_probeFindsBrokenLinks() {
     'ต้องพิมพ์ค่าดิบที่ฐานข้อมูลเก็บไว้ออกมาด้วย ไม่ใช่บอกแค่ว่าเสีย (SPEC 22.5)');
 
   /* ---------- ค่าว่างไม่ใช่ค่าเสีย ---------- */
-  updateWorkOrder(wo.woId, { 'Folder_Map': '' });
+  await updateWorkOrder(wo.woId, { 'Folder_Map': '' });
   clearRowCache_(SHEET.WORK_ORDER);
 
   lines = [];
   score = { fail: 0 };
-  filesProbeWoRow_(lines, score, wo.woId);
+  await filesProbeWoRow_(lines, score, wo.woId);
   assertEquals_(score.fail, 0,
     'ใบที่ยังไม่เคยแนบไฟล์ย่อมไม่มีแผนที่ — ว่างคือคำตอบที่ถูก ห้ามฟ้อง (กฎข้อ 32)');
 
   /* ---------- อาการที่ 2: ค่าถูกแต่โฟลเดอร์หาย ---------- */
-  updateWorkOrder(wo.woId, { 'Folder_Map': '{"Attachments":"ไม่มีโฟลเดอร์รหัสนี้"}' });
+  await updateWorkOrder(wo.woId, { 'Folder_Map': '{"Attachments":"ไม่มีโฟลเดอร์รหัสนี้"}' });
   clearRowCache_(SHEET.WORK_ORDER);
 
   lines = [];
   score = { fail: 0 };
-  var ghost = filesProbeWoRow_(lines, score, wo.woId);
+  var ghost = await filesProbeWoRow_(lines, score, wo.woId);
   assertEquals_(score.fail, 0,
     'ค่าเป็น JSON ที่ถูกต้อง ข้อนี้จึงต้องไม่ฟ้อง — ความผิดอยู่ที่ Drive ไม่ใช่ที่ค่า');
 
@@ -8365,14 +8370,14 @@ function test_files_probeFindsBrokenLinks() {
   /* ---------- สิทธิ์ที่ระบบไฟล์ต้องใช้ ---------- */
   lines = [];
   score = { fail: 0 };
-  filesProbeScopes_(lines, score);
+  await filesProbeScopes_(lines, score);
   assertEquals_(score.fail, getProp_(PROP_KEY.WO_REPORT_TEMPLATE, false) ? 0 : 1,
     'สิทธิ์ต้องใช้ได้ครบ · ยกเว้นตอนที่ยังไม่ได้ตั้งแม่แบบใบสั่งงาน ซึ่งต้องถูกฟ้องพอดีหนึ่งจุด');
 
   /* ---------- ตัวห่อ: ไม่ระบุเลขที่ และเลขที่ที่ไม่มีจริง ---------- */
-  assertTrue_(String(checkFilesAndReport('')).indexOf('ต้องระบุเลขที่ใบงาน') !== -1,
+  assertTrue_(String(await checkFilesAndReport('')).indexOf('ต้องระบุเลขที่ใบงาน') !== -1,
     'เรียกโดยไม่ใส่เลขที่ ต้องบอกวิธีใช้ ไม่ใช่โยน error');
-  assertTrue_(String(checkFilesAndReport(testPrefix_() + 'WO-ไม่มีใบนี้')).indexOf('จุดที่ต้องแก้') !== -1,
+  assertTrue_(String(await checkFilesAndReport(testPrefix_() + 'WO-ไม่มีใบนี้')).indexOf('จุดที่ต้องแก้') !== -1,
     'เลขที่ที่ไม่มีจริง ต้องรายงานว่าหาไม่พบ ไม่ใช่เดินต่อไปสร้างของใหม่');
 
   return endTest_();
@@ -8389,7 +8394,7 @@ function test_files_probeFindsBrokenLinks() {
  *
  * ชื่อที่ค้นถูกประกอบขึ้นตอนรัน เพื่อไม่ให้ตัวเทสต์เองกลายเป็นผลการค้นหา
  */
-function test_files_driveIsolation() {
+async function test_files_driveIsolation() {
   beginTest_('ไม่มีการเรียก Drive นอก 06_Files.gs — เหมือนกฎของ SpreadsheetApp');
 
   var needle = 'Drive' + 'App';
@@ -8429,7 +8434,7 @@ function test_files_driveIsolation() {
 
   /* ---------- และต้องไม่มีวัตถุของ Drive หลุดออกไปข้างนอก ---------- */
   // ชั้นบนต้องได้แต่ค่าธรรมดา ถ้าได้วัตถุของ Drive ไป การย้ายที่เก็บจะลามออกไปนอกไฟล์เดียว
-  var view = fileViewOf_({
+  var view = await fileViewOf_({
     'File_ID': 'F1', 'WO_ID': 'WO-2609-0001', 'Saved_File_Name': 'a.pdf',
     'File_URL': 'https://example.test/a', 'Size': 10, 'Uploaded_Date': new Date()
   });
@@ -8524,23 +8529,23 @@ function test_permission_gatewayRetryList() {
  * แคชที่ข้ามการรันเป็นของอันตราย ถ้าค่าเก่าค้างอยู่ ผู้ใช้อีกคนจะตัดสินใจจากข้อมูลที่ไม่ใช่ปัจจุบัน
  * โดยเฉพาะ User_Role ซึ่งเป็นตัวตัดสินสิทธิ์ทั้งระบบ
  */
-function test_repo_masterCache() {
+async function test_repo_masterCache() {
   beginTest_('แคชข้อมูลตั้งต้นตรงกับชีต และล้างทันทีเมื่อแก้');
 
   var topicId = testPrefix_() + 'TOPIC-CACHE';
 
   /* ---------- อ่านครั้งแรก แล้วอ่านซ้ำ ต้องได้เท่ากัน ---------- */
-  appendRow_(SHEET.ATTACHMENT_TOPIC, {
+  await appendRow_(SHEET.ATTACHMENT_TOPIC, {
     'Topic_ID': topicId, 'Scope': FILE_SCOPE.WO, 'Topic_Name': 'ชื่อเดิม',
     'Required': false, 'Multiple': false, 'Active': true
   });
 
   clearRowCache_();   // ล้างแคชระดับการรัน เพื่อบังคับให้อ่านผ่านทางเดียวกับผู้ใช้จริง
-  var first = getAttachmentTopic(topicId);
+  var first = await getAttachmentTopic(topicId);
   assertEquals_(first['Topic_Name'], 'ชื่อเดิม', 'อ่านครั้งแรกต้องได้ค่าที่เพิ่งเขียน');
 
   clearRowCache_();
-  var second = getAttachmentTopic(topicId);
+  var second = await getAttachmentTopic(topicId);
   assertEquals_(second['Topic_Name'], 'ชื่อเดิม', 'อ่านซ้ำจากแคชต้องได้ค่าเดียวกัน');
 
   /* ---------- ต้องถูกเก็บลงแคชข้ามการรันจริง ---------- */
@@ -8551,19 +8556,19 @@ function test_repo_masterCache() {
   /* ---------- เขียนแล้วแคชต้องตายทันที ไม่ใช่รอหมดอายุอีก 10 นาที ---------- */
   // ถ้าไม่ล้าง ผู้ใช้อีกคนจะเห็นค่าเก่านานถึง 10 นาทีโดยไม่มีอะไรบอก
   // ตรวจที่ตัวแคชตรง ๆ เพราะถ้าตรวจด้วยการอ่านซ้ำ การล้างแคชระดับการรันจะบังหน้าให้เอง
-  updateRow_(SHEET.ATTACHMENT_TOPIC, 'Topic_ID', topicId, { 'Topic_Name': 'ชื่อใหม่' });
+  await updateRow_(SHEET.ATTACHMENT_TOPIC, 'Topic_ID', topicId, { 'Topic_Name': 'ชื่อใหม่' });
   assertEquals_(getMasterCache_(SHEET.ATTACHMENT_TOPIC), null,
     'เขียนแท็บข้อมูลตั้งต้นแล้ว แคชข้ามการรันของแท็บนั้นต้องถูกทิ้งทันที');
 
   clearRowCache_();
-  assertEquals_(getAttachmentTopic(topicId)['Topic_Name'], 'ชื่อใหม่',
+  assertEquals_((await getAttachmentTopic(topicId))['Topic_Name'], 'ชื่อใหม่',
     'แก้ข้อมูลตั้งต้นแล้ว ต้องเห็นค่าใหม่ทันที ไม่ใช่รอแคชหมดอายุ');
 
   /* ---------- ปุ่มล้างแคชด้วยมือ ต้องทำงาน ---------- */
   var message = clearMasterCache();
   assertTrue_(String(message).indexOf('Attachment_Topic') !== -1,
     'ปุ่มล้างแคชต้องบอกได้ว่าล้างแท็บอะไรไปบ้าง สำหรับตอนที่ผู้ดูแลแก้ในชีตโดยตรง');
-  assertEquals_(getAttachmentTopic(topicId)['Topic_Name'], 'ชื่อใหม่',
+  assertEquals_((await getAttachmentTopic(topicId))['Topic_Name'], 'ชื่อใหม่',
     'ล้างแคชแล้วต้องยังอ่านข้อมูลได้ตามปกติ');
 
   /* ---------- ค่าที่แปลงผ่าน JSON ไม่ได้ ต้องไม่ถูกแคช ---------- */
@@ -8601,7 +8606,7 @@ function test_repo_masterCache() {
  * @param {Object} [extra] คอลัมน์เพิ่มเติม เช่น Department หรือ Must_Change_Password
  * @return {Object} {email, username, password}
  */
-function addLoginTestUser_(suffix, role, password, extra) {
+async function addLoginTestUser_(suffix, role, password, extra) {
   var email = testPrefix_() + suffix + '@cnr.co.th';
   var username = testPrefix_() + suffix;
   var salt = newPasswordSalt_();
@@ -8623,7 +8628,7 @@ function addLoginTestUser_(suffix, role, password, extra) {
     if (Object.prototype.hasOwnProperty.call(extra, key)) row[key] = extra[key];
   }
 
-  appendRow_(SHEET.USER_ROLE, row);
+  await appendRow_(SHEET.USER_ROLE, row);
   return { email: email, username: username, password: password };
 }
 
@@ -8633,8 +8638,8 @@ function addLoginTestUser_(suffix, role, password, extra) {
  * @param {string} password รหัสผ่าน
  * @return {Object} ผลจาก api_call
  */
-function loginThroughApi_(username, password) {
-  return api_call('api_login', [username, password], '');
+async function loginThroughApi_(username, password) {
+  return await api_call('api_login', [username, password], '');
 }
 
 /**
@@ -8643,13 +8648,13 @@ function loginThroughApi_(username, password) {
  * ข้อความที่ต่างกันคือตัวบอกคนนอกว่าชื่อผู้ใช้ไหนมีอยู่จริง ซึ่งเป็นครึ่งหนึ่ง
  * ของงานเดารหัสไปแล้ว · หน้าล็อกอินเปิดให้ทั้งอินเทอร์เน็ตยิงได้ ข้อนี้จึงสำคัญมาก
  */
-function test_auth_loginSucceedsAndFails() {
+async function test_auth_loginSucceedsAndFails() {
   beginTest_('รหัสถูกได้โทเคน รหัสผิดไม่ได้ และข้อความเหมือนกันทุกกรณี');
 
-  var user = addLoginTestUser_('LOGIN1', ROLE.ADMIN, 'รหัสผ่านที่ถูกต้อง');
+  var user = await addLoginTestUser_('LOGIN1', ROLE.ADMIN, 'รหัสผ่านที่ถูกต้อง');
 
   /* ---------- รหัสถูก ---------- */
-  var ok = loginThroughApi_(user.username, user.password);
+  var ok = await loginThroughApi_(user.username, user.password);
   assertEquals_(ok.ok, true, 'รหัสถูกต้องเข้าได้');
   assertTrue_(!!ok.data.token, 'และต้องได้โทเคนกลับมา');
   assertTrue_(ok.data.token.length >= 32, 'โทเคนต้องยาวพอที่จะเดาไม่ได้');
@@ -8658,24 +8663,24 @@ function test_auth_loginSucceedsAndFails() {
   assertTrue_(isJsonSafe_(ok), 'ผลลัพธ์ต้องส่งผ่าน google.script.run ได้ (กฎข้อ 14)');
 
   /* ---------- โทเคนตัวจริงต้องไม่เคยถูกเก็บลงชีต ---------- */
-  var stored = listSessionTokens();
+  var stored = await listSessionTokens();
   for (var i = 0; i < stored.length; i++) {
     assertTrue_(String(stored[i]['Token_Hash']) !== ok.data.token,
       'ชีตต้องเก็บเฉพาะค่าที่เข้ารหัสแล้ว ห้ามเก็บโทเคนตัวจริง');
   }
-  assertTrue_(!!getSessionToken(hashSessionToken_(ok.data.token)),
+  assertTrue_(!!await getSessionToken(hashSessionToken_(ok.data.token)),
     'แต่ต้องหาโทเคนเจอจากค่าที่เข้ารหัสแล้ว');
 
   /* ---------- ทุกกรณีที่ไม่ผ่าน ต้องได้ข้อความเดียวกันเป๊ะ ---------- */
-  var closed = addLoginTestUser_('LOGIN2', ROLE.ADMIN, 'รหัสผ่านของคนที่ถูกปิด',
+  var closed = await addLoginTestUser_('LOGIN2', ROLE.ADMIN, 'รหัสผ่านของคนที่ถูกปิด',
     { 'Active': false });
 
   var failures = [
-    { name: 'รหัสผิด',            run: function () { return loginThroughApi_(user.username, 'รหัสผิดแน่นอน'); } },
-    { name: 'ไม่มีชื่อผู้ใช้นี้',    run: function () { return loginThroughApi_('ไม่มีคนนี้ในระบบ', 'อะไรก็ได้ยาว ๆ'); } },
-    { name: 'ชื่อผู้ใช้ว่าง',       run: function () { return loginThroughApi_('', 'อะไรก็ได้ยาว ๆ'); } },
-    { name: 'รหัสผ่านว่าง',        run: function () { return loginThroughApi_(user.username, ''); } },
-    { name: 'บัญชีถูกปิดใช้งาน',   run: function () { return loginThroughApi_(closed.username, closed.password); } }
+    { name: 'รหัสผิด',            run: async function () { return await loginThroughApi_(user.username, 'รหัสผิดแน่นอน'); } },
+    { name: 'ไม่มีชื่อผู้ใช้นี้',    run: async function () { return await loginThroughApi_('ไม่มีคนนี้ในระบบ', 'อะไรก็ได้ยาว ๆ'); } },
+    { name: 'ชื่อผู้ใช้ว่าง',       run: async function () { return await loginThroughApi_('', 'อะไรก็ได้ยาว ๆ'); } },
+    { name: 'รหัสผ่านว่าง',        run: async function () { return await loginThroughApi_(user.username, ''); } },
+    { name: 'บัญชีถูกปิดใช้งาน',   run: async function () { return await loginThroughApi_(closed.username, closed.password); } }
   ];
 
   for (var f = 0; f < failures.length; f++) {
@@ -8691,7 +8696,7 @@ function test_auth_loginSucceedsAndFails() {
   // นับเฉพาะครั้งที่ใช้ชื่อผู้ใช้ของรอบทดสอบนี้ ส่วนครั้งที่พิมพ์ชื่อมั่ว ๆ ตามหาไม่ได้
   // (และไม่ควรตามหาได้ เพราะชื่อนั้นไม่ใช่ข้อมูลทดสอบที่เราสร้างขึ้น)
   // ย้ายไป System_Log แล้วตาม SPEC 13 เพราะไม่ได้ผูกกับใบงานใบใด — เจตนาของข้อนี้ไม่เปลี่ยน
-  var failedRows = systemRowsOf_(ACTION.LOGIN_FAILED);
+  var failedRows = await systemRowsOf_(ACTION.LOGIN_FAILED);
   assertTrue_(failedRows.length >= 3,
     'ทุกครั้งที่ล็อกอินไม่ผ่าน ต้องถูกบันทึกลง System_Log (พบ ' + failedRows.length + ' แถว)');
 
@@ -8711,8 +8716,8 @@ function test_auth_loginSucceedsAndFails() {
  * @param {string} action ค่าจาก ACTION
  * @return {Object[]}
  */
-function auditRowsOf_(action) {
-  var rows = testRowsFromDb_(SHEET.AUDIT_LOG, 'User', { 'Action': action });
+async function auditRowsOf_(action) {
+  var rows = await testRowsFromDb_(SHEET.AUDIT_LOG, 'User', { 'Action': action });
   var found = [];
   for (var i = 0; i < rows.length; i++) {
     if (String(rows[i]['Action']) !== action) continue;
@@ -8727,40 +8732,40 @@ function auditRowsOf_(action) {
  *
  * ถ้าไม่ตรวจวันหมดอายุ โทเคนที่หลุดออกไปครั้งเดียวจะใช้ได้ตลอดกาล
  */
-function test_auth_tokenExpires() {
+async function test_auth_tokenExpires() {
   beginTest_('โทเคนหมดอายุแล้วใช้ไม่ได้');
 
-  var user = addLoginTestUser_('EXPIRE', ROLE.ADMIN, 'รหัสผ่านสำหรับทดสอบ');
-  var token = loginThroughApi_(user.username, user.password).data.token;
+  var user = await addLoginTestUser_('EXPIRE', ROLE.ADMIN, 'รหัสผ่านสำหรับทดสอบ');
+  var token = (await loginThroughApi_(user.username, user.password)).data.token;
 
   // ยังไม่หมดอายุ ต้องใช้ได้
-  assertEquals_(api_call('api_getMenu', [], token).ok, true, 'โทเคนที่ยังไม่หมดอายุ ใช้ได้');
+  assertEquals_((await api_call('api_getMenu', [], token)).ok, true, 'โทเคนที่ยังไม่หมดอายุ ใช้ได้');
 
   /* ---------- ดันเวลาหมดอายุให้เป็นอดีต ---------- */
   var hash = hashSessionToken_(token);
-  updateSessionToken(hash, { 'Expires_Date': new Date(new Date().getTime() - 60000) });
+  await updateSessionToken(hash, { 'Expires_Date': new Date(new Date().getTime() - 60000) });
 
-  var expired = api_call('api_getMenu', [], token);
+  var expired = await api_call('api_getMenu', [], token);
   assertEquals_(expired.ok, false, 'โทเคนที่หมดอายุแล้ว ต้องใช้ไม่ได้');
   assertEquals_(expired.message, NEED_LOGIN_MESSAGE, 'และต้องบอกให้เข้าสู่ระบบใหม่');
   assertEquals_(expired.needLogin, true, 'พร้อมธงที่บอกหน้าเว็บให้พากลับไปหน้าเข้าสู่ระบบ');
 
   /* ---------- คำสั่งที่เปลี่ยนข้อมูลก็ต้องถูกปฏิเสธเช่นกัน ---------- */
-  var before = countAllRows_();
-  assertEquals_(api_call('api_createWorkOrder', [testWoForm_()], token).ok, false,
+  var before = await countAllRows_();
+  assertEquals_((await api_call('api_createWorkOrder', [testWoForm_()], token)).ok, false,
     'โทเคนหมดอายุแล้ว สร้างใบงานไม่ได้');
-  assertEquals_(countAllRows_().total, before.total,
+  assertEquals_((await countAllRows_()).total, before.total,
     'และต้องไม่มีแถวใดถูกเขียนลงชีตเลย');
 
   /* ---------- ต่ออายุเมื่อใช้งาน ---------- */
   // คนที่ทำงานต่อเนื่องต้องไม่ถูกเตะออกกลางคัน แต่คนที่ทิ้งหน้าจอไว้ต้องล็อกอินใหม่
-  var fresh = loginThroughApi_(user.username, user.password).data.token;
+  var fresh = (await loginThroughApi_(user.username, user.password)).data.token;
   var freshHash = hashSessionToken_(fresh);
   var soon = new Date(new Date().getTime() + 60000);   // เหลืออีกนาทีเดียว
-  updateSessionToken(freshHash, { 'Expires_Date': soon });
+  await updateSessionToken(freshHash, { 'Expires_Date': soon });
 
-  assertEquals_(api_call('api_getMenu', [], fresh).ok, true, 'ใกล้หมดอายุแต่ยังไม่หมด ใช้ได้');
-  var after = toDate_(getSessionToken(freshHash)['Expires_Date']);
+  assertEquals_((await api_call('api_getMenu', [], fresh)).ok, true, 'ใกล้หมดอายุแต่ยังไม่หมด ใช้ได้');
+  var after = toDate_((await getSessionToken(freshHash))['Expires_Date']);
   assertTrue_(after.getTime() > soon.getTime() + 3600000,
     'ใช้งานแล้วต้องถูกต่ออายุออกไป ไม่ใช่ปล่อยให้หมดกลางคัน');
 
@@ -8772,24 +8777,24 @@ function test_auth_tokenExpires() {
  *
  * โทเคนผูกกับเจ้าของในชีต ไม่ใช่เชื่อสิ่งที่หน้าเว็บบอกมา
  */
-function test_auth_tokenBelongsToOwner() {
+async function test_auth_tokenBelongsToOwner() {
   beginTest_('โทเคนของคนอื่นใช้สวมสิทธิ์ไม่ได้');
 
-  var admin = addLoginTestUser_('OWNER1', ROLE.ADMIN, 'รหัสผ่านของผู้ดูแล');
-  var service = addLoginTestUser_('OWNER2', ROLE.SERVICE, 'รหัสผ่านของแผนกบริการ',
+  var admin = await addLoginTestUser_('OWNER1', ROLE.ADMIN, 'รหัสผ่านของผู้ดูแล');
+  var service = await addLoginTestUser_('OWNER2', ROLE.SERVICE, 'รหัสผ่านของแผนกบริการ',
     { 'Department': DEPT.SERVICE });
 
-  var adminToken = loginThroughApi_(admin.username, admin.password).data.token;
-  var serviceToken = loginThroughApi_(service.username, service.password).data.token;
+  var adminToken = (await loginThroughApi_(admin.username, admin.password)).data.token;
+  var serviceToken = (await loginThroughApi_(service.username, service.password)).data.token;
 
   /* ---------- โทเคนแต่ละใบต้องได้ตัวตนของเจ้าของเท่านั้น ---------- */
-  assertEquals_(api_call('api_getMenu', [], adminToken).data.user.email, admin.email,
+  assertEquals_((await api_call('api_getMenu', [], adminToken)).data.user.email, admin.email,
     'โทเคนของผู้ดูแล ต้องได้ตัวตนของผู้ดูแล');
-  assertEquals_(api_call('api_getMenu', [], serviceToken).data.user.email, service.email,
+  assertEquals_((await api_call('api_getMenu', [], serviceToken)).data.user.email, service.email,
     'โทเคนของแผนกบริการ ต้องได้ตัวตนของแผนกบริการ');
 
   /* ---------- สิทธิ์ต้องตามเจ้าของโทเคน ไม่ใช่ตามที่ขอ ---------- */
-  assertEquals_(api_call('api_createWorkOrder', [testWoForm_()], serviceToken).ok, false,
+  assertEquals_((await api_call('api_createWorkOrder', [testWoForm_()], serviceToken)).ok, false,
     'โทเคนของแผนกบริการ สร้างใบงานไม่ได้ เพราะไม่ใช่สิทธิ์ของเขา');
 
   /* ---------- โทเคนปลอมหรือโทเคนที่แก้ไขแล้ว ต้องใช้ไม่ได้ ---------- */
@@ -8802,7 +8807,7 @@ function test_auth_tokenBelongsToOwner() {
     '', null, undefined
   ];
   for (var i = 0; i < fakes.length; i++) {
-    var result = api_call('api_getMenu', [], fakes[i]);
+    var result = await api_call('api_getMenu', [], fakes[i]);
     assertEquals_(result.ok, false, 'โทเคนปลอมแบบที่ ' + (i + 1) + ' ต้องใช้ไม่ได้');
     assertEquals_(result.needLogin, true, 'และต้องถูกพากลับไปหน้าเข้าสู่ระบบ');
   }
@@ -8811,7 +8816,7 @@ function test_auth_tokenBelongsToOwner() {
    * ค่าที่เก็บในชีตต้องใช้แทนโทเคนไม่ได้ — ข้อนี้คือเหตุผลทั้งหมดของการเข้ารหัสก่อนเก็บ
    * ถ้าใช้แทนกันได้ คนที่เปิดชีตได้จะสวมสิทธิ์เป็นทุกคนที่กำลังล็อกอินอยู่ทันที
    */
-  assertEquals_(api_call('api_getMenu', [], hashSessionToken_(adminToken)).ok, false,
+  assertEquals_((await api_call('api_getMenu', [], hashSessionToken_(adminToken))).ok, false,
     'ค่าที่เก็บในชีตต้องใช้เป็นโทเคนไม่ได้');
 
   return endTest_();
@@ -8822,7 +8827,7 @@ function test_auth_tokenBelongsToOwner() {
  *
  * ข้อสำคัญที่สุดของทั้งชุด — fail closed ต้องไม่มีรูแม้แต่รูเดียว
  */
-function test_auth_noTokenWritesNothing() {
+async function test_auth_noTokenWritesNothing() {
   beginTest_('ไม่มีโทเคน เปลี่ยนข้อมูลไม่ได้ และไม่มีแถวใดถูกเขียน');
 
   var writers = ['api_createWorkOrder', 'api_editWorkOrder', 'api_submitWorkOrder',
@@ -8843,19 +8848,19 @@ function test_auth_noTokenWritesNothing() {
       'รายการ ' + everything[e] + ' เปลี่ยนข้อมูลแต่ยังไม่ถูกตรวจในชุดนี้ — ต้องเพิ่มเข้ารายการ');
   }
 
-  var before = countAllRows_();
+  var before = await countAllRows_();
   var noTokens = ['', null, undefined, 'โทเคนที่แต่งขึ้นมาเอง'];
 
   for (var t = 0; t < noTokens.length; t++) {
     for (var w = 0; w < writers.length; w++) {
-      var result = api_call(writers[w], ['อะไรก็ได้', 'อะไรก็ได้', 'อะไรก็ได้'], noTokens[t]);
+      var result = await api_call(writers[w], ['อะไรก็ได้', 'อะไรก็ได้', 'อะไรก็ได้'], noTokens[t]);
       assertEquals_(result.ok, false, writers[w] + ' ต้องถูกปฏิเสธเมื่อไม่มีโทเคนที่ใช้ได้');
       assertEquals_(result.message, NEED_LOGIN_MESSAGE, 'และต้องบอกให้เข้าสู่ระบบก่อน');
     }
   }
 
   /* ---------- ข้อสำคัญที่สุด: ห้ามมีแถวใดถูกเขียนเลยแม้แต่แถวเดียว ---------- */
-  var after = countAllRows_();
+  var after = await countAllRows_();
   assertEquals_(after.total, before.total,
     'ผู้ที่ไม่มีโทเคน ต้องไม่ทำให้มีแถวใหม่ในชีตแม้แต่แถวเดียว');
   for (var sheet in before.perSheet) {
@@ -8867,7 +8872,7 @@ function test_auth_noTokenWritesNothing() {
   /* ---------- รายการที่อ่านอย่างเดียว ก็ต้องมีโทเคนเช่นกัน ---------- */
   // ทุกคนเห็นใบงานได้ทุกใบก็จริง แต่ต้องเป็น "ทุกคนในองค์กร" ไม่ใช่ทุกคนบนอินเทอร์เน็ต
   for (var r = 0; r < readOnly.length; r++) {
-    assertEquals_(api_call(readOnly[r], [], '').ok, false,
+    assertEquals_((await api_call(readOnly[r], [], '')).ok, false,
       readOnly[r] + ' อ่านอย่างเดียวก็ต้องเข้าสู่ระบบก่อน');
   }
 
@@ -8884,22 +8889,22 @@ function test_auth_noTokenWritesNothing() {
   EDITOR_RUN_ = false;
   try {
     var direct = [
-      { name: 'listCustomers', run: function () { return listCustomers(); } },
-      { name: 'listUserRoles', run: function () { return listUserRoles(true); } },
-      { name: 'listWorkOrders', run: function () { return listWorkOrders(); } },
-      { name: 'createWorkOrder', run: function () {
-          return createWorkOrder(testWoForm_(), { email: 'ปลอม@example.com', roles: [ROLE.ADMIN] }, {});
+      { name: 'listCustomers', run: async function () { return await listCustomers(); } },
+      { name: 'listUserRoles', run: async function () { return await listUserRoles(true); } },
+      { name: 'listWorkOrders', run: async function () { return await listWorkOrders(); } },
+      { name: 'createWorkOrder', run: async function () {
+          return await createWorkOrder(testWoForm_(), { email: 'ปลอม@example.com', roles: [ROLE.ADMIN] }, {});
         } }
     ];
     for (var d = 0; d < direct.length; d++) {
-      assertThrowsMessage_(direct[d].run, NEED_LOGIN_MESSAGE,
+      await assertThrowsMessage_(direct[d].run, NEED_LOGIN_MESSAGE,
         'เรียก ' + direct[d].name + ' ตรง ๆ จากเบราว์เซอร์ ต้องถูกปฏิเสธที่ชั้นข้อมูล');
     }
   } finally {
     EDITOR_RUN_ = editorFlagBefore;
   }
 
-  assertEquals_(countAllRows_().total, before.total,
+  assertEquals_((await countAllRows_()).total, before.total,
     'และการเรียกตรง ๆ เหล่านั้น ต้องไม่ทำให้มีแถวใหม่เช่นกัน');
 
   return endTest_();
@@ -8910,37 +8915,37 @@ function test_auth_noTokenWritesNothing() {
  *
  * หน้าล็อกอินเปิดให้ทั้งอินเทอร์เน็ตยิงได้ ถ้าไม่มีด่านนี้ การเดารหัสจะทำได้ไม่จำกัด
  */
-function test_auth_lockAfterFailures() {
+async function test_auth_lockAfterFailures() {
   beginTest_('ผิด 5 ครั้งแล้วล็อก ครบเวลาแล้วปลดล็อกเอง');
 
-  var user = addLoginTestUser_('LOCK', ROLE.ADMIN, 'รหัสผ่านที่ถูกต้องจริง');
+  var user = await addLoginTestUser_('LOCK', ROLE.ADMIN, 'รหัสผ่านที่ถูกต้องจริง');
 
   /* ---------- 4 ครั้งแรก ยังไม่ล็อก ---------- */
   for (var i = 1; i < LOGIN_MAX_FAILURES; i++) {
-    var attempt = loginThroughApi_(user.username, 'รหัสผิดครั้งที่ ' + i);
+    var attempt = await loginThroughApi_(user.username, 'รหัสผิดครั้งที่ ' + i);
     assertEquals_(attempt.message, LOGIN_FAILED_MESSAGE,
       'ครั้งที่ ' + i + ' ยังเป็นข้อความเดิม ยังไม่บอกว่าถูกล็อก');
   }
-  assertEquals_(Number(getUserRole(user.email)['Failed_Count']), LOGIN_MAX_FAILURES - 1,
+  assertEquals_(Number((await getUserRole(user.email))['Failed_Count']), LOGIN_MAX_FAILURES - 1,
     'ตัวนับต้องเดินตามจำนวนครั้งที่ผิดจริง');
 
   // ยังไม่ครบ 5 จึงยังเข้าด้วยรหัสที่ถูกต้องได้
-  assertEquals_(loginThroughApi_(user.username, user.password).ok, true,
+  assertEquals_((await loginThroughApi_(user.username, user.password)).ok, true,
     'ยังไม่ครบจำนวน ต้องยังเข้าได้ด้วยรหัสที่ถูกต้อง');
-  assertEquals_(Number(getUserRole(user.email)['Failed_Count']), 0,
+  assertEquals_(Number((await getUserRole(user.email))['Failed_Count']), 0,
     'เข้าได้แล้วตัวนับต้องถูกล้าง ไม่งั้นจะสะสมจนล็อกคนที่ใช้งานปกติ');
 
   /* ---------- ผิดครบ 5 ครั้ง ต้องล็อก ---------- */
   for (var j = 0; j < LOGIN_MAX_FAILURES; j++) {
-    loginThroughApi_(user.username, 'รหัสผิดรอบสอง ' + j);
+    await loginThroughApi_(user.username, 'รหัสผิดรอบสอง ' + j);
   }
 
-  var locked = getUserRole(user.email);
+  var locked = await getUserRole(user.email);
   assertTrue_(!!locked['Locked_Until'], 'ผิดครบจำนวนแล้วต้องบันทึกเวลาปลดล็อกไว้');
   assertTrue_(lockMinutesLeft_(locked) > 0, 'และต้องอยู่ในสถานะถูกล็อก');
 
   /* ---------- ระหว่างถูกล็อก แม้รหัสถูกก็เข้าไม่ได้ ---------- */
-  var blocked = loginThroughApi_(user.username, user.password);
+  var blocked = await loginThroughApi_(user.username, user.password);
   assertEquals_(blocked.ok, false, 'ระหว่างถูกล็อก แม้รหัสถูกต้องก็เข้าไม่ได้');
   assertTrue_(String(blocked.message).indexOf('ถูกล็อกชั่วคราว') !== -1,
     'กรณีนี้บอกได้ว่าถูกล็อก เพราะกว่าจะเห็นข้อความนี้ต้องเดาผิดมาแล้ว 5 ครั้ง ' +
@@ -8949,9 +8954,9 @@ function test_auth_lockAfterFailures() {
     'และต้องบอกว่าต้องรออีกกี่นาที ไม่ใช่ปล่อยให้เดาเอง');
 
   /* ---------- ครบเวลาแล้วต้องปลดล็อกเอง ไม่ต้องรอผู้ดูแล ---------- */
-  updateUserRole_(user.email, { 'Locked_Until': new Date(new Date().getTime() - 1000) });
-  assertEquals_(lockMinutesLeft_(getUserRole(user.email)), 0, 'เลยเวลาแล้วต้องไม่ถือว่าถูกล็อก');
-  assertEquals_(loginThroughApi_(user.username, user.password).ok, true,
+  await updateUserRole_(user.email, { 'Locked_Until': new Date(new Date().getTime() - 1000) });
+  assertEquals_(lockMinutesLeft_(await getUserRole(user.email)), 0, 'เลยเวลาแล้วต้องไม่ถือว่าถูกล็อก');
+  assertEquals_((await loginThroughApi_(user.username, user.password)).ok, true,
     'ครบเวลาแล้วต้องเข้าได้เองโดยไม่ต้องให้ผู้ดูแลมาปลดให้');
 
   return endTest_();
@@ -8963,49 +8968,49 @@ function test_auth_lockAfterFailures() {
  * ถ้าลบแค่ฝั่งเบราว์เซอร์ โทเคนใบนั้นยังใช้ได้ต่ออีก 12 ชั่วโมง
  * ใครที่คัดลอกไปไว้แล้วจะเข้าใช้ต่อได้ทั้งที่ผู้ใช้กดออกไปแล้ว
  */
-function test_auth_logoutKillsToken() {
+async function test_auth_logoutKillsToken() {
   beginTest_('ออกจากระบบแล้วโทเคนเดิมใช้ไม่ได้อีก');
 
-  var user = addLoginTestUser_('LOGOUT', ROLE.ADMIN, 'รหัสผ่านสำหรับทดสอบ');
+  var user = await addLoginTestUser_('LOGOUT', ROLE.ADMIN, 'รหัสผ่านสำหรับทดสอบ');
 
   /* ---------- ออกจากระบบด้วยตัวเอง ---------- */
-  var token = loginThroughApi_(user.username, user.password).data.token;
-  assertEquals_(api_call('api_getMenu', [], token).ok, true, 'ก่อนออกจากระบบ ใช้งานได้ปกติ');
+  var token = (await loginThroughApi_(user.username, user.password)).data.token;
+  assertEquals_((await api_call('api_getMenu', [], token)).ok, true, 'ก่อนออกจากระบบ ใช้งานได้ปกติ');
 
-  assertEquals_(api_call('api_logout', [], token).ok, true, 'ออกจากระบบต้องสำเร็จ');
-  var afterLogout = api_call('api_getMenu', [], token);
+  assertEquals_((await api_call('api_logout', [], token)).ok, true, 'ออกจากระบบต้องสำเร็จ');
+  var afterLogout = await api_call('api_getMenu', [], token);
   assertEquals_(afterLogout.ok, false, 'ออกจากระบบแล้ว โทเคนเดิมต้องใช้ไม่ได้อีก');
   assertEquals_(afterLogout.needLogin, true, 'และต้องถูกพากลับไปหน้าเข้าสู่ระบบ');
 
   /* ---------- เข้าใหม่ได้ตามปกติ ---------- */
-  var again = loginThroughApi_(user.username, user.password);
+  var again = await loginThroughApi_(user.username, user.password);
   assertEquals_(again.ok, true, 'ออกแล้วเข้าใหม่ได้ตามปกติ');
   assertTrue_(again.data.token !== token, 'และต้องได้โทเคนใบใหม่ ไม่ใช่ใบเดิม');
 
   /* ---------- ผู้ดูแลบังคับให้ออกจากระบบทุกเครื่อง ---------- */
   // ใช้ตอนเครื่องหาย ตอนสงสัยว่ารหัสรั่ว และตอนพนักงานลาออก
-  var deviceA = loginThroughApi_(user.username, user.password).data.token;
-  var deviceB = loginThroughApi_(user.username, user.password).data.token;
-  assertEquals_(api_call('api_getMenu', [], deviceA).ok, true, 'เครื่องแรกใช้งานได้');
-  assertEquals_(api_call('api_getMenu', [], deviceB).ok, true, 'เครื่องที่สองก็ใช้งานได้');
+  var deviceA = (await loginThroughApi_(user.username, user.password)).data.token;
+  var deviceB = (await loginThroughApi_(user.username, user.password)).data.token;
+  assertEquals_((await api_call('api_getMenu', [], deviceA)).ok, true, 'เครื่องแรกใช้งานได้');
+  assertEquals_((await api_call('api_getMenu', [], deviceB)).ok, true, 'เครื่องที่สองก็ใช้งานได้');
 
-  var admin = addLoginTestUser_('LOGOUTADM', ROLE.ADMIN, 'รหัสผ่านของผู้ดูแล');
-  var adminToken = loginThroughApi_(admin.username, admin.password).data.token;
+  var admin = await addLoginTestUser_('LOGOUTADM', ROLE.ADMIN, 'รหัสผ่านของผู้ดูแล');
+  var adminToken = (await loginThroughApi_(admin.username, admin.password)).data.token;
 
-  var forced = api_call('api_adminForceLogout', [user.email], adminToken);
+  var forced = await api_call('api_adminForceLogout', [user.email], adminToken);
   assertEquals_(forced.ok, true, 'ผู้ดูแลบังคับให้ออกจากระบบได้');
   assertTrue_(forced.data.closed >= 2, 'และต้องปิดโทเคนทุกใบของคนนั้น ไม่ใช่ใบเดียว');
 
-  assertEquals_(api_call('api_getMenu', [], deviceA).ok, false, 'เครื่องแรกต้องใช้ไม่ได้แล้ว');
-  assertEquals_(api_call('api_getMenu', [], deviceB).ok, false, 'เครื่องที่สองต้องใช้ไม่ได้แล้ว');
+  assertEquals_((await api_call('api_getMenu', [], deviceA)).ok, false, 'เครื่องแรกต้องใช้ไม่ได้แล้ว');
+  assertEquals_((await api_call('api_getMenu', [], deviceB)).ok, false, 'เครื่องที่สองต้องใช้ไม่ได้แล้ว');
 
   /* ---------- คนที่ไม่ใช่ผู้ดูแล บังคับคนอื่นออกไม่ได้ ---------- */
-  var plain = addLoginTestUser_('LOGOUTSV', ROLE.SERVICE, 'รหัสผ่านของแผนกบริการ',
+  var plain = await addLoginTestUser_('LOGOUTSV', ROLE.SERVICE, 'รหัสผ่านของแผนกบริการ',
     { 'Department': DEPT.SERVICE });
-  var plainToken = loginThroughApi_(plain.username, plain.password).data.token;
-  assertEquals_(api_call('api_adminForceLogout', [admin.email], plainToken).ok, false,
+  var plainToken = (await loginThroughApi_(plain.username, plain.password)).data.token;
+  assertEquals_((await api_call('api_adminForceLogout', [admin.email], plainToken)).ok, false,
     'คนที่ไม่ใช่ผู้ดูแล บังคับให้คนอื่นออกจากระบบไม่ได้');
-  assertEquals_(api_call('api_getMenu', [], adminToken).ok, true,
+  assertEquals_((await api_call('api_getMenu', [], adminToken)).ok, true,
     'และโทเคนของผู้ดูแลต้องยังใช้ได้อยู่');
 
   return endTest_();
@@ -9017,38 +9022,38 @@ function test_auth_logoutKillsToken() {
  * นี่คือเหตุผลที่ SPEC บังคับว่า 1 บัญชีต่อ 1 คน และเป็นกรณีที่ระบบสิทธิ์
  * ผิดพลาดได้ง่ายที่สุดเมื่อเปลี่ยนวิธีระบุตัวตน
  */
-function test_auth_multiRoleSelfApproval() {
+async function test_auth_multiRoleSelfApproval() {
   beginTest_('คนที่มีทั้ง ADMIN และ APPROVER_SP อนุมัติใบของตัวเองไม่ได้');
 
-  var both = addLoginTestUser_('MULTI', 'ADMIN,APPROVER_SP', 'รหัสผ่านของคนสองหมวก');
-  var other = addLoginTestUser_('MULTI2', ROLE.ADMIN, 'รหัสผ่านของคนอื่น');
+  var both = await addLoginTestUser_('MULTI', 'ADMIN,APPROVER_SP', 'รหัสผ่านของคนสองหมวก');
+  var other = await addLoginTestUser_('MULTI2', ROLE.ADMIN, 'รหัสผ่านของคนอื่น');
 
-  var bothToken = loginThroughApi_(both.username, both.password).data.token;
-  var otherToken = loginThroughApi_(other.username, other.password).data.token;
+  var bothToken = (await loginThroughApi_(both.username, both.password)).data.token;
+  var otherToken = (await loginThroughApi_(other.username, other.password)).data.token;
 
   /* ---------- ต้องได้ Role ครบทั้งสองค่า ---------- */
-  var menu = api_call('api_getMenu', [], bothToken);
+  var menu = await api_call('api_getMenu', [], bothToken);
   assertEquals_(menu.data.user.roles.join(','), 'ADMIN,APPROVER_SP',
     'คอลัมน์ Role ที่คั่นด้วยจุลภาค ต้องกลายเป็น array ครบทุกค่า');
 
   /* ---------- ข้อ 7: เปิดใบเอง แล้วอนุมัติเอง ต้องถูกปฏิเสธ ---------- */
-  var mine = api_call('api_createWorkOrder', [testWoForm_({ 'Location': 'จุดของคนสองหมวก' })], bothToken);
+  var mine = await api_call('api_createWorkOrder', [testWoForm_({ 'Location': 'จุดของคนสองหมวก' })], bothToken);
   assertEquals_(mine.ok, true, 'คนที่มีสิทธิ์ ADMIN เปิดใบงานได้');
-  api_call('api_submitWorkOrder', [mine.data.woId, null], bothToken);
+  await api_call('api_submitWorkOrder', [mine.data.woId, null], bothToken);
 
-  var selfApprove = api_call('api_approveWorkOrder', [mine.data.woId, ASSIGNMENT.SERVICE, {}], bothToken);
+  var selfApprove = await api_call('api_approveWorkOrder', [mine.data.woId, ASSIGNMENT.SERVICE, {}], bothToken);
   assertEquals_(selfApprove.ok, false,
     'มีสิทธิ์ผู้อนุมัติก็จริง แต่อนุมัติใบที่ตัวเองเปิดไม่ได้');
-  assertEquals_(getWorkOrder(mine.data.woId)['Overall_Status'], WO_STATUS.PENDING_APPROVE,
+  assertEquals_((await getWorkOrder(mine.data.woId))['Overall_Status'], WO_STATUS.PENDING_APPROVE,
     'และสถานะต้องไม่ขยับ');
 
   /* ---------- ข้อ 8: ใบที่คนอื่นเปิด อนุมัติได้ปกติ ---------- */
-  var theirs = api_call('api_createWorkOrder', [testWoForm_({ 'Location': 'จุดของคนอื่น' })], otherToken);
-  api_call('api_submitWorkOrder', [theirs.data.woId, null], otherToken);
+  var theirs = await api_call('api_createWorkOrder', [testWoForm_({ 'Location': 'จุดของคนอื่น' })], otherToken);
+  await api_call('api_submitWorkOrder', [theirs.data.woId, null], otherToken);
 
-  var approved = api_call('api_approveWorkOrder', [theirs.data.woId, ASSIGNMENT.SERVICE, {}], bothToken);
+  var approved = await api_call('api_approveWorkOrder', [theirs.data.woId, ASSIGNMENT.SERVICE, {}], bothToken);
   assertEquals_(approved.ok, true, 'ใบที่คนอื่นเปิด คนสองหมวกอนุมัติได้ตามปกติ');
-  assertEquals_(getWorkOrder(theirs.data.woId)['Overall_Status'], WO_STATUS.APPROVED,
+  assertEquals_((await getWorkOrder(theirs.data.woId))['Overall_Status'], WO_STATUS.APPROVED,
     'และสถานะต้องเปลี่ยนจริง');
 
   return endTest_();
@@ -9060,7 +9065,7 @@ function test_auth_multiRoleSelfApproval() {
  * ถ้าทำให้ทั้งแถวเสีย คนคนนั้นจะเข้าระบบไม่ได้เลยจากคำสะกดผิดตัวเดียว
  * ถ้าปล่อยผ่านชื่อที่ไม่รู้จัก ค่านั้นจะกลายเป็น Role ผีที่ไม่มีใครตรวจเจอ
  */
-function test_auth_unknownRoleIgnored() {
+async function test_auth_unknownRoleIgnored() {
   beginTest_('Role ที่สะกดผิดถูกมองข้าม ส่วนตัวที่ถูกยังใช้ได้');
 
   /* ---------- ตรรกะล้วน ---------- */
@@ -9078,17 +9083,17 @@ function test_auth_unknownRoleIgnored() {
    * ตั้งใจให้ Role ที่ถูกต้องในแถวเป็น SERVICE ไม่ใช่ ADMIN
    * เพราะ ADMIN เปิดดูรายการรออนุมัติได้อยู่แล้ว การตรวจจะไม่พิสูจน์อะไรเลย
    */
-  var user = addLoginTestUser_('TYPO', 'APROVER_SP,SERVICE,แผนกบริการ', 'รหัสผ่านของคนพิมพ์ผิด',
+  var user = await addLoginTestUser_('TYPO', 'APROVER_SP,SERVICE,แผนกบริการ', 'รหัสผ่านของคนพิมพ์ผิด',
     { 'Department': DEPT.SERVICE });
-  var token = loginThroughApi_(user.username, user.password).data.token;
+  var token = (await loginThroughApi_(user.username, user.password)).data.token;
 
-  var menu = api_call('api_getMenu', [], token);
+  var menu = await api_call('api_getMenu', [], token);
   assertEquals_(menu.ok, true, 'คำสะกดผิดต้องไม่ทำให้เข้าระบบไม่ได้');
   assertEquals_(menu.data.user.roles.join(','), 'SERVICE',
     'เหลือเฉพาะ Role ที่ระบบรู้จัก');
 
   // สิทธิ์ที่ถูกต้องในแถวเดียวกันต้องยังใช้ได้จริง
-  assertEquals_(api_call('api_listMyTasks', [false], token).ok, true,
+  assertEquals_((await api_call('api_listMyTasks', [false], token)).ok, true,
     'สิทธิ์ SERVICE ที่สะกดถูก ต้องยังใช้งานได้');
 
   /* ---------- ส่วนสิทธิ์ที่สะกดผิด ต้องไม่ได้มาแบบผี ๆ ---------- */
@@ -9096,19 +9101,19 @@ function test_auth_unknownRoleIgnored() {
    * หน้ารายการรออนุมัติเปิดให้ทุกคนที่ล็อกอินได้อยู่แล้ว แต่จะเห็นเฉพาะสายที่ตัวเองอนุมัติได้
    * (พฤติกรรมเดิม ไม่ได้เปลี่ยน) ตัวที่พิสูจน์สิทธิ์จริงจึงเป็นการกดอนุมัติ
    */
-  var pending = api_call('api_listPendingApprovals', [ROUTE.SP], token);
+  var pending = await api_call('api_listPendingApprovals', [ROUTE.SP], token);
   assertEquals_(pending.ok, true, 'ทุกคนที่ล็อกอินได้ เปิดหน้ารายการได้ตามเดิม');
   assertEquals_(pending.data.rows.length, 0,
     'แต่คนที่ไม่ใช่ผู้อนุมัติ ต้องไม่เห็นใบงานที่รออนุมัติเลยแม้แต่ใบเดียว');
 
-  var owner = addLoginTestUser_('TYPOADM', ROLE.ADMIN, 'รหัสผ่านของผู้เปิดใบงาน');
-  var ownerToken = loginThroughApi_(owner.username, owner.password).data.token;
-  var wo = api_call('api_createWorkOrder', [testWoForm_({ 'Location': 'จุดของคนพิมพ์ผิด' })], ownerToken);
-  api_call('api_submitWorkOrder', [wo.data.woId, null], ownerToken);
+  var owner = await addLoginTestUser_('TYPOADM', ROLE.ADMIN, 'รหัสผ่านของผู้เปิดใบงาน');
+  var ownerToken = (await loginThroughApi_(owner.username, owner.password)).data.token;
+  var wo = await api_call('api_createWorkOrder', [testWoForm_({ 'Location': 'จุดของคนพิมพ์ผิด' })], ownerToken);
+  await api_call('api_submitWorkOrder', [wo.data.woId, null], ownerToken);
 
-  assertEquals_(api_call('api_approveWorkOrder', [wo.data.woId, ASSIGNMENT.SERVICE, {}], token).ok, false,
+  assertEquals_((await api_call('api_approveWorkOrder', [wo.data.woId, ASSIGNMENT.SERVICE, {}], token)).ok, false,
     'คำว่า APROVER_SP ที่สะกดผิด ต้องไม่กลายเป็นสิทธิ์ผู้อนุมัติ');
-  assertEquals_(getWorkOrder(wo.data.woId)['Overall_Status'], WO_STATUS.PENDING_APPROVE,
+  assertEquals_((await getWorkOrder(wo.data.woId))['Overall_Status'], WO_STATUS.PENDING_APPROVE,
     'และสถานะใบงานต้องไม่ขยับ');
 
   return endTest_();
@@ -9119,14 +9124,14 @@ function test_auth_unknownRoleIgnored() {
  *
  * สองข้อนี้เป็นข้อที่ "ดูจากหน้าจอไม่ออก" จึงต้องมีตัวสแกนคอยจับแทนสายตาคน
  */
-function test_auth_noPlainSecrets() {
+async function test_auth_noPlainSecrets() {
   beginTest_('ไม่มีที่ไหนเก็บหรือ log รหัสผ่าน และโทเคนไม่เคยอยู่ใน URL');
 
   /* ---------- ที่เก็บในชีต ต้องไม่มีรหัสผ่านตัวจริง ---------- */
   var password = 'รหัสผ่านที่ห้ามโผล่ที่ไหนเลย';
-  var user = addLoginTestUser_('SECRET', ROLE.ADMIN, password);
+  var user = await addLoginTestUser_('SECRET', ROLE.ADMIN, password);
 
-  var row = getUserRole(user.email);
+  var row = await getUserRole(user.email);
   assertTrue_(String(row['Password_Hash']).indexOf(password) === -1,
     'คอลัมน์ Password_Hash ต้องไม่มีรหัสผ่านตัวจริงอยู่ข้างใน');
   assertTrue_(String(row['Password_Hash']).indexOf('sha256$') === 0,
@@ -9134,10 +9139,10 @@ function test_auth_noPlainSecrets() {
   assertTrue_(String(row['Password_Salt']).length >= 32, 'เกลือต้องยาวพอและสุ่มจริง');
 
   // คนละคนต้องได้เกลือคนละตัว ไม่งั้นตารางเดารหัสชุดเดียวจะถอดได้ทุกคนพร้อมกัน
-  var another = addLoginTestUser_('SECRET2', ROLE.ADMIN, password);
-  assertTrue_(getUserRole(another.email)['Password_Salt'] !== row['Password_Salt'],
+  var another = await addLoginTestUser_('SECRET2', ROLE.ADMIN, password);
+  assertTrue_((await getUserRole(another.email))['Password_Salt'] !== row['Password_Salt'],
     'แต่ละคนต้องมีเกลือของตัวเอง');
-  assertTrue_(getUserRole(another.email)['Password_Hash'] !== row['Password_Hash'],
+  assertTrue_((await getUserRole(another.email))['Password_Hash'] !== row['Password_Hash'],
     'รหัสผ่านเดียวกันของคนละคน ต้องได้ค่าที่เก็บไม่เหมือนกัน');
 
   /* ---------- วนหลายรอบจริง ไม่ใช่รอบเดียว ---------- */
@@ -9183,7 +9188,7 @@ function test_auth_noPlainSecrets() {
     'หน้าเว็บต้องส่งโทเคนไปกับพารามิเตอร์ของ api_call เท่านั้น');
 
   /* ---------- หน้าเว็บที่ส่งออกไป ต้องไม่มีโทเคนหรือรหัสผ่านฝังอยู่ ---------- */
-  var page = renderPage_({ page: 'home', base: 'https://example.com/exec' });
+  var page = await renderPage_({ page: 'home', base: 'https://example.com/exec' });
   assertTrue_(page.indexOf(password) === -1, 'รหัสผ่านต้องไม่ติดไปกับหน้าเว็บ');
   assertTrue_(page.indexOf(String(row['Password_Hash'])) === -1,
     'ค่าที่เก็บของรหัสผ่านก็ต้องไม่ติดไปกับหน้า');
@@ -9222,55 +9227,55 @@ function authSources_() {
 /**
  * ตั้งรหัสให้คนอื่นได้เฉพาะ ADMIN และต้องบังคับเปลี่ยนตอนเข้าครั้งแรก
  */
-function test_auth_adminSetsPassword() {
+async function test_auth_adminSetsPassword() {
   beginTest_('ตั้งรหัสให้คนอื่นได้เฉพาะ ADMIN และบังคับเปลี่ยนตอนเข้าครั้งแรก');
 
-  var admin = addLoginTestUser_('SETADM', ROLE.ADMIN, 'รหัสผ่านของผู้ดูแล');
-  var target = addLoginTestUser_('SETUSR', ROLE.SERVICE, 'รหัสผ่านเดิมของผู้ใช้',
+  var admin = await addLoginTestUser_('SETADM', ROLE.ADMIN, 'รหัสผ่านของผู้ดูแล');
+  var target = await addLoginTestUser_('SETUSR', ROLE.SERVICE, 'รหัสผ่านเดิมของผู้ใช้',
     { 'Department': DEPT.SERVICE });
 
-  var adminToken = loginThroughApi_(admin.username, admin.password).data.token;
-  var targetToken = loginThroughApi_(target.username, target.password).data.token;
+  var adminToken = (await loginThroughApi_(admin.username, admin.password)).data.token;
+  var targetToken = (await loginThroughApi_(target.username, target.password)).data.token;
 
   /* ---------- คนที่ไม่ใช่ ADMIN ตั้งรหัสให้คนอื่นไม่ได้ ---------- */
-  var denied = api_call('api_adminSetPassword', [admin.email, 'รหัสใหม่ที่ไม่ควรได้'], targetToken);
+  var denied = await api_call('api_adminSetPassword', [admin.email, 'รหัสใหม่ที่ไม่ควรได้'], targetToken);
   assertEquals_(denied.ok, false, 'คนที่ไม่ใช่ผู้ดูแล ตั้งรหัสให้คนอื่นไม่ได้');
-  assertEquals_(loginThroughApi_(admin.username, admin.password).ok, true,
+  assertEquals_((await loginThroughApi_(admin.username, admin.password)).ok, true,
     'และรหัสของผู้ดูแลต้องไม่ถูกเปลี่ยน');
 
   /* ---------- ADMIN ตั้งให้ได้ ---------- */
   var temp = 'รหัสชั่วคราวที่ผู้ดูแลตั้งให้';
-  var result = api_call('api_adminSetPassword', [target.email, temp], adminToken);
+  var result = await api_call('api_adminSetPassword', [target.email, temp], adminToken);
   assertEquals_(result.ok, true, 'ผู้ดูแลตั้งรหัสชั่วคราวให้คนอื่นได้');
 
   // ตั้งรหัสใหม่แล้วโทเคนเดิมต้องใช้ไม่ได้ ไม่งั้นคนที่ยึดบัญชีไปแล้วยังอยู่ต่อได้อีก 12 ชั่วโมง
-  assertEquals_(api_call('api_getMenu', [], targetToken).ok, false,
+  assertEquals_((await api_call('api_getMenu', [], targetToken)).ok, false,
     'ตั้งรหัสใหม่แล้ว โทเคนเดิมของคนนั้นต้องถูกปิดทันที');
 
-  assertEquals_(loginThroughApi_(target.username, target.password).ok, false,
+  assertEquals_((await loginThroughApi_(target.username, target.password)).ok, false,
     'รหัสเดิมต้องใช้ไม่ได้แล้ว');
 
-  var first = loginThroughApi_(target.username, temp);
+  var first = await loginThroughApi_(target.username, temp);
   assertEquals_(first.ok, true, 'รหัสชั่วคราวใช้เข้าได้');
   assertEquals_(first.data.mustChangePassword, true,
     'และต้องถูกบังคับให้เปลี่ยนรหัสตอนเข้าครั้งแรก');
 
   /* ---------- เปลี่ยนรหัสเองแล้ว ธงบังคับต้องหาย ---------- */
-  var changed = api_call('api_changePassword', [temp, 'รหัสถาวรที่ตั้งเอง'], first.data.token);
+  var changed = await api_call('api_changePassword', [temp, 'รหัสถาวรที่ตั้งเอง'], first.data.token);
   assertEquals_(changed.ok, true, 'เปลี่ยนรหัสเองได้');
 
-  var second = loginThroughApi_(target.username, 'รหัสถาวรที่ตั้งเอง');
+  var second = await loginThroughApi_(target.username, 'รหัสถาวรที่ตั้งเอง');
   assertEquals_(second.ok, true, 'เข้าด้วยรหัสใหม่ได้');
   assertEquals_(second.data.mustChangePassword, false, 'และไม่ถูกบังคับให้เปลี่ยนอีก');
 
   /* ---------- กติกาของรหัสใหม่ ต้องถูกบังคับที่ฝั่งเซิร์ฟเวอร์ ---------- */
   var token = second.data.token;
-  assertEquals_(api_call('api_changePassword', ['รหัสถาวรที่ตั้งเอง', 'สั้นไป'], token).ok, false,
+  assertEquals_((await api_call('api_changePassword', ['รหัสถาวรที่ตั้งเอง', 'สั้นไป'], token)).ok, false,
     'รหัสใหม่ที่สั้นกว่า 8 ตัวอักษร ต้องถูกปฏิเสธที่ฝั่งเซิร์ฟเวอร์ด้วย');
-  assertEquals_(api_call('api_changePassword', ['รหัสเดิมที่ผิด', 'รหัสใหม่ยาวพอแล้ว'], token).ok, false,
+  assertEquals_((await api_call('api_changePassword', ['รหัสเดิมที่ผิด', 'รหัสใหม่ยาวพอแล้ว'], token)).ok, false,
     'ต้องยืนยันรหัสเดิมให้ถูกก่อนเสมอ แม้จะล็อกอินอยู่แล้ว');
-  assertEquals_(api_call('api_changePassword',
-    ['รหัสถาวรที่ตั้งเอง', 'รหัสถาวรที่ตั้งเอง'], token).ok, false,
+  assertEquals_((await api_call('api_changePassword',
+    ['รหัสถาวรที่ตั้งเอง', 'รหัสถาวรที่ตั้งเอง'], token)).ok, false,
     'รหัสใหม่ต้องไม่ซ้ำกับรหัสเดิม');
 
   return endTest_();
@@ -9279,39 +9284,39 @@ function test_auth_adminSetsPassword() {
 /**
  * ผู้ใช้คนแรก — ฟังก์ชันตั้งต้นต้องใช้ได้ครั้งเดียว
  */
-function test_auth_firstAdminOnlyOnce() {
+async function test_auth_firstAdminOnlyOnce() {
   beginTest_('สร้างผู้ดูแลคนแรกได้ครั้งเดียว ถ้ามีแล้วต้องปฏิเสธ');
 
   // ทะเบียนจริงอาจมี ADMIN อยู่แล้ว จึงพิสูจน์ด้วยด่านที่ฟังก์ชันใช้จริง
   var hasAdmin = false;
-  var rows = listUserRoles(true);
+  var rows = await listUserRoles(true);
   for (var i = 0; i < rows.length; i++) {
     if (splitRoles_(rows[i]['Role']).indexOf(ROLE.ADMIN) !== -1) { hasAdmin = true; break; }
   }
 
   if (!hasAdmin) {
-    var created = createFirstAdmin(testPrefix_() + 'FIRST@cnr.co.th',
+    var created = await createFirstAdmin(testPrefix_() + 'FIRST@cnr.co.th',
       testPrefix_() + 'FIRST', 'ผู้ดูแลคนแรก', 'รหัสชั่วคราวของคนแรก');
     assertTrue_(String(created).indexOf('สร้างผู้ดูแลคนแรกแล้ว') !== -1,
       'ยังไม่มีผู้ดูแล ต้องสร้างได้');
   }
 
   /* ---------- มี ADMIN แล้ว ต้องปฏิเสธเสมอ ---------- */
-  assertThrowsMessage_(function () {
-    createFirstAdmin(testPrefix_() + 'SECOND@cnr.co.th', testPrefix_() + 'SECOND',
+  await assertThrowsMessage_(async function () {
+    await createFirstAdmin(testPrefix_() + 'SECOND@cnr.co.th', testPrefix_() + 'SECOND',
       'ผู้ดูแลคนที่สอง', 'รหัสชั่วคราวของคนที่สอง');
   }, 'มีผู้ดูแล', 'มีผู้ดูแลอยู่แล้ว ต้องสร้างซ้ำไม่ได้ ไม่งั้นจะกลายเป็นประตูหลังถาวร');
 
   /* ---------- รหัสที่สั้นเกินไป ต้องถูกปฏิเสธ ---------- */
   // ตรวจที่ตัวกติกาโดยตรง เพราะด่าน "มีผู้ดูแลแล้ว" ปิดก่อนเสมอ ซึ่งถูกต้องแล้ว
   // การตรวจว่ามีผู้ดูแลอยู่หรือยัง ต้องมาก่อนการตรวจรูปแบบรหัสผ่านเสมอ
-  assertThrowsMessage_(function () { assertPasswordStrength_('สั้น'); },
+  await assertThrowsMessage_(function () { assertPasswordStrength_('สั้น'); },
     'อย่างน้อย', 'รหัสชั่วคราวก็ต้องยาวพอเหมือนกัน');
-  assertThrowsMessage_(function () { assertPasswordStrength_(''); },
+  await assertThrowsMessage_(function () { assertPasswordStrength_(''); },
     'อย่างน้อย', 'รหัสว่างเปล่าก็ต้องถูกปฏิเสธ');
 
   /* ---------- ผู้ใช้คนแรกต้องถูกบังคับเปลี่ยนรหัส ---------- */
-  var firstRow = userByUsername_(testPrefix_() + 'FIRST');
+  var firstRow = await userByUsername_(testPrefix_() + 'FIRST');
   if (firstRow) {
     assertEquals_(cellToBoolean_(firstRow['Must_Change_Password']), true,
       'ผู้ดูแลคนแรกต้องถูกบังคับให้เปลี่ยนรหัสตอนเข้าครั้งแรก');
@@ -9328,12 +9333,12 @@ function test_auth_firstAdminOnlyOnce() {
  * ระบบเลิกแยกสองโปรเจกต์แล้ว แต่โค้ดยังไม่ถูกลบเพื่อให้ถอยกลับได้
  * ตราบใดที่ยังอยู่ ต้องมีเทสต์ยืนยันว่ามันปิดจริง ไม่ใช่แค่ "ตั้งใจจะปิด"
  */
-function test_permission_gatewayDisabled() {
+async function test_permission_gatewayDisabled() {
   beginTest_('ทางเข้าจากโปรเจกต์หน้าบ้านต้องปิดสนิท');
 
   assertEquals_(GATEWAY_ENABLED, false, 'ธงต้องเป็นปิด');
 
-  var before = countAllRows_();
+  var before = await countAllRows_();
   var form = testWoForm_({ 'Location': 'จุดทดสอบทางเข้าเก่า' });
   var secret = '';
   try {
@@ -9351,20 +9356,20 @@ function test_permission_gatewayDisabled() {
 
   for (var i = 0; i < attempts.length; i++) {
     attempts[i].secret = secret;
-    var result = JSON.parse(doPost(postEvent_(attempts[i])).getContent());
+    var result = JSON.parse((await doPost(postEvent_(attempts[i]))).getContent());
     assertEquals_(result.ok, false, 'คำขอชนิด ' + attempts[i].mode + ' ต้องถูกปฏิเสธ');
     assertEquals_(result.message, GATEWAY_ONLY_MESSAGE,
       'และต้องไม่บอกเหตุผล ไม่บอกว่าปิดอยู่หรือรหัสลับผิด');
   }
 
   /* ---------- และต้องไม่มีแถวใดถูกเขียนลงชีตเลย ---------- */
-  assertEquals_(countAllRows_().total, before.total,
+  assertEquals_((await countAllRows_()).total, before.total,
     'ทางเข้าที่ปิดแล้ว ต้องไม่ทำให้มีแถวใหม่ในชีตแม้แต่แถวเดียว');
 
   /* ---------- ทางเข้าใหม่ต้องทำงานแทนได้จริง ---------- */
-  var admin = addLoginTestUser_('GWNEW', ROLE.ADMIN, 'รหัสผ่านของผู้ดูแล');
-  var token = loginThroughApi_(admin.username, admin.password).data.token;
-  assertEquals_(api_call('api_getMenu', [], token).ok, true,
+  var admin = await addLoginTestUser_('GWNEW', ROLE.ADMIN, 'รหัสผ่านของผู้ดูแล');
+  var token = (await loginThroughApi_(admin.username, admin.password)).data.token;
+  assertEquals_((await api_call('api_getMenu', [], token)).ok, true,
     'ทางเข้าใหม่ (api_call พร้อมโทเคน) ต้องใช้งานได้แทน');
 
   return endTest_();
@@ -9381,13 +9386,13 @@ function test_permission_gatewayDisabled() {
  * เดินผ่านชั้น Service จริง ไม่ใช่ตารางล้วน เพราะจุดที่ต้องพิสูจน์คือ
  * "สถานะที่อยู่ในชีตจริง" เป็นตัวตัดสิน ไม่ใช่ค่าที่ผู้เรียกส่งเข้ามา
  */
-function test_service_editOnlyFromReturned() {
+async function test_service_editOnlyFromReturned() {
   beginTest_('EDIT และ SUBMIT ใช้ได้จาก RETURNED เท่านั้น — SPEC 5');
 
   var users = serviceTestUsers_();
 
   /* ---------- ใบที่รออนุมัติ แก้ไม่ได้ ส่งซ้ำไม่ได้ ---------- */
-  var pending = createTestWo_(users, { 'Location': 'จุดที่รออนุมัติอยู่' });
+  var pending = await createTestWo_(users, { 'Location': 'จุดที่รออนุมัติอยู่' });
   assertEquals_(pending.workOrder['Overall_Status'], WO_STATUS.PENDING_APPROVE,
     'ใบงานใหม่อยู่ที่รออนุมัติ');
 
@@ -9397,24 +9402,24 @@ function test_service_editOnlyFromReturned() {
     'Contact': 'ชื่อที่พยายามแก้'
   });
 
-  assertThrowsMessage_(function () { editWorkOrder(pending.woId, form, users.admin); },
+  await assertThrowsMessage_(async function () { await editWorkOrder(pending.woId, form, users.admin); },
     'รออนุมัติ', 'แก้ใบที่รออนุมัติไม่ได้ และข้อความต้องบอกสถานะปัจจุบัน');
-  assertThrowsMessage_(function () { submitWorkOrder(pending.woId, users.admin); },
+  await assertThrowsMessage_(async function () { await submitWorkOrder(pending.woId, users.admin); },
     'รออนุมัติ', 'ส่งขออนุมัติซ้ำจากสถานะรออนุมัติไม่ได้');
-  assertEquals_(getWorkOrder(pending.woId)['Contact'], pending.workOrder['Contact'],
+  assertEquals_((await getWorkOrder(pending.woId))['Contact'], pending.workOrder['Contact'],
     'ถูกปฏิเสธแล้วข้อมูลเดิมต้องไม่ถูกแตะ');
 
   /* ---------- ใบที่อนุมัติแล้ว ก็แก้ไม่ได้เช่นกัน ---------- */
-  var approved = approvedTestWo_(users, ASSIGNMENT.SERVICE, { 'Location': 'จุดที่อนุมัติแล้ว' });
-  assertThrowsMessage_(function () {
-    editWorkOrder(approved.woId, testWoForm_({
+  var approved = await approvedTestWo_(users, ASSIGNMENT.SERVICE, { 'Location': 'จุดที่อนุมัติแล้ว' });
+  await assertThrowsMessage_(async function () {
+    await editWorkOrder(approved.woId, testWoForm_({
       'Customer_Code': approved.workOrder['Customer_Code'], 'Location': 'จุดที่อนุมัติแล้ว'
     }), users.admin);
   }, 'อนุมัติแล้ว', 'แก้ใบที่อนุมัติไปแล้วไม่ได้');
 
   /* ---------- ใบที่ถูกตีกลับ แก้ได้และส่งใหม่ได้ ---------- */
-  var returned = returnedTestWo_(users, { 'Location': 'จุดที่ถูกตีกลับแล้ว' });
-  var edited = editWorkOrder(returned.woId, testWoForm_({
+  var returned = await returnedTestWo_(users, { 'Location': 'จุดที่ถูกตีกลับแล้ว' });
+  var edited = await editWorkOrder(returned.woId, testWoForm_({
     'Customer_Code': returned.workOrder['Customer_Code'],
     'Location': 'จุดที่ถูกตีกลับแล้ว',
     'Contact': 'ผู้ติดต่อที่แก้ใหม่'
@@ -9423,19 +9428,19 @@ function test_service_editOnlyFromReturned() {
   assertEquals_(edited.workOrder['Overall_Status'], WO_STATUS.RETURNED,
     'การแก้ไขไม่เปลี่ยนสถานะ ยังเป็นตีกลับอยู่');
 
-  assertEquals_(submitWorkOrder(returned.woId, users.admin).to, WO_STATUS.PENDING_APPROVE,
+  assertEquals_((await submitWorkOrder(returned.woId, users.admin)).to, WO_STATUS.PENDING_APPROVE,
     'แก้แล้วส่งขออนุมัติใหม่ได้');
 
   /* ---------- ยกเลิกทั้งใบได้จากสองสถานะนี้เท่านั้น (SPEC 8) ---------- */
   // ใช้ใบเดิมที่สร้างไว้แล้วข้างบน ต้นทุนส่วนใหญ่อยู่ที่การเตรียมข้อมูล ไม่ใช่การตรวจคำตอบ
-  assertThrows_(function () { cancelWorkOrder(approved.woId, 'ขอยกเลิก', users.admin); },
+  await assertThrows_(async function () { await cancelWorkOrder(approved.woId, 'ขอยกเลิก', users.admin); },
     'ใบที่อนุมัติไปแล้ว ยกเลิกทั้งใบไม่ได้ ต้องยกเลิกรายแผนกแทน (SPEC 8)');
 
-  var returnedCancel = returnedTestWo_(users, { 'Location': 'จุดที่จะยกเลิกตอนถูกตีกลับ' });
-  assertEquals_(cancelWorkOrder(returnedCancel.woId, 'ลูกค้ายกเลิก', users.admin).to,
+  var returnedCancel = await returnedTestWo_(users, { 'Location': 'จุดที่จะยกเลิกตอนถูกตีกลับ' });
+  assertEquals_((await cancelWorkOrder(returnedCancel.woId, 'ลูกค้ายกเลิก', users.admin)).to,
     WO_STATUS.CANCELLED, 'ยกเลิกใบที่ถูกตีกลับได้');
 
-  assertEquals_(cancelWorkOrder(pending.woId, 'ลูกค้ายกเลิก', users.admin).to, WO_STATUS.CANCELLED,
+  assertEquals_((await cancelWorkOrder(pending.woId, 'ลูกค้ายกเลิก', users.admin)).to, WO_STATUS.CANCELLED,
     'ยกเลิกใบที่รออนุมัติได้');
 
   return endTest_();
@@ -9446,7 +9451,7 @@ function test_service_editOnlyFromReturned() {
  *
  * เดินผ่านทางเข้าจริง (uploadFile) เพื่อให้ครอบทั้งการตั้งชื่อ การไล่เลข และการบันทึกทะเบียน
  */
-function test_files_manyPerTopic() {
+async function test_files_manyPerTopic() {
   beginTest_('แนบหลายไฟล์ในหัวข้อเดียว ได้ลำดับต่อเนื่อง — SPEC 14.2');
 
   if (!getProp_(PROP_KEY.DRIVE_ROOT_FOLDER, false)) {
@@ -9457,18 +9462,18 @@ function test_files_manyPerTopic() {
 
   var users = serviceTestUsers_();
   var topicId = testPrefix_() + 'TOPIC-MANY';
-  appendRow_(SHEET.ATTACHMENT_TOPIC, {
+  await appendRow_(SHEET.ATTACHMENT_TOPIC, {
     'Topic_ID': topicId, 'Scope': FILE_SCOPE.WO, 'Topic_Name': 'รูปภาพ (หลายไฟล์)',
     'Required': false, 'Multiple': true, 'Active': true
   });
 
-  var wo = createTestWo_(users, { 'Location': 'จุดที่แนบหลายไฟล์' });
+  var wo = await createTestWo_(users, { 'Location': 'จุดที่แนบหลายไฟล์' });
 
   /* ---------- ส่งทีละไฟล์ 3 ไฟล์ เหมือนที่หน้าเว็บทำ ---------- */
   var names = ['หน้างาน1.jpg', 'หน้างาน2.jpg', 'หน้างาน3.jpg'];
   var saved = [];
   for (var i = 0; i < names.length; i++) {
-    var row = uploadFile({
+    var row = await uploadFile({
       woId: wo.woId, scope: FILE_SCOPE.WO, topicId: topicId,
       fileName: names[i], mimeType: 'image/jpeg', content: 'QUJDRA=='
     }, users.admin);
@@ -9483,7 +9488,7 @@ function test_files_manyPerTopic() {
   assertEquals_(saved.length, uniqueCount_(saved), 'ชื่อไฟล์ทั้งสามต้องไม่ซ้ำกัน');
 
   /* ---------- ชื่อเดิมของผู้ใช้ต้องถูกเก็บไว้ (SPEC 14.2) ---------- */
-  var files = listWoFileViews(wo.woId);
+  var files = await listWoFileViews(wo.woId);
   assertEquals_(files.length, 3, 'ทะเบียนไฟล์มีครบ 3 แถว');
   var originals = [];
   for (var f = 0; f < files.length; f++) originals.push(files[f].originalName);
@@ -9492,7 +9497,7 @@ function test_files_manyPerTopic() {
     'ชื่อไฟล์เดิมของผู้ใช้ถูกเก็บไว้ครบ เผื่อต้องตรวจสอบย้อนกลับ');
 
   /* ---------- อัปโหลดต่ออีกไฟล์ ต้องได้ 04 ไม่ใช่เริ่มใหม่ ---------- */
-  var fourth = uploadFile({
+  var fourth = await uploadFile({
     woId: wo.woId, scope: FILE_SCOPE.WO, topicId: topicId,
     fileName: 'หน้างาน4.jpg', mimeType: 'image/jpeg', content: 'QUJDRA=='
   }, users.admin);
@@ -9523,7 +9528,7 @@ function uniqueCount_(list) {
  *
  * ลบแถวจริงหรือลบไฟล์ถาวร แปลว่าลบผิดแล้วกู้ไม่ได้ ซึ่งเกิดขึ้นแน่ ๆ สักวัน
  */
-function test_files_deleteKeepsFile() {
+async function test_files_deleteKeepsFile() {
   beginTest_('ลบไฟล์แล้วปิดใช้งานในทะเบียน ไฟล์ยังอยู่ใน Drive — SPEC D-8');
 
   if (!getProp_(PROP_KEY.DRIVE_ROOT_FOLDER, false)) {
@@ -9534,31 +9539,31 @@ function test_files_deleteKeepsFile() {
 
   var users = serviceTestUsers_();
   var topicId = testPrefix_() + 'TOPIC-DELETE';
-  appendRow_(SHEET.ATTACHMENT_TOPIC, {
+  await appendRow_(SHEET.ATTACHMENT_TOPIC, {
     'Topic_ID': topicId, 'Scope': FILE_SCOPE.WO, 'Topic_Name': 'เอกสารที่จะลบ',
     'Required': false, 'Multiple': true, 'Active': true
   });
 
-  var wo = createTestWo_(users, { 'Location': 'จุดที่จะลบไฟล์' });
-  var row = uploadFile({
+  var wo = await createTestWo_(users, { 'Location': 'จุดที่จะลบไฟล์' });
+  var row = await uploadFile({
     woId: wo.woId, scope: FILE_SCOPE.WO, topicId: topicId,
     fileName: 'เอกสาร.pdf', mimeType: 'application/pdf', content: 'QUJDRA=='
   }, users.admin);
 
   var fileId = row['File_ID'];
   var driveId = row['Drive_File_ID'];
-  var rowsBefore = listFiles().length;
+  var rowsBefore = (await listFiles()).length;
 
-  assertEquals_(listWoFileViews(wo.woId).length, 1, 'แนบแล้วเห็นในรายการ 1 ไฟล์');
+  assertEquals_((await listWoFileViews(wo.woId)).length, 1, 'แนบแล้วเห็นในรายการ 1 ไฟล์');
 
   /* ---------- ลบ ---------- */
-  removeFile(fileId);
+  await removeFile(fileId);
 
-  assertEquals_(listWoFileViews(wo.woId).length, 0, 'ลบแล้วหายจากรายการที่แสดง');
-  assertEquals_(listFiles().length, rowsBefore, 'แต่แถวในทะเบียนต้องยังอยู่ ไม่ถูกลบจริง');
-  assertEquals_(cellToBoolean_(getFile(fileId)['Is_Active']), false,
+  assertEquals_((await listWoFileViews(wo.woId)).length, 0, 'ลบแล้วหายจากรายการที่แสดง');
+  assertEquals_((await listFiles()).length, rowsBefore, 'แต่แถวในทะเบียนต้องยังอยู่ ไม่ถูกลบจริง');
+  assertEquals_(cellToBoolean_((await getFile(fileId))['Is_Active']), false,
     'แถวนั้นถูกตั้ง Is_Active = false แทนการลบ');
-  assertEquals_(getFile(fileId)['Drive_File_ID'], driveId,
+  assertEquals_((await getFile(fileId))['Drive_File_ID'], driveId,
     'รหัสไฟล์บน Drive ยังถูกเก็บไว้ เผื่อต้องกู้คืน');
 
   /* ---------- ไฟล์บน Drive ต้องยังอยู่ แค่ย้ายไปถังขยะ ---------- */
@@ -9574,7 +9579,7 @@ function test_files_deleteKeepsFile() {
     'และต้องถูกย้ายไปถังขยะจริง ไม่ใช่ค้างอยู่ในโฟลเดอร์เหมือนไม่มีอะไรเกิดขึ้น');
 
   /* ---------- ลบแล้วแนบใหม่ ต้องไม่ใช้เลขเดิมซ้ำ ---------- */
-  var again = uploadFile({
+  var again = await uploadFile({
     woId: wo.woId, scope: FILE_SCOPE.WO, topicId: topicId,
     fileName: 'เอกสารใหม่.pdf', mimeType: 'application/pdf', content: 'QUJDRA=='
   }, users.admin);
@@ -9582,7 +9587,7 @@ function test_files_deleteKeepsFile() {
     'ลบไฟล์ 01 ไปแล้ว ไฟล์ใหม่ต้องได้ 02 ไม่ใช่ 01 ซ้ำ');
 
   /* ---------- บันทึก Audit ของการลบ ---------- */
-  var audit = queryRows_(SHEET.AUDIT_LOG, { 'WO_ID': wo.woId });
+  var audit = await queryRows_(SHEET.AUDIT_LOG, { 'WO_ID': wo.woId });
   var found = false;
   for (var a = 0; a < audit.length; a++) {
     if (String(audit[a]['Action']) === ACTION.DELETE_FILE &&
@@ -9596,17 +9601,17 @@ function test_files_deleteKeepsFile() {
 /**
  * รายการใบงานที่ถูกตีกลับ — แสดงเฉพาะ RETURNED และเฉพาะคนที่มีสิทธิ์ (SPEC 17.2)
  */
-function test_web_returnedList() {
+async function test_web_returnedList() {
   beginTest_('รายการใบงานที่ถูกตีกลับ — SPEC 17.2');
 
   var users = serviceTestUsers_();
 
-  var returned = returnedTestWo_(users, { 'Location': 'จุดที่ถูกตีกลับรอแก้' });
-  var pending = createTestWo_(users, { 'Location': 'จุดที่ยังรออนุมัติ' });
-  var approved = approvedTestWo_(users, ASSIGNMENT.SERVICE, { 'Location': 'จุดที่อนุมัติแล้ว' });
+  var returned = await returnedTestWo_(users, { 'Location': 'จุดที่ถูกตีกลับรอแก้' });
+  var pending = await createTestWo_(users, { 'Location': 'จุดที่ยังรออนุมัติ' });
+  var approved = await approvedTestWo_(users, ASSIGNMENT.SERVICE, { 'Location': 'จุดที่อนุมัติแล้ว' });
 
   /* ---------- ADMIN เห็นเฉพาะใบที่ถูกตีกลับ ---------- */
-  var list = withTestUser_(users.admin, function () { return api_listReturnedWorkOrders(); });
+  var list = await withTestUser_(users.admin, async function () { return await api_listReturnedWorkOrders(); });
   assertEquals_(list.ok, true, 'ธุรการเปิดรายการได้');
   assertTrue_(isJsonSafe_(list.data), 'ผลลัพธ์ต้องส่งผ่าน google.script.run ได้ (กฎข้อ 14)');
 
@@ -9618,7 +9623,7 @@ function test_web_returnedList() {
 
   // ทุกแถวต้องเป็น RETURNED จริง ไม่ใช่แค่ใบที่เราสร้างเอง
   for (var r = 0; r < list.data.rows.length; r++) {
-    assertEquals_(getWorkOrder(list.data.rows[r].woId)['Overall_Status'], WO_STATUS.RETURNED,
+    assertEquals_((await getWorkOrder(list.data.rows[r].woId))['Overall_Status'], WO_STATUS.RETURNED,
       'ทุกแถวในรายการต้องเป็นใบที่ถูกตีกลับจริง');
   }
 
@@ -9642,13 +9647,13 @@ function test_web_returnedList() {
    *
    * ตั้งเวลาเองแทนการรอ เพราะใบที่สร้างติดกันอาจได้เวลาเดียวกันในระดับมิลลิวินาที
    */
-  var older = returnedTestWo_(users, { 'Location': 'จุดที่ค้างนานที่สุด' });
-  var newer = returnedTestWo_(users, { 'Location': 'จุดที่เพิ่งถูกตีกลับ' });
+  var older = await returnedTestWo_(users, { 'Location': 'จุดที่ค้างนานที่สุด' });
+  var newer = await returnedTestWo_(users, { 'Location': 'จุดที่เพิ่งถูกตีกลับ' });
   var now = new Date().getTime();
-  updateWorkOrder(older.woId, { 'Returned_Date': new Date(now - 7 * 24 * 3600 * 1000) });
-  updateWorkOrder(newer.woId, { 'Returned_Date': new Date(now - 60 * 1000) });
+  await updateWorkOrder(older.woId, { 'Returned_Date': new Date(now - 7 * 24 * 3600 * 1000) });
+  await updateWorkOrder(newer.woId, { 'Returned_Date': new Date(now - 60 * 1000) });
 
-  var sorted = withTestUser_(users.admin, function () { return api_listReturnedWorkOrders(); }).data.rows;
+  var sorted = (await withTestUser_(users.admin, async function () { return await api_listReturnedWorkOrders(); })).data.rows;
   var olderAt = -1;
   var newerAt = -1;
   for (var o = 0; o < sorted.length; o++) {
@@ -9672,14 +9677,14 @@ function test_web_returnedList() {
     { who: users.labApprover, name: 'ผู้อนุมัติแล็บ' }
   ];
   for (var x = 0; x < outsiders.length; x++) {
-    var denied = withTestUser_(outsiders[x].who, function () { return api_listReturnedWorkOrders(); });
+    var denied = await withTestUser_(outsiders[x].who, async function () { return await api_listReturnedWorkOrders(); });
     assertEquals_(denied.ok, false, outsiders[x].name + ' เปิดรายการนี้ไม่ได้');
     assertTrue_(!denied.data, 'และต้องไม่มีข้อมูลใดติดมาเลย');
   }
 
   /* ---------- ก้อนข้อมูลของหน้า ต้องไม่ถูกดึงมาให้คนที่ไม่มีสิทธิ์ ---------- */
-  var bootDenied = withTestUser_(users.service, function () {
-    return pageBootstrap_('returned', {});
+  var bootDenied = await withTestUser_(users.service, async function () {
+    return await pageBootstrap_('returned', {});
   });
   assertTrue_(bootDenied.rows === undefined,
     'หน้าที่ผู้ใช้ไม่มีสิทธิ์ ต้องไม่ดึงข้อมูลมาแต่แรก (SPEC 17.3)');
@@ -9868,7 +9873,7 @@ function goToUrlSitesOutsideClicks_(source) {
  *
  * ส่วนลิงก์ในเมนูไม่เคยพัง เพราะ <base target="_top"> จัดการให้กับ <a> ที่ผู้ใช้กดอยู่แล้ว
  */
-function test_web_noAutoNavigation() {
+async function test_web_noAutoNavigation() {
   beginTest_('ห้ามเปลี่ยนหน้าเองโดยผู้ใช้ไม่ได้กด — SPEC 17.3');
 
   var pages = ['ui_Script', 'ui_Nav', 'ui_Auth', 'ui_Home', 'ui_CreateWo',
@@ -9968,7 +9973,7 @@ function test_web_noAutoNavigation() {
   /* ---------- เซิร์ฟเวอร์ต้องส่งที่อยู่มาให้ทุกหน้า ---------- */
   var known = Object.keys(WEB_PAGES);
   for (var k = 0; k < known.length; k++) {
-    var html = renderPage_({ page: known[k], base: 'https://example.com/exec' });
+    var html = await renderPage_({ page: known[k], base: 'https://example.com/exec' });
     assertTrue_(html.indexOf('data-base-url="https://example.com/exec"') !== -1,
       'หน้า ' + known[k] + ' ต้องได้ที่อยู่ของเว็บแอปมากับหน้า');
     assertTrue_(html.indexOf('data-home-url="https://example.com/exec?page=home"') !== -1,
@@ -9992,10 +9997,10 @@ function test_web_noAutoNavigation() {
  * อาการ "อัปโหลดไม่ได้" มองจากหน้าจอแล้วแยกไม่ออกว่าเป็นเพราะยังไม่ตั้งค่า
  * โฟลเดอร์ถูกลบ หรือสิทธิ์ไม่พอ ซึ่งสามอย่างนี้แก้คนละวิธีกันหมด
  */
-function test_driveFolder() {
+async function test_driveFolder() {
   beginTest_('ที่เก็บไฟล์ของระบบพร้อมใช้งาน');
 
-  var report = checkDriveFolder();
+  var report = await checkDriveFolder();
   Logger.log('  ' + report);
 
   var id = getProp_(PROP_KEY.DRIVE_ROOT_FOLDER, false);
@@ -10020,7 +10025,7 @@ function test_driveFolder() {
 
   /* ---------- กดซ้ำต้องไม่สร้างโฟลเดอร์ใหม่ ---------- */
   // โฟลเดอร์ซ้ำแปลว่าไฟล์เก่าอยู่คนละที่กับไฟล์ใหม่ แล้วไม่มีใครรู้จนกว่าจะไปตามหาไฟล์
-  var again = setupDriveFolder();
+  var again = await setupDriveFolder();
   assertTrue_(String(again).indexOf('มีที่เก็บไฟล์อยู่แล้ว') !== -1,
     'กด setupDriveFolder ซ้ำ ต้องไม่สร้างใหม่');
   assertEquals_(getProp_(PROP_KEY.DRIVE_ROOT_FOLDER, false), id,
@@ -10040,7 +10045,7 @@ function test_driveFolder() {
  * ข้อนี้จึงไม่ได้ตรวจว่า "ไม่โยน error" แต่ตรวจว่า **แนะนำถูกกรณี** และ
  * **ไม่พิมพ์ทางแก้ของอีกกรณีปนมาด้วย** เพราะคนที่เลือกผิดในสถานะนี้ไฟล์หายถาวร
  */
-function test_files_deadRootKeepsOldFiles() {
+async function test_files_deadRootKeepsOldFiles() {
   beginTest_('รากของที่เก็บไฟล์หาย แต่โฟลเดอร์ใบงานยังอยู่ — ต้องไม่ชวนให้สร้างใหม่');
 
   if (!getProp_(PROP_KEY.DRIVE_ROOT_FOLDER, false)) {
@@ -10063,7 +10068,7 @@ function test_files_deadRootKeepsOldFiles() {
     /* ---------- กรณีที่เกิดขึ้นจริง: รากตาย ใบงานรอด ---------- */
     props.setProperty(PROP_KEY.DRIVE_ROOT_FOLDER, deadId);
 
-    var report = String(checkDriveFolder());
+    var report = String(await checkDriveFolder());
     Logger.log('  ' + report);
 
     assertTrue_(report.indexOf('พร้อมใช้งาน') === -1,
@@ -10078,7 +10083,7 @@ function test_files_deadRootKeepsOldFiles() {
     }
 
     /* ---------- และเครื่องมือสร้าง ต้องปฏิเสธเอง ไม่ใช่พึ่งให้คนอ่านคำเตือน ---------- */
-    var setup = String(setupDriveFolder());
+    var setup = String(await setupDriveFolder());
     Logger.log('  ' + setup);
     assertTrue_(setup.indexOf('ไม่ได้สร้างรากใหม่') !== -1,
       'setupDriveFolder ต้องปฏิเสธเมื่อโฟลเดอร์ใบงานยังเปิดได้ (ได้: ' + setup + ')');
@@ -10096,10 +10101,10 @@ function test_files_deadRootKeepsOldFiles() {
      *  ซึ่งถูกต้องแล้วที่มันแดง เพราะโค้ดเป็นฝ่ายถูก)
      */
     props.deleteProperty(PROP_DRIVE_WO_FOLDER);
-    var empty = String(checkDriveFolder());
+    var empty = String(await checkDriveFolder());
     Logger.log('  ' + empty);
 
-    if (oneWorkOrderFolderId_()) {
+    if (await oneWorkOrderFolderId_()) {
       assertTrue_(empty.indexOf('ห้ามรัน setupDriveFolder()') !== -1,
         'ฐานข้อมูลยังบอกว่ามีโฟลเดอร์ของใบงานอยู่ คำห้ามจึงต้องยังอยู่');
       assertTrue_(empty.indexOf('ลบค่า Script Property') === -1,
@@ -10132,8 +10137,8 @@ function test_files_deadRootKeepsOldFiles() {
  * ใช้เวลาน้อยที่สุดในบรรดาทุกกลุ่ม เหมาะกดหลัง clasp push เพื่อดูว่าระบบยังมีชีวิตอยู่
  * @return {string} ข้อความสรุปผล
  */
-function test_smoke() {
-  return runGroup_('SMOKE', [
+async function test_smoke() {
+  return await runGroup_('SMOKE', [
     { name: 'test_suitesAllGrouped', fn: test_suitesAllGrouped },
     { name: 'test_config_oauthScopes', fn: test_config_oauthScopes },
     { name: 'test_timezone',         fn: test_timezone },
@@ -10154,8 +10159,8 @@ function test_smoke() {
  * ต้องตั้ง Script Property ชื่อ AUDIT_SHEET_ID ก่อน มิฉะนั้นชุด Audit จะไม่ผ่าน
  * @return {string} ข้อความสรุปผล
  */
-function test_group_repo() {
-  return runGroup_('REPO', [
+async function test_group_repo() {
+  return await runGroup_('REPO', [
     { name: 'test_repo_schema',         fn: test_repo_schema },
     { name: 'test_repo_writeRead',      fn: test_repo_writeRead },
     { name: 'test_repo_rowCache',       fn: test_repo_rowCache },
@@ -10173,8 +10178,8 @@ function test_group_repo() {
  * กลุ่ม StateMachine — ตรรกะ Transition ล้วน บวกการต่อเข้ากับชีตจริง
  * @return {string} ข้อความสรุปผล
  */
-function test_group_statemachine() {
-  return runGroup_('STATEMACHINE', [
+async function test_group_statemachine() {
+  return await runGroup_('STATEMACHINE', [
     { name: 'test_woTransitions',    fn: test_woTransitions },
     { name: 'test_taskTransitions',  fn: test_taskTransitions },
     { name: 'test_completeTaskFlow', fn: test_completeTaskFlow },
@@ -10298,7 +10303,7 @@ function test_wo_durationDays() {
  * เริ่มจาก api_ ที่หน้าเว็บเรียกจริง ไม่ใช่เรียกชั้น Service ตรง ๆ เพราะการซ่อน
  * หรือกันที่หน้าจออย่างเดียวไม่ใช่การป้องกัน — ใครก็ยิง api_ ตรงได้โดยไม่ผ่านหน้าเว็บเลย
  */
-function test_wo_projectRequired() {
+async function test_wo_projectRequired() {
   beginTest_('โครงการเป็นช่องบังคับ และถูกปฏิเสธที่ชั้น API');
 
   var users = serviceTestUsers_();
@@ -10306,8 +10311,8 @@ function test_wo_projectRequired() {
 
   /* ---------- สร้างใบงาน ---------- */
   for (var i = 0; i < blanks.length; i++) {
-    var created = withTestUser_(users.admin, function () {
-      return api_createWorkOrder(testWoForm_({ 'Project': blanks[i] }));
+    var created = await withTestUser_(users.admin, async function () {
+      return await api_createWorkOrder(testWoForm_({ 'Project': blanks[i] }));
     });
     assertEquals_(created.ok, false,
       'สร้างใบงานโดยส่งโครงการเป็น [' + String(blanks[i]) + '] ต้องถูกปฏิเสธที่ชั้น API');
@@ -10316,13 +10321,13 @@ function test_wo_projectRequired() {
   }
 
   /* ---------- แก้ไขใบงาน ---------- */
-  var wo = createTestWo_(users);
-  callApiAs_(users.approver, 'ตีกลับเพื่อให้แก้ไขได้', function () {
-    return api_returnWorkOrder(wo.woId, 'ขอให้แก้ข้อมูล', lockOf_(wo.woId));
+  var wo = await createTestWo_(users);
+  await callApiAs_(users.approver, 'ตีกลับเพื่อให้แก้ไขได้', async function () {
+    return await api_returnWorkOrder(wo.woId, 'ขอให้แก้ข้อมูล', await lockOf_(wo.woId));
   });
 
-  var edited = withTestUser_(users.admin, function () {
-    return api_editWorkOrder(wo.woId, testWoForm_({ 'Project': '' }), lockOf_(wo.woId));
+  var edited = await withTestUser_(users.admin, async function () {
+    return await api_editWorkOrder(wo.woId, testWoForm_({ 'Project': '' }), await lockOf_(wo.woId));
   });
   assertEquals_(edited.ok, false, 'แก้ไขใบงานแล้วลบชื่อโครงการทิ้ง ต้องถูกปฏิเสธเช่นกัน');
   assertTrue_(String(edited.message).indexOf('โครงการ') !== -1,
@@ -10335,9 +10340,9 @@ function test_wo_projectRequired() {
    * การส่งขออนุมัติโตตามชุดของฟอร์ม ใบพวกนั้นจะค้างอยู่ในสถานะตีกลับตลอดไป
    * โดยที่เจ้าของใบไม่ได้ทำอะไรผิดเลย
    */
-  updateRow_(SHEET.WORK_ORDER, 'WO_ID', wo.woId, { 'Project': '' });
-  var resent = withTestUser_(users.admin, function () {
-    return api_submitWorkOrder(wo.woId, lockOf_(wo.woId));
+  await updateRow_(SHEET.WORK_ORDER, 'WO_ID', wo.woId, { 'Project': '' });
+  var resent = await withTestUser_(users.admin, async function () {
+    return await api_submitWorkOrder(wo.woId, await lockOf_(wo.woId));
   });
   assertEquals_(resent.ok, true,
     'ใบเก่าที่ไม่มีโครงการ ต้องส่งขออนุมัติใหม่ได้ · ได้: ' + resent.message);
@@ -10353,8 +10358,8 @@ function test_wo_projectRequired() {
    * กติกานั้นเป็นของ SPEC 10 ไม่ใช่ของฟอร์ม จึงต้องไม่ขยับตาม
    */
   var code = testCustomerCode_('PJ');
-  var first = resolveProjectLocation(code, '', 'จุดที่หนึ่ง', testWoId_(), {});
-  var again = resolveProjectLocation(code, '', 'จุดที่หนึ่ง', testWoId_(), {});
+  var first = await resolveProjectLocation(code, '', 'จุดที่หนึ่ง', testWoId_(), {});
+  var again = await resolveProjectLocation(code, '', 'จุดที่หนึ่ง', testWoId_(), {});
   assertEquals_(again, first,
     'ทะเบียนสถานที่ต้องยังหาแถวเดิมของโครงการที่เว้นว่างเจอ ไม่ใช่ออกรหัสใหม่ทุกครั้ง');
 
@@ -10370,8 +10375,8 @@ function test_wo_projectRequired() {
  *
  * @return {string} ข้อความสรุปผล
  */
-function test_group_service_wo() {
-  return runGroup_('SERVICE_WO', [
+async function test_group_service_wo() {
+  return await runGroup_('SERVICE_WO', [
     { name: 'test_service_projectLocation',   fn: test_service_projectLocation },
     { name: 'test_service_pjIdNumbering',     fn: test_service_pjIdNumbering },
     { name: 'test_service_createWorkOrder',   fn: test_service_createWorkOrder },
@@ -10398,20 +10403,20 @@ function test_group_service_wo() {
  * @param {string} assignmentType สายงานจาก ASSIGNMENT
  * @return {Object} {woId, taskOf}
  */
-function completedTestWo_(users, assignmentType) {
-  var wo = approvedTestWo_(users, assignmentType, { 'Location': 'จุดเปิดซ้ำ' + testRunId_() });
+async function completedTestWo_(users, assignmentType) {
+  var wo = await approvedTestWo_(users, assignmentType, { 'Location': 'จุดเปิดซ้ำ' + testRunId_() });
   var depts = departmentsOfAssignment(assignmentType);
 
   for (var d = 0; d < depts.length; d++) {
     var taskId = wo.taskOf(depts[d]);
     var actor = serviceUserOfDept_(users, depts[d]);
-    callApiAs_(actor, 'กดรับงาน ' + depts[d], function () { return api_acceptTask(taskId); });
-    finishEveryStep_(taskId, actor);
-    attachRequiredTaskReports_(wo.woId, taskId);
-    callApiAs_(actor, 'ปิดงานของแผนก ' + depts[d], function () { return api_completeTask(taskId); });
+    await callApiAs_(actor, 'กดรับงาน ' + depts[d], async function () { return await api_acceptTask(taskId); });
+    await finishEveryStep_(taskId, actor);
+    await attachRequiredTaskReports_(wo.woId, taskId);
+    await callApiAs_(actor, 'ปิดงานของแผนก ' + depts[d], async function () { return await api_completeTask(taskId); });
   }
 
-  assertEquals_(getWorkOrder(wo.woId)['Overall_Status'], WO_STATUS.COMPLETED,
+  assertEquals_((await getWorkOrder(wo.woId))['Overall_Status'], WO_STATUS.COMPLETED,
     'ใบงานต้องปิดครบก่อน ไม่งั้นการทดสอบการเปิดซ้ำไม่มีความหมาย');
   return wo;
 }
@@ -10432,8 +10437,8 @@ function completedTestWo_(users, assignmentType) {
  * @param {string} taskId เลขที่งานของแผนก
  * @return {number} จำนวนเอกสารที่แนบให้
  */
-function attachRequiredTaskReports_(woId, taskId) {
-  var missing = missingRequiredReports_(taskId);
+async function attachRequiredTaskReports_(woId, taskId) {
+  var missing = await missingRequiredReports_(taskId);
   if (!missing.length) return 0;
 
   var rows = [];
@@ -10451,7 +10456,7 @@ function attachRequiredTaskReports_(woId, taskId) {
     });
   }
 
-  insertFiles(rows);
+  await insertFiles(rows);
   clearRowCache_(SHEET.FILE_INDEX);
   return rows.length;
 }
@@ -10473,15 +10478,15 @@ function serviceUserOfDept_(users, dept) {
  * @param {string} taskId เลขที่งานของแผนก
  * @param {Object} actor ผู้ทำรายการ
  */
-function finishEveryStep_(taskId, actor) {
-  var steps = listStepsByTask(taskId).slice();
+async function finishEveryStep_(taskId, actor) {
+  var steps = (await listStepsByTask(taskId)).slice();
   steps.sort(function (a, b) { return Number(a['Step_No'] || 0) - Number(b['Step_No'] || 0); });
 
   for (var i = 0; i < steps.length; i++) {
     if (String(steps[i]['Status'] || '') === STEP_STATUS.COMPLETED) continue;
     var stepId = steps[i]['Step_ID'];
-    callApiAs_(actor, 'ปิดขั้นตอน ' + stepId, function () {
-      return api_updateTaskStep(stepId, { 'Status': STEP_STATUS.COMPLETED });
+    await callApiAs_(actor, 'ปิดขั้นตอน ' + stepId, async function () {
+      return await api_updateTaskStep(stepId, { 'Status': STEP_STATUS.COMPLETED });
     });
   }
 }
@@ -10492,65 +10497,65 @@ function finishEveryStep_(taskId, actor) {
  * **ห้ามเปลี่ยนเฉพาะสถานะ WO** ถ้า Task ยัง COMPLETED แผนกจะทำอะไรไม่ได้
  * และ recalcWoStatus จะปิดงานคืนทันทีในรายการเดียวกัน ผลคือกดแล้วเหมือนไม่มีอะไรเกิดขึ้น
  */
-function test_service_reopenByDepartment() {
+async function test_service_reopenByDepartment() {
   beginTest_('แผนกเปิดงานที่ปิดแล้วขึ้นมาทำต่อเองได้ และ Task ต้องกลับมาด้วย');
 
   var users = serviceTestUsers_();
-  var wo = completedTestWo_(users, ASSIGNMENT.SERVICE);
+  var wo = await completedTestWo_(users, ASSIGNMENT.SERVICE);
   var taskId = wo.taskOf(DEPT.SERVICE);
 
   /* ---------- สิ่งที่ต้องไม่หายหลังเปิดซ้ำ จำไว้ก่อน ---------- */
-  var stepsBefore = listStepsByTask(taskId);
+  var stepsBefore = await listStepsByTask(taskId);
   var doneBefore = 0;
   for (var s = 0; s < stepsBefore.length; s++) {
     if (String(stepsBefore[s]['Status'] || '') === STEP_STATUS.COMPLETED) doneBefore++;
   }
   assertTrue_(doneBefore > 0, 'ต้องมีขั้นตอนที่ปิดไปแล้วอย่างน้อยหนึ่งข้อ ไม่งั้นข้อนี้ไม่ได้พิสูจน์อะไร');
-  var filesBefore = listWoFileViews(wo.woId).length;
+  var filesBefore = (await listWoFileViews(wo.woId)).length;
 
   /* ---------- ไม่กรอกเหตุผล ต้องถูกปฏิเสธ ---------- */
-  var noReason = withTestUser_(users.service, function () {
-    return api_reopenWorkOrder(wo.woId, '', '', {});
+  var noReason = await withTestUser_(users.service, async function () {
+    return await api_reopenWorkOrder(wo.woId, '', '', {});
   });
   assertEquals_(noReason.ok, false, 'เปิดงานใหม่โดยไม่กรอกเหตุผลต้องถูกปฏิเสธ');
-  assertEquals_(getWorkOrder(wo.woId)['Overall_Status'], WO_STATUS.COMPLETED,
+  assertEquals_((await getWorkOrder(wo.woId))['Overall_Status'], WO_STATUS.COMPLETED,
     'และใบงานต้องยังปิดอยู่เหมือนเดิม ไม่ใช่เปลี่ยนไปครึ่งทาง');
 
   /* ---------- แผนกอื่นกด ต้องถูกปฏิเสธ ---------- */
-  var wrongDept = withTestUser_(users.project, function () {
-    return api_reopenWorkOrder(wo.woId, 'ขอเปิดแทน', '', {});
+  var wrongDept = await withTestUser_(users.project, async function () {
+    return await api_reopenWorkOrder(wo.woId, 'ขอเปิดแทน', '', {});
   });
   assertEquals_(wrongDept.ok, false,
     'แผนกที่ไม่ได้เป็นเจ้าของงานในใบนี้ เปิดงานใหม่ไม่ได้');
 
   /* ---------- Admin กด ต้องถูกปฏิเสธ ---------- */
-  var byAdmin = withTestUser_(users.admin, function () {
-    return api_reopenWorkOrder(wo.woId, 'ขอเปิดใหม่', DEPT.SERVICE, {});
+  var byAdmin = await withTestUser_(users.admin, async function () {
+    return await api_reopenWorkOrder(wo.woId, 'ขอเปิดใหม่', DEPT.SERVICE, {});
   });
   assertEquals_(byAdmin.ok, false, 'Admin เปิดงานใหม่ไม่ได้ในรอบนี้');
 
   /* ---------- แผนกเจ้าของงานกด ต้องสำเร็จ ---------- */
-  var done = callApiAs_(users.service, 'เปิดงานขึ้นมาทำต่อ', function () {
-    return api_reopenWorkOrder(wo.woId, 'ลูกค้าแจ้งว่ายังมีน้ำรั่วอยู่', '', {});
+  var done = await callApiAs_(users.service, 'เปิดงานขึ้นมาทำต่อ', async function () {
+    return await api_reopenWorkOrder(wo.woId, 'ลูกค้าแจ้งว่ายังมีน้ำรั่วอยู่', '', {});
   });
   assertEquals_(done.plan.to, WO_STATUS.IN_PROGRESS, 'ใบงานต้องกลับเป็นกำลังดำเนินการ');
   assertEquals_(done.taskPlan.to, TASK_STATUS.IN_PROGRESS, 'และงานของแผนกต้องกลับมาด้วย');
 
-  var after = getWorkOrder(wo.woId);
+  var after = await getWorkOrder(wo.woId);
   assertEquals_(after['Overall_Status'], WO_STATUS.IN_PROGRESS,
     'สถานะที่บันทึกจริงต้องเป็นกำลังดำเนินการ ไม่ใช่ถูก recalcWoStatus ปิดกลับทันที');
-  assertEquals_(String(getTask(taskId)[STATUS_FIELD[ENTITY.TASK]]), TASK_STATUS.IN_PROGRESS,
+  assertEquals_(String((await getTask(taskId))[STATUS_FIELD[ENTITY.TASK]]), TASK_STATUS.IN_PROGRESS,
     'งานของแผนกที่บันทึกจริงต้องกลับมาเป็นกำลังดำเนินการ');
 
   /* ---------- ประวัติรอบก่อนต้องไม่หาย ---------- */
-  var stepsAfter = listStepsByTask(taskId);
+  var stepsAfter = await listStepsByTask(taskId);
   var doneAfter = 0;
   for (var a = 0; a < stepsAfter.length; a++) {
     if (String(stepsAfter[a]['Status'] || '') === STEP_STATUS.COMPLETED) doneAfter++;
   }
   assertEquals_(doneAfter, doneBefore,
     'ขั้นตอนที่ทำเสร็จไปแล้วต้องคงสถานะเดิม ห้ามรีเซ็ต — ประวัติรอบก่อนต้องไม่หาย');
-  assertEquals_(listWoFileViews(wo.woId).length, filesBefore,
+  assertEquals_((await listWoFileViews(wo.woId)).length, filesBefore,
     'ไฟล์และรายงานที่แนบไว้แล้วต้องยังอยู่ครบ');
 
   /* ---------- นับจำนวนครั้ง และบันทึกว่าใครเปิด ---------- */
@@ -10563,20 +10568,20 @@ function test_service_reopenByDepartment() {
     'ห้ามเขียนทับช่องเหตุผลการตีกลับ เพราะเป็นคนละเรื่องและใบเดียวกันเกิดได้ทั้งสองอย่าง');
 
   /* ---------- ระหว่างที่เปิดอยู่ กดเปิดซ้ำอีกไม่ได้ ---------- */
-  var again = withTestUser_(users.service, function () {
-    return api_reopenWorkOrder(wo.woId, 'กดซ้ำ', '', {});
+  var again = await withTestUser_(users.service, async function () {
+    return await api_reopenWorkOrder(wo.woId, 'กดซ้ำ', '', {});
   });
   assertEquals_(again.ok, false, 'ใบที่กำลังดำเนินการอยู่แล้ว เปิดใหม่อีกไม่ได้');
 
   /* ---------- ปิดงานอีกครั้งได้ตามปกติ แล้วเปิดซ้ำได้อีก ---------- */
-  callApiAs_(users.service, 'ปิดงานรอบสอง', function () { return api_completeTask(taskId); });
-  assertEquals_(getWorkOrder(wo.woId)['Overall_Status'], WO_STATUS.COMPLETED,
+  await callApiAs_(users.service, 'ปิดงานรอบสอง', async function () { return await api_completeTask(taskId); });
+  assertEquals_((await getWorkOrder(wo.woId))['Overall_Status'], WO_STATUS.COMPLETED,
     'ปิดงานอีกครั้งได้ตามปกติหลังเปิดซ้ำ');
 
-  callApiAs_(users.service, 'เปิดงานขึ้นมาทำต่อรอบสอง', function () {
-    return api_reopenWorkOrder(wo.woId, 'ยังไม่หายขาด', '', {});
+  await callApiAs_(users.service, 'เปิดงานขึ้นมาทำต่อรอบสอง', async function () {
+    return await api_reopenWorkOrder(wo.woId, 'ยังไม่หายขาด', '', {});
   });
-  assertEquals_(Number(getWorkOrder(wo.woId)['Reopen_Count']), 2,
+  assertEquals_(Number((await getWorkOrder(wo.woId))['Reopen_Count']), 2,
     'เปิดซ้ำสองครั้งต้องนับได้ 2 — ถ้านับไม่ได้ การเปิดงานซ้ำจะกลายเป็นวิธีซ่อนงานที่ต้องแก้ใหม่');
 
   return endTest_();
@@ -10589,24 +10594,24 @@ function test_service_reopenByDepartment() {
  * ถ้าเปิดทางไว้ การยกเลิกจะกลายเป็นสถานะชั่วคราวที่ใครก็ย้อนได้ แล้วคำว่า
  * "ยกเลิกแล้ว" บนหน้าจอจะเชื่อถือไม่ได้อีกเลย
  */
-function test_service_reopenRejectsCancelled() {
+async function test_service_reopenRejectsCancelled() {
   beginTest_('ใบที่ยกเลิกแล้วต้องเปิดใหม่ไม่ได้');
 
   var users = serviceTestUsers_();
-  var wo = approvedTestWo_(users, ASSIGNMENT.SERVICE, { 'Location': 'จุดยกเลิก' + testRunId_() });
+  var wo = await approvedTestWo_(users, ASSIGNMENT.SERVICE, { 'Location': 'จุดยกเลิก' + testRunId_() });
   var taskId = wo.taskOf(DEPT.SERVICE);
 
-  callApiAs_(users.service, 'ยกเลิกงานของแผนก', function () {
-    return api_cancelTask(taskId, 'ลูกค้ายกเลิกงานทั้งหมด');
+  await callApiAs_(users.service, 'ยกเลิกงานของแผนก', async function () {
+    return await api_cancelTask(taskId, 'ลูกค้ายกเลิกงานทั้งหมด');
   });
-  assertEquals_(getWorkOrder(wo.woId)['Overall_Status'], WO_STATUS.CANCELLED,
+  assertEquals_((await getWorkOrder(wo.woId))['Overall_Status'], WO_STATUS.CANCELLED,
     'ใบงานต้องถูกยกเลิกก่อน ไม่งั้นข้อนี้ไม่ได้ทดสอบอะไร');
 
-  var blocked = withTestUser_(users.service, function () {
-    return api_reopenWorkOrder(wo.woId, 'ลูกค้าเปลี่ยนใจ', '', {});
+  var blocked = await withTestUser_(users.service, async function () {
+    return await api_reopenWorkOrder(wo.woId, 'ลูกค้าเปลี่ยนใจ', '', {});
   });
   assertEquals_(blocked.ok, false, 'ใบที่ยกเลิกแล้ว เปิดใหม่ไม่ได้');
-  assertEquals_(getWorkOrder(wo.woId)['Overall_Status'], WO_STATUS.CANCELLED,
+  assertEquals_((await getWorkOrder(wo.woId))['Overall_Status'], WO_STATUS.CANCELLED,
     'และต้องยังเป็นยกเลิกอยู่เหมือนเดิม');
 
   return endTest_();
@@ -10619,23 +10624,23 @@ function test_service_reopenRejectsCancelled() {
  * แต่แปลว่าแผนกที่ปิดงานเรียบร้อยแล้วต้องกลับมาทำใหม่ทั้งที่ไม่มีใครขอ และ
  * เอกสารที่เขาส่งไปแล้วจะกลายเป็นงานค้างในสายตาระบบ
  */
-function test_service_reopenJointKeepsOtherDepartment() {
+async function test_service_reopenJointKeepsOtherDepartment() {
   beginTest_('งานร่วม เปิดซ้ำแล้วอีกแผนกต้องยังปิดอยู่');
 
   var users = serviceTestUsers_();
-  var wo = completedTestWo_(users, ASSIGNMENT.SERVICE_PROJECT);
+  var wo = await completedTestWo_(users, ASSIGNMENT.SERVICE_PROJECT);
   var svTask = wo.taskOf(DEPT.SERVICE);
   var pjTask = wo.taskOf(DEPT.PROJECT);
 
-  callApiAs_(users.service, 'เปิดงานของ Service ขึ้นมาทำต่อ', function () {
-    return api_reopenWorkOrder(wo.woId, 'ลูกค้าแจ้งว่าปั๊มยังเสียงดัง', '', {});
+  await callApiAs_(users.service, 'เปิดงานของ Service ขึ้นมาทำต่อ', async function () {
+    return await api_reopenWorkOrder(wo.woId, 'ลูกค้าแจ้งว่าปั๊มยังเสียงดัง', '', {});
   });
 
-  assertEquals_(String(getTask(svTask)[STATUS_FIELD[ENTITY.TASK]]), TASK_STATUS.IN_PROGRESS,
+  assertEquals_(String((await getTask(svTask))[STATUS_FIELD[ENTITY.TASK]]), TASK_STATUS.IN_PROGRESS,
     'งานของแผนกที่กดเปิด ต้องกลับมาเป็นกำลังดำเนินการ');
-  assertEquals_(String(getTask(pjTask)[STATUS_FIELD[ENTITY.TASK]]), TASK_STATUS.COMPLETED,
+  assertEquals_(String((await getTask(pjTask))[STATUS_FIELD[ENTITY.TASK]]), TASK_STATUS.COMPLETED,
     'แต่งานของอีกแผนกต้องคงเป็นเสร็จสิ้นไว้ ห้ามปลุกทั้งใบ');
-  assertEquals_(getWorkOrder(wo.woId)['Overall_Status'], WO_STATUS.IN_PROGRESS,
+  assertEquals_((await getWorkOrder(wo.woId))['Overall_Status'], WO_STATUS.IN_PROGRESS,
     'สถานะรวมต้องเป็นกำลังดำเนินการ เพราะยังมีแผนกหนึ่งทำอยู่');
 
   return endTest_();
@@ -10650,39 +10655,39 @@ function test_service_reopenJointKeepsOtherDepartment() {
  * เดือนสิงหาคมแล้วมีคนมาบันทึกการชำระเงินเดือนกันยายน จะถูกนับเป็นงานที่เสร็จ
  * เดือนกันยายน · การจ่ายเงินหลังงานเสร็จคือเรื่องปกติที่สุด ยอดจึงผิดทุกเดือน
  */
-function test_service_closedDateTracksClosing() {
+async function test_service_closedDateTracksClosing() {
   beginTest_('วันที่ปิดงานต้องตั้งตอนปิด ล้างตอนเปิดซ้ำ และไม่ขยับเมื่อแก้เรื่องอื่น');
 
   var users = serviceTestUsers_();
-  var wo = completedTestWo_(users, ASSIGNMENT.SERVICE);
+  var wo = await completedTestWo_(users, ASSIGNMENT.SERVICE);
   var taskId = wo.taskOf(DEPT.SERVICE);
 
   /* ---------- ปิดงานแล้วต้องมีวันที่ปิด ---------- */
-  var closed = getWorkOrder(wo.woId);
+  var closed = await getWorkOrder(wo.woId);
   assertTrue_(!isEmptyValue_(closed['Closed_Date']),
     'ปิดงานแล้วต้องบันทึกวันที่ปิดไว้ · ยอด "เสร็จสิ้นเดือนนี้" นับจากช่องนี้');
   var firstClosed = String(closed['Closed_Date']);
 
   /* ---------- แก้เรื่องอื่นของใบที่ปิดแล้ว วันที่ปิดต้องไม่ขยับ ---------- */
-  callApiAs_(users.admin, 'บันทึกการชำระเงินหลังงานเสร็จ', function () {
-    return api_recordPayment(wo.woId, 'โอนแล้วเต็มจำนวน');
+  await callApiAs_(users.admin, 'บันทึกการชำระเงินหลังงานเสร็จ', async function () {
+    return await api_recordPayment(wo.woId, 'โอนแล้วเต็มจำนวน');
   });
-  var afterPayment = getWorkOrder(wo.woId);
+  var afterPayment = await getWorkOrder(wo.woId);
   assertEquals_(String(afterPayment['Closed_Date']), firstClosed,
     'บันทึกการชำระเงินต้องไม่ขยับวันที่ปิดงาน — นี่คือบั๊กที่ทำให้ยอดเสร็จสิ้นเดือนนี้ผิดทุกเดือน');
   assertTrue_(String(afterPayment['Updated_Date']) !== '',
     'ขณะที่ Updated_Date ขยับตามปกติ ซึ่งเป็นเหตุผลที่นับจากช่องนั้นไม่ได้');
 
   /* ---------- เปิดซ้ำแล้ววันที่ปิดต้องถูกล้าง ---------- */
-  callApiAs_(users.service, 'เปิดงานขึ้นมาทำต่อ', function () {
-    return api_reopenWorkOrder(wo.woId, 'ลูกค้าแจ้งกลับ', '', {});
+  await callApiAs_(users.service, 'เปิดงานขึ้นมาทำต่อ', async function () {
+    return await api_reopenWorkOrder(wo.woId, 'ลูกค้าแจ้งกลับ', '', {});
   });
-  assertTrue_(isEmptyValue_(getWorkOrder(wo.woId)['Closed_Date']),
+  assertTrue_(isEmptyValue_((await getWorkOrder(wo.woId))['Closed_Date']),
     'เปิดซ้ำแล้ววันที่ปิดต้องว่าง ไม่งั้นใบที่กลับมาทำอยู่จะยังถูกนับเป็นงานที่ปิดแล้ว');
 
   /* ---------- ปิดอีกครั้งต้องได้วันที่ใหม่ ---------- */
-  callApiAs_(users.service, 'ปิดงานรอบสอง', function () { return api_completeTask(taskId); });
-  var reclosed = getWorkOrder(wo.woId);
+  await callApiAs_(users.service, 'ปิดงานรอบสอง', async function () { return await api_completeTask(taskId); });
+  var reclosed = await getWorkOrder(wo.woId);
   assertTrue_(!isEmptyValue_(reclosed['Closed_Date']), 'ปิดอีกครั้งต้องมีวันที่ปิดใหม่');
 
   return endTest_();
@@ -10694,16 +10699,16 @@ function test_service_closedDateTracksClosing() {
  * Admin เป็นเจ้าของวงจรชีวิตใบงาน ถ้างานที่ Admin เชื่อว่าปิดแล้วกลับมาเปิด
  * โดยไม่มีใครบอก ภาพรวมที่ Admin ถืออยู่จะผิดทันที
  */
-function test_service_reopenNotifiesAndAudits() {
+async function test_service_reopenNotifiesAndAudits() {
   beginTest_('เปิดงานซ้ำต้องแจ้ง Admin และลง Audit_Log ด้วย Action ของตัวเอง');
 
   var users = serviceTestUsers_();
-  addTestChannels_();
-  var wo = completedTestWo_(users, ASSIGNMENT.SERVICE);
+  await addTestChannels_();
+  var wo = await completedTestWo_(users, ASSIGNMENT.SERVICE);
 
-  var outbox = captureNotifications_(function () {
-    callApiAs_(users.service, 'เปิดงานขึ้นมาทำต่อ', function () {
-      return api_reopenWorkOrder(wo.woId, 'ลูกค้าแจ้งว่ายังมีปัญหา', '', {});
+  var outbox = await captureNotifications_(async function () {
+    await callApiAs_(users.service, 'เปิดงานขึ้นมาทำต่อ', async function () {
+      return await api_reopenWorkOrder(wo.woId, 'ลูกค้าแจ้งว่ายังมีปัญหา', '', {});
     });
   });
 
@@ -10725,7 +10730,7 @@ function test_service_reopenNotifiesAndAudits() {
   assertTrue_(text.indexOf('@') !== -1, 'และต้องบอกว่าใครเป็นคนกด');
 
   /* ---------- Audit_Log ต้องใช้ Action ของตัวเอง ไม่ใช่รวมกับ TASK_UPDATE ---------- */
-  var logs = listAuditByWo(wo.woId);
+  var logs = await listAuditByWo(wo.woId);
   var reopenWo = 0;
   var reopenTask = 0;
   for (var a = 0; a < logs.length; a++) {
@@ -10743,7 +10748,7 @@ function test_service_reopenNotifiesAndAudits() {
 /**
  * ตัวกรอง "เคยเปิดซ้ำ" ต้องกรองที่ฐานข้อมูล และแสดงจำนวนครั้งในรายการ
  */
-function test_home_reopenedFilter() {
+async function test_home_reopenedFilter() {
   beginTest_('ตัวกรอง "เคยเปิดซ้ำ" ต้องกรองที่ฐานข้อมูลและบอกจำนวนครั้ง');
 
   /* ---------- ฐานข้อมูลต้องเป็นคนกรอง ---------- */
@@ -10758,12 +10763,12 @@ function test_home_reopenedFilter() {
 
   /* ---------- ของจริง ---------- */
   var users = serviceTestUsers_();
-  var wo = completedTestWo_(users, ASSIGNMENT.SERVICE);
-  callApiAs_(users.service, 'เปิดงานขึ้นมาทำต่อ', function () {
-    return api_reopenWorkOrder(wo.woId, 'ลูกค้าแจ้งกลับ', '', {});
+  var wo = await completedTestWo_(users, ASSIGNMENT.SERVICE);
+  await callApiAs_(users.service, 'เปิดงานขึ้นมาทำต่อ', async function () {
+    return await api_reopenWorkOrder(wo.woId, 'ลูกค้าแจ้งกลับ', '', {});
   });
 
-  var got = homeList_({ reopened: true });
+  var got = await homeList_({ reopened: true });
   var found = null;
   for (var i = 0; i < got.rows.length; i++) {
     if (got.rows[i].woId === wo.woId) found = got.rows[i];
@@ -10783,8 +10788,8 @@ function test_home_reopenedFilter() {
   return endTest_();
 }
 
-function test_group_service_flow() {
-  return runGroup_('SERVICE_FLOW', [
+async function test_group_service_flow() {
+  return await runGroup_('SERVICE_FLOW', [
     { name: 'test_service_editOnlyFromReturned', fn: test_service_editOnlyFromReturned },
     { name: 'test_service_noDraftLeft',          fn: test_service_noDraftLeft },
     { name: 'test_service_returnCancel',         fn: test_service_returnCancel },
@@ -10806,8 +10811,8 @@ function test_group_service_flow() {
  *
  * @return {string} ข้อความสรุปผล
  */
-function test_group_service_reopen() {
-  return runGroup_('SERVICE_REOPEN', [
+async function test_group_service_reopen() {
+  return await runGroup_('SERVICE_REOPEN', [
     { name: 'test_service_reopenWorkOrder',      fn: test_service_reopenWorkOrder },
     { name: 'test_service_reopenByDepartment',   fn: test_service_reopenByDepartment },
     { name: 'test_service_reopenJointKeepsOtherDepartment', fn: test_service_reopenJointKeepsOtherDepartment }
@@ -10824,8 +10829,8 @@ function test_group_service_reopen() {
  *
  * @return {string} ข้อความสรุปผล
  */
-function test_group_service_reopen_trace() {
-  return runGroup_('SERVICE_REOPEN_TRACE', [
+async function test_group_service_reopen_trace() {
+  return await runGroup_('SERVICE_REOPEN_TRACE', [
     { name: 'test_service_closedDateTracksClosing', fn: test_service_closedDateTracksClosing },
     { name: 'test_service_reopenNotifiesAndAudits', fn: test_service_reopenNotifiesAndAudits }
   ]);
@@ -10840,8 +10845,8 @@ function test_group_service_reopen_trace() {
  *
  * @return {string} ข้อความสรุปผล
  */
-function test_group_service_approve() {
-  return runGroup_('SERVICE_APPROVE', [
+async function test_group_service_approve() {
+  return await runGroup_('SERVICE_APPROVE', [
     { name: 'test_service_approveDoesNotDuplicateTasks', fn: test_service_approveDoesNotDuplicateTasks },
     { name: 'test_files_approveRequiresFiles',  fn: test_files_approveRequiresFiles },
     { name: 'test_files_manyPerTopic',          fn: test_files_manyPerTopic },
@@ -10864,8 +10869,8 @@ function test_group_service_approve() {
  *
  * @return {string} ข้อความสรุปผล
  */
-function test_group_service_files() {
-  return runGroup_('SERVICE_FILES', [
+async function test_group_service_files() {
+  return await runGroup_('SERVICE_FILES', [
     { name: 'test_files_extensionAllowlist',    fn: test_files_extensionAllowlist },
     { name: 'test_files_emptyState',            fn: test_files_emptyState },
     { name: 'test_files_driveIsolation',        fn: test_files_driveIsolation },
@@ -10885,11 +10890,11 @@ function test_group_service_files() {
  * เรื่องที่พังง่ายที่สุดของฟีเจอร์นี้คือเวลาเลื่อนเจ็ดชั่วโมง ซึ่งไม่มี error ให้เห็น
  * มีแต่ช่างไปผิดวัน · ข้อแรกของชุดนี้จึงเป็นการเขียนค่าแล้วอ่านกลับมาเทียบทีละตัวอักษร
  */
-function test_task_visitSchedule() {
+async function test_task_visitSchedule() {
   beginTest_('กำหนดวันเวลาเข้างานของแผนก และหน้า "งานวันนี้"');
 
   var users = serviceTestUsers_();
-  var wo = approvedTestWo_(users, ASSIGNMENT.SERVICE, { 'Location': 'จุดนัดเข้างาน' });
+  var wo = await approvedTestWo_(users, ASSIGNMENT.SERVICE, { 'Location': 'จุดนัดเข้างาน' });
   var taskId = wo.taskOf(DEPT.SERVICE);
 
   /* ---------- ยังไม่กดรับงาน กำหนดวันไม่ได้ ---------- */
@@ -10898,12 +10903,12 @@ function test_task_visitSchedule() {
    * from: [IN_PROGRESS] อยู่แล้ว ด่านจึงมาจากตารางเดียวกับทุกรายการอื่น (กฎข้อ 1)
    * ข้อนี้พิสูจน์ว่ามันบังคับจริง ไม่ใช่เชื่อว่าตารางจะทำงานให้
    */
-  var tooEarly = withTestUser_(users.service, function () {
-    return api_setTaskVisit(taskId, '2026-09-30T08:00', '');
+  var tooEarly = await withTestUser_(users.service, async function () {
+    return await api_setTaskVisit(taskId, '2026-09-30T08:00', '');
   });
   assertEquals_(tooEarly.ok, false, 'ยังไม่กดรับงาน ต้องกำหนดวันเวลาเข้างานไม่ได้');
 
-  callApiAs_(users.service, 'กดรับงาน', function () { return api_acceptTask(taskId); });
+  await callApiAs_(users.service, 'กดรับงาน', async function () { return await api_acceptTask(taskId); });
 
   /* ---------- เขียนแล้วอ่านกลับต้องได้สตริงเดิมเป๊ะ ---------- */
   /*
@@ -10911,16 +10916,16 @@ function test_task_visitSchedule() {
    * มันจะกลายเป็น '2026-09-30T16:30' คือคนละเวลา และถ้าเป็น 00:30 ก็จะกลายเป็นคนละวัน
    */
   var wanted = '2026-09-30T23:30';
-  callApiAs_(users.service, 'กำหนดวันเวลาเข้างาน', function () {
-    return api_setTaskVisit(taskId, wanted, '2026-10-01T02:00');
+  await callApiAs_(users.service, 'กำหนดวันเวลาเข้างาน', async function () {
+    return await api_setTaskVisit(taskId, wanted, '2026-10-01T02:00');
   });
 
-  var saved = getTask(taskId);
+  var saved = await getTask(taskId);
   assertEquals_(saved['Visit_Start'], wanted,
     'อ่านกลับมาต้องได้สตริงเดิมทุกตัวอักษร ไม่ใช่เวลาที่เลื่อนไปเจ็ดชั่วโมง');
   assertEquals_(saved['Visit_End'], '2026-10-01T02:00', 'ช่องออกงานก็ต้องได้ค่าเดิมเป๊ะ');
 
-  var view = taskViewOf_(saved);
+  var view = await taskViewOf_(saved);
   assertEquals_(view.visit.start, wanted,
     'ค่าที่ส่งให้หน้าจอต้องเป็นรูปแบบที่ใส่ช่องกรอกได้ทันที ไม่ใช่ข้อความที่จัดรูปแล้ว');
 
@@ -10943,79 +10948,79 @@ function test_task_visitSchedule() {
     'และต้องไม่โผล่ในหน้าของวันที่ 1 ตุลาคม ทั้งที่เวลานั้นใกล้เที่ยงคืน');
 
   /* ---------- และฐานข้อมูลต้องกรองให้ ไม่ใช่ลากทุกแถวมาคัดเอง (กฎข้อ 28) ---------- */
-  var onDay = findTasksVisitingOn(DEPT.SERVICE, '2026-09-30');
+  var onDay = await findTasksVisitingOn(DEPT.SERVICE, '2026-09-30');
   assertTrue_(taskIdsOf_(onDay).indexOf(taskId) !== -1,
     'ตัวกรองฝั่งฐานข้อมูลต้องหางานที่นัดไว้วันนั้นเจอ');
-  assertTrue_(taskIdsOf_(findTasksVisitingOn(DEPT.SERVICE, '2026-10-01')).indexOf(taskId) === -1,
+  assertTrue_(taskIdsOf_(await findTasksVisitingOn(DEPT.SERVICE, '2026-10-01')).indexOf(taskId) === -1,
     'และต้องไม่คืนงานนั้นให้วันถัดไป');
-  assertTrue_(taskIdsOf_(findTasksVisitingOn(DEPT.PROJECT, '2026-09-30')).indexOf(taskId) === -1,
+  assertTrue_(taskIdsOf_(await findTasksVisitingOn(DEPT.PROJECT, '2026-09-30')).indexOf(taskId) === -1,
     'และต้องไม่ข้ามแผนก — งานของ Service ต้องไม่โผล่ในหน้าของ Project');
 
   /* ---------- งานที่นัดไว้วันนี้จริง ต้องขึ้นหน้า "งานวันนี้" ---------- */
   var today = thaiDayOf_(new Date());
-  callApiAs_(users.service, 'เลื่อนนัดมาเป็นวันนี้', function () {
-    return api_setTaskVisit(taskId, today + 'T08:00', today + 'T17:00');
+  await callApiAs_(users.service, 'เลื่อนนัดมาเป็นวันนี้', async function () {
+    return await api_setTaskVisit(taskId, today + 'T08:00', today + 'T17:00');
   });
 
-  var todayRows = listTodayTasks(DEPT.SERVICE);
+  var todayRows = await listTodayTasks(DEPT.SERVICE);
   var todayIds = [];
   for (var t = 0; t < todayRows.length; t++) todayIds.push(todayRows[t].taskId);
   assertTrue_(todayIds.indexOf(taskId) !== -1, 'งานที่นัดไว้วันนี้ต้องอยู่ในหน้า "งานวันนี้"');
 
-  var counts = taskCountsForDepartment_(DEPT.SERVICE);
+  var counts = await taskCountsForDepartment_(DEPT.SERVICE);
   assertEquals_(counts[TASK_TODAY_VIEW], todayRows.length,
     'ตัวเลขบนเมนูย่อยต้องเท่ากับจำนวนรายการที่เห็นจริงในหน้าเป๊ะ');
   assertTrue_(counts.pending >= 0 && counts.active >= 1,
     'และมุมมองที่คัดด้วยสถานะต้องยังนับได้ตามปกติ ไม่ถูกมุมมองวันนี้กลืนไป');
 
   /* ---------- งานที่ยังไม่ได้นัดวัน ต้องไม่หายไปจากสายตา ---------- */
-  var other = approvedTestWo_(users, ASSIGNMENT.SERVICE, { 'Location': 'จุดที่ยังไม่นัด' });
+  var other = await approvedTestWo_(users, ASSIGNMENT.SERVICE, { 'Location': 'จุดที่ยังไม่นัด' });
   var otherTask = other.taskOf(DEPT.SERVICE);
-  callApiAs_(users.service, 'กดรับงานใบที่ยังไม่นัด', function () { return api_acceptTask(otherTask); });
+  await callApiAs_(users.service, 'กดรับงานใบที่ยังไม่นัด', async function () { return await api_acceptTask(otherTask); });
 
   var stillHidden = [];
-  var nowToday = listTodayTasks(DEPT.SERVICE);
+  var nowToday = await listTodayTasks(DEPT.SERVICE);
   for (var n = 0; n < nowToday.length; n++) stillHidden.push(nowToday[n].taskId);
   assertTrue_(stillHidden.indexOf(otherTask) === -1,
     'งานที่ยังไม่ได้กำหนดวันเข้างาน ต้องไม่โผล่ในหน้า "งานวันนี้"');
 
-  var everything = listTasksForDepartment(DEPT.SERVICE, { includeClosed: true });
+  var everything = await listTasksForDepartment(DEPT.SERVICE, { includeClosed: true });
   var allIds = [];
   for (var a = 0; a < everything.length; a++) allIds.push(everything[a].taskId);
   assertTrue_(allIds.indexOf(otherTask) !== -1,
     'แต่ต้องยังเห็นได้ในรายการปกติ ห้ามให้งานหายไปจากทุกหน้าจอเพราะยังไม่ได้นัดวัน');
 
   /* ---------- แก้ไขได้เรื่อย ๆ และล้างได้ ---------- */
-  callApiAs_(users.service, 'ล้างวันนัด', function () {
-    return api_setTaskVisit(taskId, '', '');
+  await callApiAs_(users.service, 'ล้างวันนัด', async function () {
+    return await api_setTaskVisit(taskId, '', '');
   });
-  assertEquals_(String(getTask(taskId)['Visit_Start'] || ''), '',
+  assertEquals_(String((await getTask(taskId))['Visit_Start'] || ''), '',
     'ล้างวันนัดได้ เพราะแผนงานที่ยกเลิกไปแล้วต้องไม่ค้างอยู่ในหน้า "งานวันนี้"');
 
   /* ---------- รูปแบบที่ไม่ถูกต้อง ต้องถูกปฏิเสธพร้อมบอกชื่อช่อง ---------- */
   var bad = ['30-09-2026 08:00', '2026-09-30', '2026-09-30T08:00:00', 'พรุ่งนี้เช้า'];
   for (var i = 0; i < bad.length; i++) {
-    var rejected = withTestUser_(users.service, function () {
-      return api_setTaskVisit(taskId, bad[i], '');
+    var rejected = await withTestUser_(users.service, async function () {
+      return await api_setTaskVisit(taskId, bad[i], '');
     });
     assertEquals_(rejected.ok, false, 'รูปแบบ [' + bad[i] + '] ต้องถูกปฏิเสธ');
     assertTrue_(String(rejected.message).indexOf(fieldLabel('Visit_Start')) !== -1,
       'และข้อความต้องบอกว่าช่องไหนผิด · ได้: ' + rejected.message);
   }
 
-  var backwards = withTestUser_(users.service, function () {
-    return api_setTaskVisit(taskId, '2026-09-30T10:00', '2026-09-30T08:00');
+  var backwards = await withTestUser_(users.service, async function () {
+    return await api_setTaskVisit(taskId, '2026-09-30T10:00', '2026-09-30T08:00');
   });
   assertEquals_(backwards.ok, false, 'ออกงานก่อนเข้างาน ต้องถูกปฏิเสธ');
 
   /* ---------- สิทธิ์: คนนอกแผนกทำไม่ได้ ---------- */
-  var byAdmin = withTestUser_(users.admin, function () {
-    return api_setTaskVisit(taskId, '2026-09-30T08:00', '');
+  var byAdmin = await withTestUser_(users.admin, async function () {
+    return await api_setTaskVisit(taskId, '2026-09-30T08:00', '');
   });
   assertEquals_(byAdmin.ok, false, 'ธุรการไม่ใช่แผนกเจ้าของงาน จึงกำหนดวันเข้างานแทนไม่ได้');
 
-  var byOtherDept = withTestUser_(users.project, function () {
-    return api_setTaskVisit(taskId, '2026-09-30T08:00', '');
+  var byOtherDept = await withTestUser_(users.project, async function () {
+    return await api_setTaskVisit(taskId, '2026-09-30T08:00', '');
   });
   assertEquals_(byOtherDept.ok, false, 'แผนกอื่นก็กำหนดวันเข้างานของงานที่ไม่ใช่ของตัวเองไม่ได้');
 
@@ -11024,7 +11029,7 @@ function test_task_visitSchedule() {
    * คำถามที่จะถูกถามแน่นอนในวันที่งานไม่ทันกำหนดคือ "ใครเลื่อนวันนัด จากวันไหนเป็นวันไหน"
    * ซึ่งตอบได้จากบรรทัดระดับฟิลด์เท่านั้น บรรทัด "อัปเดตงาน" เฉย ๆ ตอบไม่ได้
    */
-  var logs = listAuditByWo(wo.woId);
+  var logs = await listAuditByWo(wo.woId);
   var visitLogs = [];
   for (var g = 0; g < logs.length; g++) {
     if (String(logs[g]['Field']) === 'Visit_Start') visitLogs.push(logs[g]);
@@ -11035,10 +11040,10 @@ function test_task_visitSchedule() {
     'บรรทัดแรกต้องจำค่าที่บันทึกไว้จริง ไม่ใช่ค่าที่จัดรูปแล้ว');
 
   /* ---------- ห้ามส่ง Telegram เมื่อกำหนดหรือแก้วันเข้างาน (SPEC 15.3) ---------- */
-  addTestChannels_();
-  var sent = captureNotifications_(function () {
-    withTestUser_(users.service, function () {
-      return api_setTaskVisit(taskId, '2026-10-05T09:00', '');
+  await addTestChannels_();
+  var sent = await captureNotifications_(async function () {
+    await withTestUser_(users.service, async function () {
+      return await api_setTaskVisit(taskId, '2026-10-05T09:00', '');
     });
   });
   assertEquals_(sent.length, 0,
@@ -11078,7 +11083,7 @@ function taskIdsOf_(rows) {
  * @param {number} count จำนวนใบที่จะปลูก
  * @return {number} จำนวนขั้นตอนที่เขียนลงไป
  */
-function seedDeptTasks_(prefix, from, count) {
+async function seedDeptTasks_(prefix, from, count) {
   var today = thaiDayOf_(new Date());
   var wos = [], tasks = [], steps = [];
 
@@ -11104,9 +11109,9 @@ function seedDeptTasks_(prefix, from, count) {
     }
   }
 
-  db_insert_(SHEET.WORK_ORDER, wos);
-  db_insert_(SHEET.DEPARTMENT_TASK, tasks);
-  db_insert_(SHEET.TASK_STEP, steps);
+  await db_insert_(SHEET.WORK_ORDER, wos);
+  await db_insert_(SHEET.DEPARTMENT_TASK, tasks);
+  await db_insert_(SHEET.TASK_STEP, steps);
   dbInvalidate_(SHEET.WORK_ORDER);
   dbInvalidate_(SHEET.DEPARTMENT_TASK);
   dbInvalidate_(SHEET.TASK_STEP);
@@ -11122,14 +11127,14 @@ function seedDeptTasks_(prefix, from, count) {
  * @param {number} count จำนวนใบงาน
  * @param {number} stepCount จำนวนขั้นตอน
  */
-function cleanSeededDeptTasks_(prefix, count, stepCount) {
-  dbDeleteVerified_(SHEET.TASK_STEP,
+async function cleanSeededDeptTasks_(prefix, count, stepCount) {
+  await dbDeleteVerified_(SHEET.TASK_STEP,
     { 'Step_ID': { op: 'like', value: dbLikeLiteral_(prefix) + '*' } },
     'ขั้นตอนของงานที่ปลูกไว้วัดต้นทุน', stepCount);
-  dbDeleteVerified_(SHEET.DEPARTMENT_TASK,
+  await dbDeleteVerified_(SHEET.DEPARTMENT_TASK,
     { 'Task_ID': { op: 'like', value: dbLikeLiteral_(prefix) + '*' } },
     'งานแผนกที่ปลูกไว้วัดต้นทุน', count);
-  dbDeleteVerified_(SHEET.WORK_ORDER,
+  await dbDeleteVerified_(SHEET.WORK_ORDER,
     { 'WO_ID': { op: 'like', value: dbLikeLiteral_(prefix) + '*' } },
     'ใบงานที่ปลูกไว้วัดต้นทุน', count);
   dbInvalidate_(SHEET.WORK_ORDER);
@@ -11145,7 +11150,7 @@ function cleanSeededDeptTasks_(prefix, count, stepCount) {
  * @param {string} view คีย์มุมมอง
  * @return {Object} {calls, rounds, rows}
  */
-function measureDeptPage_(view) {
+async function measureDeptPage_(view) {
   clearRowCache_();
   clearMasterCache_();
   clearDashboardCache_();
@@ -11153,8 +11158,8 @@ function measureDeptPage_(view) {
   dbCallReset_();
 
   var user = { email: 'cost.sv@cnr.co.th', roles: [ROLE.SERVICE], department: DEPT.SERVICE };
-  var boot = withTestUser_(user, function () {
-    return pageBootstrap_('work', { dept: DEPT.SERVICE, view: view });
+  var boot = await withTestUser_(user, async function () {
+    return await pageBootstrap_('work', { dept: DEPT.SERVICE, view: view });
   });
   assertEquals_(boot.error, '', 'หน้าแผนกต้องเปิดได้ ไม่งั้นการวัดไม่มีความหมาย');
 
@@ -11173,7 +11178,7 @@ function measureDeptPage_(view) {
  * วัดที่ 5 ใบ กับ 30 ใบ เพราะ 30 มากกว่าขนาดหน้า (20) อยู่ · ถ้าจำนวนคำขอ
  * ยังเท่ากัน แปลว่าทั้งการแบ่งหน้าและการดึงเป็นชุดทำงานจริงทั้งคู่
  */
-function test_task_pageCostDoesNotGrow() {
+async function test_task_pageCostDoesNotGrow() {
   beginTest_('หน้ารายการงานแผนก ต้องใช้คำขอเท่าเดิมไม่ว่าจะมีงานกี่ใบ');
 
   var prefix = testPrefix_() + 'COST' + Utilities.formatDate(new Date(), TIMEZONE, 'HHmmss');
@@ -11181,10 +11186,10 @@ function test_task_pageCostDoesNotGrow() {
 
   try {
     /* ---------- งาน 5 ใบ ---------- */
-    steps += seedDeptTasks_(prefix, 0, 5);
+    steps += await seedDeptTasks_(prefix, 0, 5);
 
-    var smallActive = measureDeptPage_('active');
-    var smallToday  = measureDeptPage_(TASK_TODAY_VIEW);
+    var smallActive = await measureDeptPage_('active');
+    var smallToday  = await measureDeptPage_(TASK_TODAY_VIEW);
 
     /*
      * ห้ามคาดว่าแผนกนี้มีแต่งานที่ข้อนี้ปลูก — ข้ออื่นในกลุ่มเดียวกันก็สร้างงานของ SERVICE ไว้
@@ -11206,10 +11211,10 @@ function test_task_pageCostDoesNotGrow() {
       ' · วันนี้ ' + smallToday.rows);
 
     /* ---------- เพิ่มเป็น 30 ใบ ---------- */
-    steps += seedDeptTasks_(prefix, 5, 25);
+    steps += await seedDeptTasks_(prefix, 5, 25);
 
-    var bigActive = measureDeptPage_('active');
-    var bigToday  = measureDeptPage_(TASK_TODAY_VIEW);
+    var bigActive = await measureDeptPage_('active');
+    var bigToday  = await measureDeptPage_(TASK_TODAY_VIEW);
 
     assertEquals_(bigActive.rows, TASK_PAGE_SIZE,
       'ที่งาน 30 ใบ ต้องได้มาแค่หนึ่งหน้า ไม่ใช่ทั้งสามสิบใบ');
@@ -11261,9 +11266,9 @@ function test_task_pageCostDoesNotGrow() {
      * สองสูตรที่เขียนแยกกันย่อมเพี้ยนจากกันได้ วิธีเดียวที่รู้แน่คือเอาของจริงมาเทียบ
      */
     clearTaskCountCache_();
-    var counts = taskCountsForDepartment_(DEPT.SERVICE);
+    var counts = await taskCountsForDepartment_(DEPT.SERVICE);
     var mine = countAllTasksFrom_(
-      queryRows_(SHEET.DEPARTMENT_TASK, {
+      await queryRows_(SHEET.DEPARTMENT_TASK, {
         'Task_ID': { op: 'like', value: dbLikeLiteral_(prefix) + '*' }
       }, { limit: 100 }), thaiDayOf_(new Date()))[DEPT.SERVICE];
 
@@ -11278,14 +11283,14 @@ function test_task_pageCostDoesNotGrow() {
       ' · ที่ปลูก ' + mine[TASK_TODAY_VIEW]);
 
   } finally {
-    cleanSeededDeptTasks_(prefix, 30, steps);
+    await cleanSeededDeptTasks_(prefix, 30, steps);
   }
 
   return endTest_();
 }
 
-function test_group_service_task() {
-  return runGroup_('SERVICE_TASK', [
+async function test_group_service_task() {
+  return await runGroup_('SERVICE_TASK', [
     { name: 'test_task_singleDepartmentFlow', fn: test_task_singleDepartmentFlow },
     { name: 'test_task_stepsInOrder',         fn: test_task_stepsInOrder },
     { name: 'test_task_ownership',            fn: test_task_ownership }
@@ -11301,8 +11306,8 @@ function test_group_service_task() {
  *
  * @return {string} ข้อความสรุปผล
  */
-function test_group_service_task_visit() {
-  return runGroup_('SERVICE_TASK_VISIT', [
+async function test_group_service_task_visit() {
+  return await runGroup_('SERVICE_TASK_VISIT', [
     { name: 'test_task_visitSchedule',        fn: test_task_visitSchedule },
     { name: 'test_task_pageCostDoesNotGrow', fn: test_task_pageCostDoesNotGrow }
   ]);
@@ -11313,8 +11318,8 @@ function test_group_service_task_visit() {
  * กรณีพิเศษที่พบน้อยแต่พังง่ายที่สุด เพราะสถานะรวมของใบงานขึ้นกับ Task หลายตัวพร้อมกัน
  * @return {string} ข้อความสรุปผล
  */
-function test_group_service_task_joint() {
-  return runGroup_('SERVICE_TASK_JOINT', [
+async function test_group_service_task_joint() {
+  return await runGroup_('SERVICE_TASK_JOINT', [
     { name: 'test_task_jointCompletion',      fn: test_task_jointCompletion },
     { name: 'test_task_jointCancelOne',       fn: test_task_jointCancelOne },
     { name: 'test_task_cancelAllDepartments', fn: test_task_cancelAllDepartments }
@@ -11327,8 +11332,8 @@ function test_group_service_task_joint() {
  * ทั้งสองกรณีต้องปฏิเสธคำสั่งของแผนก โดยไม่ทำลายงานที่ทำค้างไว้
  * @return {string} ข้อความสรุปผล
  */
-function test_group_service_task_stop() {
-  return runGroup_('SERVICE_TASK_STOP', [
+async function test_group_service_task_stop() {
+  return await runGroup_('SERVICE_TASK_STOP', [
     { name: 'test_task_paymentGate',     fn: test_task_paymentGate },
     { name: 'test_task_returnKeepsWork', fn: test_task_returnKeepsWork }
   ]);
@@ -11339,8 +11344,8 @@ function test_group_service_task_stop() {
  * 09_Api.gs และ 10_Web.gs · ส่วนใหญ่เป็นการตรวจโครงสร้าง จึงแทบไม่แตะชีตเลย
  * @return {string} ข้อความสรุปผล
  */
-function test_group_service_web() {
-  return runGroup_('SERVICE_WEB', [
+async function test_group_service_web() {
+  return await runGroup_('SERVICE_WEB', [
     { name: 'test_api_contract',        fn: test_api_contract },
     { name: 'test_service_webApi',      fn: test_service_webApi },
     { name: 'test_service_apiJsonSafe', fn: test_service_apiJsonSafe },
@@ -11376,8 +11381,8 @@ function test_group_service_web() {
  *
  * @return {string} ข้อความสรุปผล
  */
-function test_group_service_notify() {
-  return runGroup_('SERVICE_NOTIFY', [
+async function test_group_service_notify() {
+  return await runGroup_('SERVICE_NOTIFY', [
     { name: 'test_notify_routing',            fn: test_notify_routing },
     { name: 'test_notify_messageSafety',      fn: test_notify_messageSafety },
     { name: 'test_notify_isolationAndSecrets', fn: test_notify_isolationAndSecrets },
@@ -11399,8 +11404,8 @@ function test_group_service_notify() {
  *
  * @return {string} ข้อความสรุปผล
  */
-function test_group_service_notify_flow() {
-  return runGroup_('SERVICE_NOTIFY_FLOW', [
+async function test_group_service_notify_flow() {
+  return await runGroup_('SERVICE_NOTIFY_FLOW', [
     { name: 'test_notify_woLevelJoint',       fn: test_notify_woLevelJoint },
     { name: 'test_web_woDetail',              fn: test_web_woDetail }
   ]);
@@ -11415,8 +11420,8 @@ function test_group_service_notify_flow() {
  *
  * @return {string} ข้อความสรุปผล
  */
-function test_group_service_notify_api() {
-  return runGroup_('SERVICE_NOTIFY_API', [
+async function test_group_service_notify_api() {
+  return await runGroup_('SERVICE_NOTIFY_API', [
     { name: 'test_notify_returnThroughApi',   fn: test_notify_returnThroughApi },
     { name: 'test_notify_everyRowThroughApi', fn: test_notify_everyRowThroughApi }
   ]);
@@ -11430,8 +11435,8 @@ function test_group_service_notify_api() {
  *
  * @return {string} ข้อความสรุปผล
  */
-function test_group_report_file() {
-  return runGroup_('REPORT_FILE', [
+async function test_group_report_file() {
+  return await runGroup_('REPORT_FILE', [
     { name: 'test_report_fileNameShapes',     fn: test_report_fileNameShapes },
     { name: 'test_report_manyFilesOneReport', fn: test_report_manyFilesOneReport },
     { name: 'test_report_emptyStep',          fn: test_report_emptyStep }
@@ -11442,8 +11447,8 @@ function test_group_report_file() {
  * กลุ่มโฟลเดอร์ปลายทางและรายการเอกสารที่เลือกได้ (SPEC 16 · ภาคผนวก ก)
  * @return {string} ข้อความสรุปผล
  */
-function test_group_report_folder() {
-  return runGroup_('REPORT_FOLDER', [
+async function test_group_report_folder() {
+  return await runGroup_('REPORT_FOLDER', [
     { name: 'test_report_folderPerStep',      fn: test_report_folderPerStep },
     { name: 'test_report_stepPhotos',         fn: test_report_stepPhotos },
     { name: 'test_report_inactiveHidden',     fn: test_report_inactiveHidden }
@@ -11454,8 +11459,8 @@ function test_group_report_folder() {
  * กลุ่มด่านเอกสารตอนปิดงาน และงวดงานที่แผนกเพิ่มเอง (SPEC 20.2, 20.3)
  * @return {string} ข้อความสรุปผล
  */
-function test_group_report_gate() {
-  return runGroup_('REPORT_GATE', [
+async function test_group_report_gate() {
+  return await runGroup_('REPORT_GATE', [
     { name: 'test_report_completeBlockedWhenMissing', fn: test_report_completeBlockedWhenMissing },
     { name: 'test_report_completeWhenReady',          fn: test_report_completeWhenReady },
     { name: 'test_report_jointChecksEachDepartment',  fn: test_report_jointChecksEachDepartment }
@@ -11466,8 +11471,8 @@ function test_group_report_gate() {
  * กลุ่มงวดงานที่แผนก Project เพิ่มเอง และงานที่ไม่มีงวดเลย (SPEC 20.2)
  * @return {string} ข้อความสรุปผล
  */
-function test_group_report_period() {
-  return runGroup_('REPORT_PERIOD', [
+async function test_group_report_period() {
+  return await runGroup_('REPORT_PERIOD', [
     { name: 'test_report_stepLocks',                  fn: test_report_stepLocks },
     { name: 'test_report_projectPeriodsByDepartment', fn: test_report_projectPeriodsByDepartment },
     { name: 'test_report_projectNoPeriodCloses',      fn: test_report_projectNoPeriodCloses },
@@ -11637,27 +11642,27 @@ function duplicateOwnerStatuses_(views) {
  * เมนูย่อยของแผนกกรองจากสถานะของ Department_Task และตัวเลขต้องตรงกับรายการจริง
  * (SPEC 17.3 · เทสต์ข้อ 2, 3 และ 4 ของงานรื้อหน้าตา)
  */
-function test_menu_taskViewsAndCounts() {
+async function test_menu_taskViewsAndCounts() {
   beginTest_('เมนูย่อยรายแผนกกรองตามสถานะงาน และตัวเลขตรงกับรายการจริง');
 
   var users = serviceTestUsers_();
 
   /* ---------- เตรียมงานของแผนก Service ให้ครบทั้งสามมุมมอง ---------- */
-  var waiting = approvedTestWo_(users, ASSIGNMENT.SERVICE, { 'Location': 'จุดรอรับงาน' });
-  var working = approvedTestWo_(users, ASSIGNMENT.SERVICE, { 'Location': 'จุดกำลังทำ' });
-  var stopped = approvedTestWo_(users, ASSIGNMENT.SERVICE, { 'Location': 'จุดที่ยกเลิก' });
+  var waiting = await approvedTestWo_(users, ASSIGNMENT.SERVICE, { 'Location': 'จุดรอรับงาน' });
+  var working = await approvedTestWo_(users, ASSIGNMENT.SERVICE, { 'Location': 'จุดกำลังทำ' });
+  var stopped = await approvedTestWo_(users, ASSIGNMENT.SERVICE, { 'Location': 'จุดที่ยกเลิก' });
 
   var workingTask = working.taskOf(DEPT.SERVICE);
   var stoppedTask = stopped.taskOf(DEPT.SERVICE);
 
-  callApiAs_(users.service, 'รับงานใบที่กำลังทำ', function () { return api_acceptTask(workingTask); });
-  callApiAs_(users.service, 'รับงานใบที่จะยกเลิก', function () { return api_acceptTask(stoppedTask); });
-  callApiAs_(users.service, 'ยกเลิกงานของแผนก', function () {
-    return api_cancelTask(stoppedTask, 'ลูกค้าเลื่อนงานไม่มีกำหนด');
+  await callApiAs_(users.service, 'รับงานใบที่กำลังทำ', async function () { return await api_acceptTask(workingTask); });
+  await callApiAs_(users.service, 'รับงานใบที่จะยกเลิก', async function () { return await api_acceptTask(stoppedTask); });
+  await callApiAs_(users.service, 'ยกเลิกงานของแผนก', async function () {
+    return await api_cancelTask(stoppedTask, 'ลูกค้าเลื่อนงานไม่มีกำหนด');
   });
 
   /* ---------- แต่ละมุมมองต้องได้งานของตัวเอง ---------- */
-  var rows = listTasksForDepartment(DEPT.SERVICE, { includeClosed: true });
+  var rows = await listTasksForDepartment(DEPT.SERVICE, { includeClosed: true });
   var byView = { pending: [], active: [], done: [] };
   for (var i = 0; i < rows.length; i++) {
     var view = taskViewOfStatus_(rows[i].status);
@@ -11674,23 +11679,23 @@ function test_menu_taskViewsAndCounts() {
     'และงานหนึ่งใบต้องอยู่มุมมองเดียว ไม่ใช่โผล่ทุกมุมมอง');
 
   /* ---------- ตัวเลขบนเมนูต้องตรงกับจำนวนรายการจริงในหน้านั้น ---------- */
-  var counts = taskCountsForDepartment_(DEPT.SERVICE);
+  var counts = await taskCountsForDepartment_(DEPT.SERVICE);
   assertEquals_(counts.pending, byView.pending.length, 'ตัวเลข "รอกดรับงาน" ตรงกับรายการจริง');
   assertEquals_(counts.active, byView.active.length, 'ตัวเลข "กำลังดำเนินการ" ตรงกับรายการจริง');
   assertEquals_(counts.done, byView.done.length, 'ตัวเลข "เสร็จสิ้น" ตรงกับรายการจริง');
 
   /* ---------- ตัวเลขต้องขยับตามเมื่อสถานะเปลี่ยน ---------- */
   var beforePending = counts.pending;
-  callApiAs_(users.service, 'กดรับงานที่รออยู่', function () {
-    return api_acceptTask(waiting.taskOf(DEPT.SERVICE));
+  await callApiAs_(users.service, 'กดรับงานที่รออยู่', async function () {
+    return await api_acceptTask(waiting.taskOf(DEPT.SERVICE));
   });
-  var after = taskCountsForDepartment_(DEPT.SERVICE);
+  var after = await taskCountsForDepartment_(DEPT.SERVICE);
   assertEquals_(after.pending, beforePending - 1, 'กดรับงานแล้ว "รอกดรับงาน" ต้องลดลงหนึ่ง');
   assertEquals_(after.active, counts.active + 1, 'และ "กำลังดำเนินการ" ต้องเพิ่มขึ้นหนึ่ง');
 
   /* ---------- ตัวเลขติดไปกับข้อมูลของหน้าในคำขอเดียว ---------- */
-  var boot = withTestUser_(users.service, function () {
-    return pageBootstrap_('work', { dept: DEPT.SERVICE });
+  var boot = await withTestUser_(users.service, async function () {
+    return await pageBootstrap_('work', { dept: DEPT.SERVICE });
   });
   assertEquals_(boot.counts.pending, after.pending, 'จำนวนงานมากับก้อนข้อมูลของหน้าเลย');
   assertEquals_(boot.counts.active, after.active, 'ครบทุกมุมมองในคำขอเดียว ไม่ต้องยิงขอทีละเมนู');
@@ -11714,20 +11719,20 @@ function test_menu_taskViewsAndCounts() {
  * ผู้ใช้ที่ไม่มีสิทธิ์กดเมนูย่อยของแผนกอื่น ต้องถูกปฏิเสธและไม่ได้ข้อมูลเลยแม้แต่แถวเดียว
  * (SPEC 17.4 · เทสต์ข้อ 5)
  */
-function test_menu_deniedGetsNoData() {
+async function test_menu_deniedGetsNoData() {
   beginTest_('กดเมนูของแผนกอื่น ถูกปฏิเสธ และไม่มีข้อมูลหลุดมาถึงเบราว์เซอร์');
 
   var users = serviceTestUsers_();
-  var wo = approvedTestWo_(users, ASSIGNMENT.PROJECT, { 'Location': 'จุดของแผนกโครงการ' });
+  var wo = await approvedTestWo_(users, ASSIGNMENT.PROJECT, { 'Location': 'จุดของแผนกโครงการ' });
   var pjTask = wo.taskOf(DEPT.PROJECT);
-  callApiAs_(users.project, 'แผนกโครงการรับงานของตัวเอง', function () {
-    return api_acceptTask(pjTask);
+  await callApiAs_(users.project, 'แผนกโครงการรับงานของตัวเอง', async function () {
+    return await api_acceptTask(pjTask);
   });
 
   /* ---------- ทุกมุมมองของแผนกอื่น ต้องไม่ได้ข้อมูลมาเลย ---------- */
   for (var v = 0; v < TASK_VIEWS.length; v++) {
-    var boot = withTestUser_(users.service, function () {
-      return pageBootstrap_('work', { dept: DEPT.PROJECT, view: TASK_VIEWS[v].key });
+    var boot = await withTestUser_(users.service, async function () {
+      return await pageBootstrap_('work', { dept: DEPT.PROJECT, view: TASK_VIEWS[v].key });
     });
     assertTrue_(boot.rows === undefined,
       'มุมมอง "' + TASK_VIEWS[v].label + '" ของแผนกอื่น ต้องไม่มีรายการติดมาแม้แต่แถวเดียว');
@@ -11735,8 +11740,8 @@ function test_menu_deniedGetsNoData() {
   }
 
   /* ---------- เมนูยังเห็นครบ แต่ธงบอกว่าเข้าไม่ได้ ---------- */
-  var groups = withTestUser_(users.service, function () {
-    return menuGroupsForUser_(menuForUser_(getCurrentUser_()));
+  var groups = await withTestUser_(users.service, async function () {
+    return menuGroupsForUser_(menuForUser_(await getCurrentUser_()));
   });
   var project = null;
   for (var g = 0; g < groups.length; g++) if (groups[g].key === 'dept-pe') project = groups[g];
@@ -11745,8 +11750,8 @@ function test_menu_deniedGetsNoData() {
   assertEquals_(project.children.length, TASK_VIEWS.length, 'และยังกางดูเมนูย่อยได้');
 
   /* ---------- ยิงตรงที่ api_ ก็ต้องไม่ได้งานของแผนกอื่น ---------- */
-  var mine = callApiAs_(users.service, 'ขอรายการงานของตัวเอง', function () {
-    return api_listMyTasks(true);
+  var mine = await callApiAs_(users.service, 'ขอรายการงานของตัวเอง', async function () {
+    return await api_listMyTasks(true);
   });
   var leaked = 0;
   for (var r = 0; r < mine.rows.length; r++) {
@@ -12013,7 +12018,7 @@ function statusOrderOf_(statuses, order) {
  * สองฝั่งพูดคนละมุมมองกันโดยไม่มีอะไรฟ้อง เพราะหน้าเว็บมีทางถอยไปอ่าน URL เอง
  * ทางถอยนั้นดูเหมือนการกันพลาด แต่จริง ๆ คือตัวที่ซ่อนว่าสองฝั่งไม่ตรงกัน
  */
-function test_menu_viewTravelsToTheServer() {
+async function test_menu_viewTravelsToTheServer() {
   beginTest_('มุมมองที่กดต้องไปถึงเซิร์ฟเวอร์ตอนเปิดหน้า ไม่ใช่ให้หน้าเว็บเดาเอง');
 
   var users = serviceTestUsers_();
@@ -12021,8 +12026,8 @@ function test_menu_viewTravelsToTheServer() {
   /* ---------- ทุกมุมมองที่ขอไป ต้องได้มุมมองเดียวกันกลับมา ---------- */
   for (var v = 0; v < TASK_VIEWS.length; v++) {
     var key = TASK_VIEWS[v].key;
-    var boot = withTestUser_(users.service, function () {
-      return pageBootstrap_('work', { dept: DEPT.SERVICE, view: key });
+    var boot = await withTestUser_(users.service, async function () {
+      return await pageBootstrap_('work', { dept: DEPT.SERVICE, view: key });
     });
 
     assertEquals_(boot.view, key,
@@ -12034,14 +12039,14 @@ function test_menu_viewTravelsToTheServer() {
   /*
    * ค่าว่างคือสิ่งที่ทำให้หน้าเว็บต้องไปเดาเอง · หน้าจอต้องได้มุมมองที่แน่นอนเสมอ
    */
-  var blank = withTestUser_(users.service, function () {
-    return pageBootstrap_('work', { dept: DEPT.SERVICE });
+  var blank = await withTestUser_(users.service, async function () {
+    return await pageBootstrap_('work', { dept: DEPT.SERVICE });
   });
   assertEquals_(blank.view, DEFAULT_TASK_VIEW,
     'ไม่ได้ระบุมุมมอง ต้องได้มุมมองตั้งต้น ไม่ใช่ค่าว่างที่ทำให้หน้าเว็บต้องเดา');
 
-  var junk = withTestUser_(users.service, function () {
-    return pageBootstrap_('work', { dept: DEPT.SERVICE, view: 'ไม่มีมุมมองนี้' });
+  var junk = await withTestUser_(users.service, async function () {
+    return await pageBootstrap_('work', { dept: DEPT.SERVICE, view: 'ไม่มีมุมมองนี้' });
   });
   assertEquals_(junk.view, DEFAULT_TASK_VIEW,
     'คีย์ที่ไม่รู้จักก็ต้องถอยไปมุมมองตั้งต้นเหมือนกัน');
@@ -12147,8 +12152,8 @@ function test_menu_viewOrderMatchesOldSort() {
   return endTest_();
 }
 
-function test_group_menu() {
-  return runGroup_('MENU', [
+async function test_group_menu() {
+  return await runGroup_('MENU', [
     { name: 'test_menu_structure',              fn: test_menu_structure },
     { name: 'test_menu_everyTaskStatusHasView', fn: test_menu_everyTaskStatusHasView },
     { name: 'test_menu_styleContract',          fn: test_menu_styleContract },
@@ -12163,8 +12168,8 @@ function test_group_menu() {
  * กลุ่มหน้าแรก (SPEC 17.1)
  * @return {string} ข้อความสรุปผล
  */
-function test_group_home() {
-  return runGroup_('HOME', [
+async function test_group_home() {
+  return await runGroup_('HOME', [
     { name: 'test_home_defaultListing',       fn: test_home_defaultListing },
     { name: 'test_home_searchOneBox',         fn: test_home_searchOneBox },
     { name: 'test_home_multipleFilters',      fn: test_home_multipleFilters },
@@ -12187,8 +12192,8 @@ function test_group_home() {
  *
  * @return {string} ข้อความสรุปผล
  */
-function test_group_log() {
-  return runGroup_('LOG', [
+async function test_group_log() {
+  return await runGroup_('LOG', [
     { name: 'test_log_woEventsStayInAudit',     fn: test_log_woEventsStayInAudit },
     { name: 'test_log_authGoesToSystem',        fn: test_log_authGoesToSystem },
     { name: 'test_log_notifyFailedGoesToSystem', fn: test_log_notifyFailedGoesToSystem },
@@ -12206,8 +12211,8 @@ function test_group_log() {
  *
  * @return {string} ข้อความสรุปผล
  */
-function test_group_service_report() {
-  return runGroup_('SERVICE_REPORT', [
+async function test_group_service_report() {
+  return await runGroup_('SERVICE_REPORT', [
     { name: 'test_report_values',             fn: test_report_values },
     { name: 'test_report_filesAndReturnNote', fn: test_report_filesAndReturnNote },
     { name: 'test_report_contract',           fn: test_report_contract },
@@ -12253,7 +12258,7 @@ function hostileText_() {
  * ทุกข้อในชุดเทสต์เดิมเรียกฟังก์ชันฝั่งเซิร์ฟเวอร์ ไม่มีข้อไหนเอาหน้าที่ประกอบเสร็จ
  * แล้วมาลองแปลดู · นี่คือช่องว่างที่บั๊กชนิดนี้ลอดผ่านมาได้ทั้งหมด
  */
-function test_web_everyPageParses() {
+async function test_web_everyPageParses() {
   beginTest_('ทุกหน้าที่เสิร์ฟออกไป จาวาสคริปต์ต้องแปลผ่าน');
 
   var pages = [];
@@ -12263,7 +12268,7 @@ function test_web_everyPageParses() {
   assertTrue_(pages.length > 0, 'ต้องมีหน้าให้ตรวจ ไม่งั้นข้อนี้ผ่านโดยไม่ได้ตรวจอะไร');
 
   for (var p = 0; p < pages.length; p++) {
-    var html = servedHtmlOf_(pages[p], { dept: DEPT.SERVICE, view: 'active' });
+    var html = await servedHtmlOf_(pages[p], { dept: DEPT.SERVICE, view: 'active' });
     var blocks = scriptBlocksOf_(html);
 
     assertTrue_(blocks.length > 0,
@@ -12283,7 +12288,7 @@ function test_web_everyPageParses() {
    * และพังแบบเงียบที่สุด คือค้างที่ "กำลังโหลด" โดยฝั่งเซิร์ฟเวอร์ไม่มี error เลย ·
    * ข้อมูลของผู้ใช้ต้องเดินทางผ่าน google.script.run เท่านั้น ซึ่งจัดการให้อยู่แล้ว
    */
-  var detail = servedHtmlOf_('work', { dept: DEPT.SERVICE, view: 'active' });
+  var detail = await servedHtmlOf_('work', { dept: DEPT.SERVICE, view: 'active' });
   var marker = /data-bootstrap="([^"]*)"/.exec(detail);
   assertTrue_(!!marker, 'หน้าต้องยังมีช่อง data-bootstrap อยู่ ไม่งั้นข้อนี้ตรวจของที่ไม่มีแล้ว');
   assertEquals_(marker[1], '',
@@ -12386,13 +12391,13 @@ function hasRisk_(risks, kind) {
  * ผ่านอยู่ เพราะฐานทดสอบตอนนั้นไม่มีข้อมูลที่ร้ายพอ · ข้อนี้ทำให้ข้อมูลร้าย
  * มีอยู่จริงในฐาน แล้วเปิดทุกหน้าดูอีกรอบ
  */
-function test_web_hostileDataDoesNotBreakPages() {
+async function test_web_hostileDataDoesNotBreakPages() {
   beginTest_('ใบงานที่มีอักขระร้ายทุกชนิด ต้องไม่ทำให้หน้าไหนแปลไม่ผ่าน');
 
   var users = serviceTestUsers_();
   var nasty = hostileText_();
 
-  var wo = createTestWo_(users, {
+  var wo = await createTestWo_(users, {
     'Customer_Name':   'ลูกค้า ' + nasty,
     'Project':         'โครงการ ' + nasty,
     'Location':        'สถานที่ ' + nasty,
@@ -12401,14 +12406,14 @@ function test_web_hostileDataDoesNotBreakPages() {
   });
 
   /* เก็บกลับมาอ่านก่อน — ถ้าเขียนลงไปแล้วอ่านกลับมาไม่เหมือนเดิม ปัญหาอยู่คนละที่ */
-  var saved = getWorkOrder(wo.woId);
+  var saved = await getWorkOrder(wo.woId);
   assertTrue_(String(saved['Job_Description']).indexOf('</' + 'script>') !== -1,
     'ข้อความร้ายต้องถูกเก็บไว้ครบตามที่ผู้ใช้พิมพ์ ไม่ถูกตัดทิ้งระหว่างทาง');
 
   for (var key in WEB_PAGES) {
     if (!Object.prototype.hasOwnProperty.call(WEB_PAGES, key)) continue;
 
-    var html = servedHtmlOf_(key, { wo: wo.woId, dept: DEPT.SERVICE, view: 'active' });
+    var html = await servedHtmlOf_(key, { wo: wo.woId, dept: DEPT.SERVICE, view: 'active' });
     assertEquals_(riskReport_(htmlRiskScan_(html)), '',
       'หน้า ' + key + ' ต้องยังแปลผ่าน แม้ในฐานจะมีใบงานที่เต็มไปด้วยอักขระร้าย');
   }
@@ -12420,15 +12425,15 @@ function test_web_hostileDataDoesNotBreakPages() {
    * มันถูกวางไว้ในคุณสมบัติของแท็ก ซึ่ง <?= ?> หลีกอักขระให้แล้ว แต่ต้องพิสูจน์
    * ไม่ใช่เชื่อ เพราะวันหนึ่งอาจมีคนย้ายมันเข้าไปในบล็อกสคริปต์
    */
-  var evil = servedHtmlOf_('wo', { wo: '"; alert(1); //', dept: DEPT.SERVICE });
+  var evil = await servedHtmlOf_('wo', { wo: '"; alert(1); //', dept: DEPT.SERVICE });
   assertEquals_(riskReport_(htmlRiskScan_(evil)), '',
     'เลขที่ใบงานที่จงใจทำให้พัง ต้องไม่ทำให้หน้าแปลไม่ผ่าน');
 
   return endTest_();
 }
 
-function test_group_service_pages() {
-  return runGroup_('SERVICE_PAGES', [
+async function test_group_service_pages() {
+  return await runGroup_('SERVICE_PAGES', [
     { name: 'test_web_deptWorkView',           fn: test_web_deptWorkView },
     { name: 'test_web_deptWorkBlockedStates',  fn: test_web_deptWorkBlockedStates },
     { name: 'test_web_deptWorkPaymentNotice',  fn: test_web_deptWorkPaymentNotice },
@@ -12531,8 +12536,8 @@ function test_auth_departmentSpellingIsForgiving() {
  * 07_Auth.gs ทั้งไฟล์ · เป็นด่านแรกสุด ถ้ากลุ่มนี้แดง กลุ่มอื่นไม่ต้องดูต่อ
  * @return {string} ข้อความสรุปผล
  */
-function test_group_permission_auth() {
-  return runGroup_('PERM_AUTH', [
+async function test_group_permission_auth() {
+  return await runGroup_('PERM_AUTH', [
     { name: 'test_auth_loginSucceedsAndFails',  fn: test_auth_loginSucceedsAndFails },
     { name: 'test_auth_lockAfterFailures',      fn: test_auth_lockAfterFailures },
     { name: 'test_auth_unknownRoleIgnored',     fn: test_auth_unknownRoleIgnored },
@@ -12549,8 +12554,8 @@ function test_group_permission_auth() {
  *
  * @return {string} ข้อความสรุปผล
  */
-function test_group_permission_token() {
-  return runGroup_('PERM_TOKEN', [
+async function test_group_permission_token() {
+  return await runGroup_('PERM_TOKEN', [
     { name: 'test_auth_tokenExpires',           fn: test_auth_tokenExpires },
     { name: 'test_auth_tokenBelongsToOwner',    fn: test_auth_tokenBelongsToOwner },
     { name: 'test_auth_noTokenWritesNothing',   fn: test_auth_noTokenWritesNothing },
@@ -12567,8 +12572,8 @@ function test_group_permission_token() {
  *
  * @return {string} ข้อความสรุปผล
  */
-function test_group_permission_secret() {
-  return runGroup_('PERM_SECRET', [
+async function test_group_permission_secret() {
+  return await runGroup_('PERM_SECRET', [
     { name: 'test_auth_adminSetsPassword',      fn: test_auth_adminSetsPassword },
     { name: 'test_auth_firstAdminOnlyOnce',     fn: test_auth_firstAdminOnlyOnce },
     { name: 'test_auth_noPlainSecrets',         fn: test_auth_noPlainSecrets }
@@ -12584,8 +12589,8 @@ function test_group_permission_secret() {
  *
  * @return {string} ข้อความสรุปผล
  */
-function test_group_permission_wo() {
-  return runGroup_('PERM_WO', [
+async function test_group_permission_wo() {
+  return await runGroup_('PERM_WO', [
     { name: 'test_permission_pendingListByRoute',     fn: test_permission_pendingListByRoute },
     { name: 'test_permission_approverCannotCreate',   fn: test_permission_approverCannotCreate },
     { name: 'test_permission_approveAcrossRoute',     fn: test_permission_approveAcrossRoute },
@@ -12609,8 +12614,8 @@ function test_group_permission_wo() {
  *
  * @return {string} ข้อความสรุปผล
  */
-function test_group_permission_task() {
-  return runGroup_('PERM_TASK', [
+async function test_group_permission_task() {
+  return await runGroup_('PERM_TASK', [
     { name: 'test_permission_taskApi',              fn: test_permission_taskApi },
     { name: 'test_permission_generateReport',       fn: test_permission_generateReport },
     { name: 'test_permission_gatewayActionRegistry', fn: test_permission_gatewayActionRegistry },
@@ -12676,11 +12681,11 @@ function reportSampleWo_(override) {
  * ข้อที่สำคัญที่สุดคือ "ช่องที่ไม่มีข้อมูลต้องได้ขีด" เพราะช่องว่างบนกระดาษ
  * แยกไม่ออกระหว่างไม่มีข้อมูลกับระบบแทนค่าไม่สำเร็จ ซึ่งสองอย่างนี้แก้คนละทาง
  */
-function test_report_values() {
+async function test_report_values() {
   beginTest_('ค่าที่พิมพ์ลงใบสั่งงาน ครบและอ่านรู้เรื่อง — SPEC 16.1');
 
   var wo = reportSampleWo_();
-  var values = reportValues_(wo, [], { version: 1, issuedAt: new Date(2026, 8, 15, 10, 0) });
+  var values = await reportValues_(wo, [], { version: 1, issuedAt: new Date(2026, 8, 15, 10, 0) });
 
   /* ---------- ต้องมีครบทุกตัวแปรที่แม่แบบใช้ได้ ---------- */
   var names = reportPlaceholders_();
@@ -12726,7 +12731,7 @@ function test_report_values() {
   assertEquals_(blanks.join(', '), '', 'ต้องไม่มีช่องไหนว่างเปล่าหรือเป็น undefined');
 
   /* ---------- ใบที่อนุมัติแล้ว ต้องมีเลขงานและแผนก ---------- */
-  var approved = reportValues_(reportSampleWo_({
+  var approved = await reportValues_(reportSampleWo_({
     'Overall_Status': WO_STATUS.APPROVED,
     'Approved_By': 'boss@cnr.co.th',
     'Approved_Date': new Date(2026, 8, 16, 8, 0)
@@ -12737,7 +12742,7 @@ function test_report_values() {
   assertEquals_(approved['DEPARTMENT_TH'], 'แผนก Service', 'และชื่อแผนกเป็นคำไทย');
   assertEquals_(approved['APPROVED_DATE'], '16-09-2026 08:00', 'พร้อมวันที่อนุมัติ');
 
-  var lab = reportValues_(reportSampleWo_({
+  var lab = await reportValues_(reportSampleWo_({
     'Assignment_Type': ASSIGNMENT.LAB, 'Approved_Date': new Date(2026, 8, 16)
   }), [], {});
   assertEquals_(lab['JOB_NO'], 'LAB-2609-0001', 'งานสาย Lab ใช้ตัวนำหน้าของตัวเอง');
@@ -12748,11 +12753,11 @@ function test_report_values() {
 /**
  * รายการเอกสารแนบและหมายเหตุการตีกลับ (SPEC 16.1)
  */
-function test_report_filesAndReturnNote() {
+async function test_report_filesAndReturnNote() {
   beginTest_('รายการเอกสารแนบและหมายเหตุการตีกลับบนใบสั่งงาน');
 
   /* ---------- ไม่มีเอกสารแนบ ต้องบอกว่าไม่มี ---------- */
-  var empty = reportValues_(reportSampleWo_(), [], {});
+  var empty = await reportValues_(reportSampleWo_(), [], {});
   assertEquals_(empty['FILE_LIST'], 'ไม่มีเอกสารแนบ',
     'ไม่มีไฟล์ต้องขึ้นว่าไม่มีเอกสารแนบ ไม่ใช่ปล่อยว่างจนดูเหมือนระบบพิมพ์ตกหล่น');
 
@@ -12767,7 +12772,7 @@ function test_report_filesAndReturnNote() {
     { 'Topic_ID': 'T-DRAW',  'Topic_Name': 'แบบ' },
     { 'Topic_ID': 'T-PIC',   'Topic_Name': 'รูปภาพ' }
   ];
-  var withFiles = reportValues_(reportSampleWo_(), [
+  var withFiles = await reportValues_(reportSampleWo_(), [
     { topicId: 'T-PIC',      savedName: 'WO-2609-0001_รูปภาพ_01.jpg' },
     { topicId: 'T-QUOTE',    savedName: 'WO-2609-0001_ใบเสนอราคา_01.pdf' },
     { topicId: 'T-PIC',      savedName: 'WO-2609-0001_รูปภาพ_02.jpg' },
@@ -12792,7 +12797,7 @@ function test_report_filesAndReturnNote() {
     'ใบที่ไม่เคยถูกตีกลับ ต้องไม่มีหัวข้อเหตุผลการตีกลับค้างอยู่บนกระดาษ');
 
   /* ---------- ใบที่เคยถูกตีกลับ ต้องมีข้อความครบ ---------- */
-  var returned = reportValues_(reportSampleWo_({
+  var returned = await reportValues_(reportSampleWo_({
     'Return_Count': 2,
     'Return_Reason': 'ยังไม่แนบใบเสนอราคา',
     'Returned_By': 'boss@cnr.co.th',
@@ -12813,7 +12818,7 @@ function test_report_filesAndReturnNote() {
  * ข้ามได้เมื่อยังไม่ได้ตั้งแม่แบบ เพราะชีตที่เพิ่งติดตั้งยังไม่มีแม่แบบเป็นเรื่องปกติ
  * แต่ต้องรับประกันว่าข้อความที่ผู้ใช้เห็นบอกทางออกไว้ ไม่ใช่บอกแค่ว่าออกไม่ได้
  */
-function test_report_generateOnCreate() {
+async function test_report_generateOnCreate() {
   beginTest_('ออกใบสั่งงานตอนเปิดใบงาน และลิงก์ต้องถูกอัปเดต');
 
   if (!getProp_(PROP_KEY.WO_REPORT_TEMPLATE, false)) {
@@ -12823,8 +12828,8 @@ function test_report_generateOnCreate() {
     return endTest_();
   }
 
-  var created = withReports_(function () { return createTestWo_(serviceTestUsers_()); });
-  var wo = getWorkOrder(created.woId);
+  var created = await withReports_(async function () { return await createTestWo_(serviceTestUsers_()); });
+  var wo = await getWorkOrder(created.woId);
 
   assertTrue_(!!String(wo['Report_URL'] || ''),
     'เปิดใบงานแล้วต้องได้ลิงก์ใบสั่งงานเก็บไว้ในแถวใบงานทันที');
@@ -12839,7 +12844,7 @@ function test_report_generateOnCreate() {
     'ในโฟลเดอร์ต้องเหลือเฉพาะใบสั่งงานฉบับปัจจุบัน สำเนาแม่แบบต้องถูกลบทิ้งแล้ว');
 
   /* ---------- ต้องมีร่องรอยใน Audit ---------- */
-  var logs = listAuditByWo(created.woId);
+  var logs = await listAuditByWo(created.woId);
   var found = false;
   for (var i = 0; i < logs.length; i++) {
     if (String(logs[i]['Action']) === ACTION.REPORT) found = true;
@@ -12852,7 +12857,7 @@ function test_report_generateOnCreate() {
 /**
  * ออกครั้งที่สอง ฉบับเดิมต้องถูกเก็บ ไม่ใช่ถูกทับหาย (SPEC 16.1)
  */
-function test_report_archivesOldVersion() {
+async function test_report_archivesOldVersion() {
   beginTest_('ออกเอกสารซ้ำ ฉบับเดิมต้องถูกเก็บเข้า _archive');
 
   if (!getProp_(PROP_KEY.WO_REPORT_TEMPLATE, false)) {
@@ -12861,16 +12866,16 @@ function test_report_archivesOldVersion() {
     return endTest_();
   }
 
-  var created = withReports_(function () { return createTestWo_(serviceTestUsers_()); });
+  var created = await withReports_(async function () { return await createTestWo_(serviceTestUsers_()); });
   var admin = { email: 'TEST-report@cnr.co.th', roles: [ROLE.ADMIN] };
 
-  var first = driveFileNamed_(getWorkOrder(created.woId)['Folder_ID'], REPORT_FILE_NAME);
+  var first = driveFileNamed_((await getWorkOrder(created.woId))['Folder_ID'], REPORT_FILE_NAME);
   assertTrue_(!!first, 'ฉบับแรกต้องมีอยู่ก่อน');
 
-  var again = generateWorkOrderReport(created.woId, admin);
+  var again = await generateWorkOrderReport(created.woId, admin);
   assertEquals_(again.version, 2, 'ฉบับที่ออกใหม่ต้องเป็นฉบับที่ 2');
 
-  var wo = getWorkOrder(created.woId);
+  var wo = await getWorkOrder(created.woId);
   var map = parseFolderMap_(wo['Folder_Map']);
   assertTrue_(!!map[REPORT_ARCHIVE_FOLDER], 'ต้องมีโฟลเดอร์เก็บฉบับเก่าเกิดขึ้น');
   assertEquals_(driveCountFiles_(map[REPORT_ARCHIVE_FOLDER]), 1, 'และมีฉบับเก่าอยู่ข้างใน 1 ฉบับ');
@@ -12887,9 +12892,9 @@ function test_report_archivesOldVersion() {
   assertEquals_(String(wo['Report_URL']), current.url, 'ลิงก์ในแถวใบงานต้องชี้ฉบับปัจจุบัน');
 
   /* ---------- ออกครั้งที่สาม ต้องนับต่อ ไม่ใช่เริ่มใหม่ ---------- */
-  var third = generateWorkOrderReport(created.woId, admin);
+  var third = await generateWorkOrderReport(created.woId, admin);
   assertEquals_(third.version, 3, 'ฉบับถัดไปต้องเป็นฉบับที่ 3');
-  assertEquals_(driveCountFiles_(parseFolderMap_(getWorkOrder(created.woId)['Folder_Map'])[REPORT_ARCHIVE_FOLDER]),
+  assertEquals_(driveCountFiles_(parseFolderMap_((await getWorkOrder(created.woId))['Folder_Map'])[REPORT_ARCHIVE_FOLDER]),
     2, 'และในคลังต้องมีสองฉบับ');
 
   return endTest_();
@@ -12901,7 +12906,7 @@ function test_report_archivesOldVersion() {
  * ข้อนี้คือเหตุผลทั้งหมดของการห่อ try/catch แยก · ทดสอบด้วยการทำให้ตัวออกเอกสาร
  * โยนข้อผิดพลาดชั่วคราว ซึ่งไม่ไปแตะค่าตั้งค่าจริงของระบบเลย
  */
-function test_report_failureKeepsStatus() {
+async function test_report_failureKeepsStatus() {
   beginTest_('ออกเอกสารพลาด แต่ใบงานต้องถูกบันทึกครบ');
 
   var original = generateWorkOrderReport;
@@ -12913,14 +12918,14 @@ function test_report_failureKeepsStatus() {
       attempts++;
       throw new Error('จำลองว่า Drive ไม่ตอบ');
     };
-    created = withReports_(function () { return createTestWo_(serviceTestUsers_()); });
+    created = await withReports_(async function () { return await createTestWo_(serviceTestUsers_()); });
   } finally {
     generateWorkOrderReport = original;   // ต้องคืนของเดิมเสมอ แม้ระหว่างทางจะพัง
   }
 
   assertTrue_(attempts > 0, 'ตัวจำลองต้องถูกเรียกจริง ไม่งั้นเทสต์นี้ไม่ได้พิสูจน์อะไร');
 
-  var wo = getWorkOrder(created.woId);
+  var wo = await getWorkOrder(created.woId);
   assertTrue_(!!wo, 'ใบงานต้องถูกบันทึกไว้ครบ แม้ออกเอกสารไม่สำเร็จ');
   assertEquals_(wo['Overall_Status'], WO_STATUS.PENDING_APPROVE,
     'และต้องอยู่ที่ผู้อนุมัติตามปกติ ไม่ย้อนกลับเพราะเรื่องเอกสาร');
@@ -12929,7 +12934,7 @@ function test_report_failureKeepsStatus() {
   /* ---------- ต้องมีร่องรอยไว้ตามทีหลัง ---------- */
   // ถ้าเงียบไปเฉย ๆ จะไม่มีใครรู้ว่าใบไหนยังไม่มีเอกสาร จนกว่าจะมีคนไปหาไฟล์แล้วไม่เจอ
   // การออกเอกสารไม่สำเร็จเป็นเรื่องของระบบ จึงอยู่ใน System_Log ตาม SPEC 13
-  var failure = systemLogOf_(created.woId, ACTION.REPORT_FAILED);
+  var failure = await systemLogOf_(created.woId, ACTION.REPORT_FAILED);
   assertTrue_(!!failure, 'ต้องบันทึกไว้ใน System_Log ว่าออกเอกสารไม่สำเร็จ');
   assertTrue_(String(failure['Detail']).indexOf('Drive ไม่ตอบ') !== -1,
     'และต้องบอกสาเหตุจริงไว้ด้วย ไม่ใช่บอกแค่ว่าไม่สำเร็จ');
@@ -13005,7 +13010,7 @@ function test_report_contract() {
  * ทดสอบด้วยการสวมตัวอ่านค่าตั้งค่าชั่วคราวเฉพาะคีย์ของแม่แบบ ไม่ไปแตะค่าจริงในระบบ —
  * การลบค่าจริงออกชั่วคราวอันตรายมาก ถ้าสคริปต์ถูกฆ่ากลางคันตอนนั้น ค่าจะหายถาวร
  */
-function test_report_skipsWithoutTemplate() {
+async function test_report_skipsWithoutTemplate() {
   beginTest_('ยังไม่ได้ตั้งแม่แบบ ต้องบอกทางออกและไม่ทำให้อย่างอื่นพัง');
 
   var woId = testWoId_();
@@ -13022,14 +13027,14 @@ function test_report_skipsWithoutTemplate() {
 
     /* ---------- กดสั่งออกเอง ต้องได้ข้อความที่บอกว่าต้องไปทำอะไร ---------- */
     try {
-      generateWorkOrderReport(woId, user);
+      await generateWorkOrderReport(woId, user);
     } catch (e) {
       thrown = (e && e.message) ? e.message : String(e);
     }
 
     /* ---------- ส่วนที่ระบบเรียกเอง ต้องกลืนไว้ ไม่โยนออกมา ---------- */
-    quiet = withReports_(function () {
-      return tryGenerateWorkOrderReport_(woId, user, ACTION.CREATE);
+    quiet = await withReports_(async function () {
+      return await tryGenerateWorkOrderReport_(woId, user, ACTION.CREATE);
     });
   } finally {
     getProp_ = originalGetProp;   // ต้องคืนของเดิมเสมอ ไม่งั้นทั้งกลุ่มจะอ่านค่าตั้งค่าไม่ได้
@@ -13043,7 +13048,7 @@ function test_report_skipsWithoutTemplate() {
   assertEquals_(quiet, null, 'จังหวะที่ระบบออกเอกสารเอง ต้องไม่โยนข้อผิดพลาดออกมา');
 
   /* ---------- และต้องเหลือร่องรอยไว้ ไม่ใช่เงียบหาย ---------- */
-  var failure = systemLogOf_(woId, ACTION.REPORT_FAILED);
+  var failure = await systemLogOf_(woId, ACTION.REPORT_FAILED);
   assertTrue_(!!failure, 'ต้องบันทึกไว้ว่าใบนี้ยังไม่มีเอกสาร');
   assertTrue_(String(failure['Detail']).indexOf('WO_REPORT_TEMPLATE_ID') !== -1,
     'และบันทึกนั้นต้องบอกสาเหตุจริงพอให้ผู้ดูแลแก้ได้ทันที');
@@ -13069,7 +13074,7 @@ function test_report_skipsWithoutTemplate() {
  * ทุกประการ แต่ถ้าไม่มีใครส่งรายชื่อหัวข้อเข้าไปให้ กระดาษจะเขียนว่าไม่มีเอกสารแนบ
  * ทุกใบตลอดไป และเทสต์ของฟังก์ชันล้วนจะเขียวอยู่อย่างนั้น
  */
-function test_report_topicsAppearOnPaper() {
+async function test_report_topicsAppearOnPaper() {
   beginTest_('หัวข้อไฟล์แนบต้องขึ้นบนใบสั่งงานจริง และต้องไม่มีชื่อไฟล์ — SPEC 16.1');
 
   var templateId = getProp_(PROP_KEY.WO_REPORT_TEMPLATE, false);
@@ -13080,17 +13085,17 @@ function test_report_topicsAppearOnPaper() {
   }
 
   var users = serviceTestUsers_();
-  var quote = testAttachTopic_('PAPERQT', 'ใบเสนอราคาบนกระดาษ (ทดสอบ)');
-  var draw  = testAttachTopic_('PAPERDW', 'แบบบนกระดาษ (ทดสอบ)');
-  var idle  = testAttachTopic_('PAPERNO', 'หัวข้อที่ไม่มีไฟล์ (ทดสอบ)');
+  var quote = await testAttachTopic_('PAPERQT', 'ใบเสนอราคาบนกระดาษ (ทดสอบ)');
+  var draw  = await testAttachTopic_('PAPERDW', 'แบบบนกระดาษ (ทดสอบ)');
+  var idle  = await testAttachTopic_('PAPERNO', 'หัวข้อที่ไม่มีไฟล์ (ทดสอบ)');
 
-  var created = withTestUser_(users.admin, function () {
-    return api_createWorkOrder(testWoForm_(), 0);
+  var created = await withTestUser_(users.admin, async function () {
+    return await api_createWorkOrder(testWoForm_(), 0);
   });
   var woId = created.data.woId;
 
   /* ---------- ยังไม่มีไฟล์เลย ต้องเขียนว่าไม่มี ---------- */
-  var blank = reportPaperText_(woId, templateId);
+  var blank = await reportPaperText_(woId, templateId);
   assertTrue_(blank.indexOf('ไม่มีเอกสารแนบ') !== -1,
     'ใบที่ไม่มีไฟล์แนบต้องเขียนว่าไม่มีเอกสารแนบ ไม่ใช่เว้นว่างจนดูเหมือนพิมพ์ตกหล่น');
   assertTrue_(blank.indexOf(idle) === -1 && blank.indexOf('หัวข้อที่ไม่มีไฟล์') === -1,
@@ -13103,7 +13108,7 @@ function test_report_topicsAppearOnPaper() {
     { topicId: draw,  fileName: 'แบบสอง.pdf' }
   ];
   for (var i = 0; i < sent.length; i++) {
-    var put = uploadThroughApi_(users.admin, {
+    var put = await uploadThroughApi_(users.admin, {
       woId: woId, scope: FILE_SCOPE.WO, topicId: sent[i].topicId,
       fileName: sent[i].fileName, mimeType: 'application/pdf', content: testFileContent_(48)
     });
@@ -13115,13 +13120,13 @@ function test_report_topicsAppearOnPaper() {
    * ไฟล์พวกนี้เกิดขึ้นหลังการอนุมัติ จึงไม่ใช่สิ่งที่ผู้อนุมัติกำลังตัดสินใจอยู่บนกระดาษใบนี้
    * และหัวข้อของมันไม่ได้อยู่ในตาราง Attachment_Topic การคัดออกจึงเกิดเองโดยไม่ต้องไล่ชื่อ
    */
-  insertFile({
+  await insertFile({
     'File_ID': woId + '-FSTEP', 'WO_ID': woId, 'Topic_ID': PHOTO_TOPIC.ID,
     'Saved_File_Name': 'SV-ทดสอบ_Step2_รูปภาพ_01.jpg', 'Seq': 1,
     'Drive_File_ID': 'ไม่ได้ขึ้น Drive (ข้อมูลทดสอบ)', 'Is_Active': true
   });
 
-  var paper = reportPaperText_(woId, templateId);
+  var paper = await reportPaperText_(woId, templateId);
 
   assertTrue_(paper.indexOf('ใบเสนอราคาบนกระดาษ (ทดสอบ) (1 ไฟล์)') !== -1,
     'หัวข้อแรกต้องขึ้นพร้อมจำนวนไฟล์');
@@ -13151,14 +13156,14 @@ function test_report_topicsAppearOnPaper() {
  * @param {string} templateId รหัสแม่แบบ
  * @return {string} ตัวหนังสือทั้งเอกสาร
  */
-function reportPaperText_(woId, templateId) {
+async function reportPaperText_(woId, templateId) {
   clearRowCache_(SHEET.FILE_INDEX);
-  var wo = getWorkOrder(woId);
-  var folderId = ensureWoFolder_(woId, '');
+  var wo = await getWorkOrder(woId);
+  var folderId = await ensureWoFolder_(woId, '');
   var copyId = driveCopyFile_(templateId, 'TEST-ตรวจหัวข้อบนกระดาษ ' + woId, folderId);
 
   try {
-    docReplaceValues_(copyId, reportValuesFor_(woId, wo, { version: 1, issuedAt: new Date() }));
+    docReplaceValues_(copyId, await reportValuesFor_(woId, wo, { version: 1, issuedAt: new Date() }));
     return docTextOf_(copyId);
   } finally {
     driveTrashById_(copyId, false);
@@ -13175,7 +13180,7 @@ function reportPaperText_(woId, templateId) {
  *
  * บนชีตจริง ข้อนี้จึงเป็นการตรวจแม่แบบของผู้ใช้เองด้วย ไม่ใช่ตรวจแค่โค้ด
  */
-function test_report_replacesEveryPlaceholder() {
+async function test_report_replacesEveryPlaceholder() {
   beginTest_('ทุกช่องในแม่แบบต้องถูกแทนค่า รวมหัวและท้ายกระดาษ');
 
   var templateId = getProp_(PROP_KEY.WO_REPORT_TEMPLATE, false);
@@ -13185,14 +13190,14 @@ function test_report_replacesEveryPlaceholder() {
     return endTest_();
   }
 
-  var created = createTestWo_(serviceTestUsers_());
-  var wo = getWorkOrder(created.woId);
-  var folderId = ensureWoFolder_(created.woId, '');
+  var created = await createTestWo_(serviceTestUsers_());
+  var wo = await getWorkOrder(created.woId);
+  var folderId = await ensureWoFolder_(created.woId, '');
 
   var copyId = driveCopyFile_(templateId, 'TEST-ตรวจการแทนค่า ' + created.woId, folderId);
   var text = '';
   try {
-    docReplaceValues_(copyId, reportValues_(wo, listWoFileViews(created.woId), { version: 1 }));
+    docReplaceValues_(copyId, await reportValues_(wo, await listWoFileViews(created.woId), { version: 1 }));
     text = docTextOf_(copyId);
   } finally {
     driveTrashById_(copyId, false);   // สำเนาสำหรับตรวจ ต้องไม่ค้างอยู่ในโฟลเดอร์ของใบงาน
@@ -13210,7 +13215,7 @@ function test_report_replacesEveryPlaceholder() {
 /**
  * สั่งออกเอกสารใหม่ได้เฉพาะ ADMIN (SPEC 16.1)
  */
-function test_permission_generateReport() {
+async function test_permission_generateReport() {
   beginTest_('สั่งออกใบสั่งงานใหม่ได้เฉพาะผู้ดูแลระบบ');
 
   var woId = testWoId_();
@@ -13219,8 +13224,8 @@ function test_permission_generateReport() {
     ROLE.SERVICE, ROLE.PROJECT, ROLE.LAB];
 
   for (var i = 0; i < denied.length; i++) {
-    var result = withTestUser_({ email: 'TEST-gen@cnr.co.th', roles: [denied[i]] }, function () {
-      return api_generateReport(woId);
+    var result = await withTestUser_({ email: 'TEST-gen@cnr.co.th', roles: [denied[i]] }, async function () {
+      return await api_generateReport(woId);
     });
     assertEquals_(result.ok, false, denied[i] + ' ต้องสั่งออกเอกสารใหม่ไม่ได้');
     assertTrue_(String(result.message).indexOf('สั่งออกใบสั่งงานใหม่') !== -1,
@@ -13231,8 +13236,8 @@ function test_permission_generateReport() {
    * ผู้ดูแลต้องผ่านด่านสิทธิ์ไปได้ — จะไปตกที่ "ไม่พบใบงาน" ซึ่งเป็นคนละเรื่องกัน
    * ข้อนี้สำคัญ เพราะเทสต์ที่มีแต่เคสถูกปฏิเสธ พิสูจน์ไม่ได้ว่าคนที่ควรทำได้ทำได้จริง
    */
-  var byAdmin = withTestUser_({ email: 'TEST-gen@cnr.co.th', roles: allowed }, function () {
-    return api_generateReport(woId);
+  var byAdmin = await withTestUser_({ email: 'TEST-gen@cnr.co.th', roles: allowed }, async function () {
+    return await api_generateReport(woId);
   });
   assertEquals_(byAdmin.ok, false, 'ใบงานที่ไม่มีอยู่จริง ย่อมออกเอกสารไม่ได้');
   assertTrue_(String(byAdmin.message).indexOf('สั่งออกใบสั่งงานใหม่') === -1,
@@ -13447,13 +13452,13 @@ function manifestTextForTest_() {
  * @param {function()} fn สิ่งที่จะทำ
  * @return {Object[]} ข้อความที่ถูกส่งระหว่างนั้น
  */
-function captureNotifications_(fn) {
+async function captureNotifications_(fn) {
   var beforeDisabled = NOTIFY_DISABLED_;
   var beforeOutbox = NOTIFY_OUTBOX_;
   NOTIFY_DISABLED_ = false;
   NOTIFY_OUTBOX_ = [];
   try {
-    fn();
+    await fn();
     return NOTIFY_OUTBOX_;
   } finally {
     NOTIFY_OUTBOX_ = beforeOutbox;
@@ -13465,7 +13470,7 @@ function captureNotifications_(fn) {
  * ใส่ห้องแจ้งเตือนครบทุกห้องลงตาราง Notify_Channel สำหรับทดสอบ
  * @return {Object} แผนที่ห้อง -> Chat ID
  */
-function addTestChannels_() {
+async function addTestChannels_() {
   /*
    * ต้องได้ห้องชุดเดียวเสมอ ไม่ว่าชุดไหนจะรันมาก่อน
    *
@@ -13488,7 +13493,7 @@ function addTestChannels_() {
   }
 
   var keyField = SHEET_KEY_FIELD[SHEET.NOTIFY_CHANNEL];
-  var existing = listNotifyChannels(false);
+  var existing = await listNotifyChannels(false);
   var have = {};
 
   for (var e = 0; e < existing.length; e++) {
@@ -13499,11 +13504,11 @@ function addTestChannels_() {
     if (wanted[rowId]) {
       have[rowId] = true;
       if (!cellToBoolean_(row['Active'])) {
-        updateRow_(SHEET.NOTIFY_CHANNEL, keyField, rowId, { 'Active': true });
+        await updateRow_(SHEET.NOTIFY_CHANNEL, keyField, rowId, { 'Active': true });
       }
     } else if (cellToBoolean_(row['Active'])) {
       // ห้องที่ชุดอื่นเพิ่มไว้ ปิดก่อน ไม่งั้นจะมีห้องเป้าหมายเดียวกันมากกว่าหนึ่งห้อง
-      updateRow_(SHEET.NOTIFY_CHANNEL, keyField, rowId, { 'Active': false });
+      await updateRow_(SHEET.NOTIFY_CHANNEL, keyField, rowId, { 'Active': false });
     }
   }
 
@@ -13520,7 +13525,7 @@ function addTestChannels_() {
       'Active': true
     });
   }
-  if (rows.length) appendRows_(SHEET.NOTIFY_CHANNEL, rows);
+  if (rows.length) await appendRows_(SHEET.NOTIFY_CHANNEL, rows);
 
   clearMasterCache_(SHEET.NOTIFY_CHANNEL);
   return map;
@@ -13671,16 +13676,16 @@ function test_notify_messageSafety() {
 /**
  * ส่งจริงผ่านเส้นทางของระบบ — เข้าห้องถูก มีปุ่มเปิดใบงาน และไม่ส่งซ้ำ
  */
-function test_notify_sendAndDedupe() {
+async function test_notify_sendAndDedupe() {
   beginTest_('ส่งเข้าห้องถูก มีปุ่มเปิดใบงาน และกดรัว ๆ ต้องส่งครั้งเดียว');
 
-  var channels = addTestChannels_();
+  var channels = await addTestChannels_();
   var users = serviceTestUsers_();
-  var created = createTestWo_(users);
-  var wo = getWorkOrder(created.woId);
+  var created = await createTestWo_(users);
+  var wo = await getWorkOrder(created.woId);
 
-  var sent = captureNotifications_(function () {
-    notifyEvent_(NOTIFY_EVENT.SUBMIT, wo);
+  var sent = await captureNotifications_(async function () {
+    await notifyEvent_(NOTIFY_EVENT.SUBMIT, wo);
   });
 
   assertEquals_(sent.length, 1, 'ขออนุมัติต้องส่งหนึ่งห้อง คือห้องผู้อนุมัติของสายนั้น');
@@ -13692,15 +13697,15 @@ function test_notify_sendAndDedupe() {
   assertTrue_(sent[0].url.indexOf(created.woId) !== -1, 'และต้องเป็นใบงานใบที่เกิดเหตุจริง');
 
   /* ---------- กดรัว ๆ ต้องส่งครั้งเดียว (SPEC 15.4) ---------- */
-  var again = captureNotifications_(function () {
-    notifyEvent_(NOTIFY_EVENT.SUBMIT, wo);
-    notifyEvent_(NOTIFY_EVENT.SUBMIT, wo);
+  var again = await captureNotifications_(async function () {
+    await notifyEvent_(NOTIFY_EVENT.SUBMIT, wo);
+    await notifyEvent_(NOTIFY_EVENT.SUBMIT, wo);
   });
   assertEquals_(again.length, 0, 'เหตุการณ์เดิมของใบเดิมในนาทีเดียวกัน ต้องไม่ถูกส่งซ้ำ');
 
   /* ---------- คนละเหตุการณ์ ไม่ใช่การส่งซ้ำ ---------- */
-  var other = captureNotifications_(function () {
-    notifyEvent_(NOTIFY_EVENT.RETURN, wo, { reason: 'ยังไม่แนบใบเสนอราคา' });
+  var other = await captureNotifications_(async function () {
+    await notifyEvent_(NOTIFY_EVENT.RETURN, wo, { reason: 'ยังไม่แนบใบเสนอราคา' });
   });
   assertEquals_(other.length, 1, 'เหตุการณ์อื่นของใบเดียวกัน ต้องยังส่งได้ตามปกติ');
   assertTrue_(other[0].text.indexOf('ยังไม่แนบใบเสนอราคา') !== -1,
@@ -13712,10 +13717,10 @@ function test_notify_sendAndDedupe() {
 /**
  * ห้องที่ปิดอยู่ต้องไม่ถูกส่ง และห้องที่ยังไม่ได้กรอก Chat ID ก็เช่นกัน
  */
-function test_notify_inactiveChannel() {
+async function test_notify_inactiveChannel() {
   beginTest_('ห้องที่ปิดใช้งานอยู่ ต้องไม่ถูกส่ง');
 
-  appendRows_(SHEET.NOTIFY_CHANNEL, [
+  await appendRows_(SHEET.NOTIFY_CHANNEL, [
     { 'Channel_ID': testPrefix_() + 'CH-OFF', 'Name': 'ห้องที่ปิดไว้',
       'Target': NOTIFY_TARGET.ADMIN, 'Chat_ID': '-100999001', 'Active': false },
     // ห้องที่ยังไม่ได้กรอกเลข = null ในคอลัมน์ bigint · ข้อความว่างถูกฐานข้อมูลปฏิเสธ
@@ -13726,7 +13731,7 @@ function test_notify_inactiveChannel() {
   ]);
   clearMasterCache_(SHEET.NOTIFY_CHANNEL);
 
-  var rooms = notifyChannelsFor_([NOTIFY_TARGET.ADMIN]);
+  var rooms = await notifyChannelsFor_([NOTIFY_TARGET.ADMIN]);
   var ids = [];
   for (var i = 0; i < rooms.length; i++) ids.push(String(rooms[i]['Chat_ID']));
 
@@ -13741,7 +13746,7 @@ function test_notify_inactiveChannel() {
 /**
  * แจ้งเตือนล้มเหลว ห้ามทำให้สถานะย้อนกลับ และต้องเหลือร่องรอยไว้ (SPEC 15.4 · กฎข้อ 10)
  */
-function test_notify_failureKeepsStatus() {
+async function test_notify_failureKeepsStatus() {
   beginTest_('แจ้งเตือนล้มเหลว แต่สถานะต้องถูกบันทึกครบ');
 
   var users = serviceTestUsers_();
@@ -13749,7 +13754,7 @@ function test_notify_failureKeepsStatus() {
   var attempts = 0;
   var created = null;
 
-  addTestChannels_();
+  await addTestChannels_();
 
   try {
     sendTelegramMessage_ = function () {
@@ -13759,7 +13764,7 @@ function test_notify_failureKeepsStatus() {
     var beforeDisabled = NOTIFY_DISABLED_;
     NOTIFY_DISABLED_ = false;
     try {
-      created = createTestWo_(users);
+      created = await createTestWo_(users);
     } finally {
       NOTIFY_DISABLED_ = beforeDisabled;
     }
@@ -13769,13 +13774,13 @@ function test_notify_failureKeepsStatus() {
 
   assertTrue_(attempts > 0, 'ตัวจำลองต้องถูกเรียกจริง ไม่งั้นเทสต์นี้ไม่ได้พิสูจน์อะไร');
 
-  var wo = getWorkOrder(created.woId);
+  var wo = await getWorkOrder(created.woId);
   assertTrue_(!!wo, 'ใบงานต้องถูกบันทึกไว้ครบ แม้แจ้งเตือนไม่สำเร็จ');
   assertEquals_(wo[STATUS_FIELD[ENTITY.WO]], WO_STATUS.PENDING_APPROVE,
     'และต้องอยู่ที่ผู้อนุมัติตามปกติ ไม่ย้อนกลับเพราะเรื่องแจ้งเตือน');
 
   // ย้ายไป System_Log แล้วตาม SPEC 13 — ส่วนครั้งที่ส่งสำเร็จยังอยู่ใน Audit_Log ตามเดิม
-  var failure = systemLogOf_(created.woId, ACTION.NOTIFY_FAILED);
+  var failure = await systemLogOf_(created.woId, ACTION.NOTIFY_FAILED);
   assertTrue_(!!failure, 'ต้องบันทึก NOTIFY_FAILED ไว้ เพื่อให้ตามได้ว่าใบไหนไม่ได้ถูกแจ้ง');
   assertTrue_(String(failure['Detail']).indexOf('เครือข่ายล่ม') !== -1,
     'และต้องบอกสาเหตุจริงไว้ด้วย ไม่ใช่บอกแค่ว่าไม่สำเร็จ');
@@ -13786,10 +13791,10 @@ function test_notify_failureKeepsStatus() {
 /**
  * ยังไม่ได้ตั้ง Token — ระบบต้องทำงานต่อได้ตามปกติ แค่ไม่มีข้อความออกไป
  */
-function test_notify_noToken() {
+async function test_notify_noToken() {
   beginTest_('ไม่มี Token ต้องไม่พังทั้งระบบ แค่ไม่ส่งและบันทึกไว้');
 
-  addTestChannels_();
+  await addTestChannels_();
   var users = serviceTestUsers_();
   var originalGetProp = getProp_;
   var created = null;
@@ -13803,7 +13808,7 @@ function test_notify_noToken() {
     var beforeDisabled = NOTIFY_DISABLED_;
     NOTIFY_DISABLED_ = false;
     try {
-      created = createTestWo_(users);
+      created = await createTestWo_(users);
     } finally {
       NOTIFY_DISABLED_ = beforeDisabled;
     }
@@ -13811,11 +13816,11 @@ function test_notify_noToken() {
     getProp_ = originalGetProp;
   }
 
-  var wo = getWorkOrder(created.woId);
+  var wo = await getWorkOrder(created.woId);
   assertTrue_(!!wo, 'ใบงานต้องถูกสร้างได้ตามปกติ');
   assertEquals_(wo[STATUS_FIELD[ENTITY.WO]], WO_STATUS.PENDING_APPROVE, 'และสถานะต้องถูกต้อง');
 
-  var noted = systemLogOf_(created.woId, ACTION.NOTIFY_FAILED);
+  var noted = await systemLogOf_(created.woId, ACTION.NOTIFY_FAILED);
   assertTrue_(!!noted, 'ต้องบันทึกไว้ว่าไม่ได้ส่ง ไม่ใช่เงียบหายไปเฉย ๆ');
   assertTrue_(String(noted['Detail']).indexOf('TELEGRAM_BOT_TOKEN') !== -1,
     'และต้องบอกชื่อค่าที่ผู้ดูแลต้องไปตั้ง');
@@ -13829,7 +13834,7 @@ function test_notify_noToken() {
 /**
  * การยิงออกนอกระบบต้องอยู่ในไฟล์เดียว และ Token ห้ามหลุดไปที่ใด
  */
-function test_notify_isolationAndSecrets() {
+async function test_notify_isolationAndSecrets() {
   beginTest_('ยิงออกนอกระบบได้ที่เดียว และ Token ห้ามหลุด');
 
   /* ---------- UrlFetchApp ต้องอยู่ในไฟล์ที่ได้รับอนุญาตเท่านั้น ---------- */
@@ -13881,7 +13886,7 @@ function test_notify_isolationAndSecrets() {
     'ฟังก์ชันที่ยิงออกนอกระบบ ต้องมีตัวเดียวและอยู่ใน 07_Notify.gs');
 
   /* ---------- Token ห้ามหลุดไปหน้าเว็บหรือข้อความ ---------- */
-  var page = renderPage_({ page: 'wo', id: 'WO-2609-0001', base: 'https://example.com/exec' });
+  var page = await renderPage_({ page: 'wo', id: 'WO-2609-0001', base: 'https://example.com/exec' });
   assertTrue_(page.indexOf('TELEGRAM_BOT_TOKEN') === -1,
     'แม้แต่ชื่อของค่าที่เก็บ Token ก็ไม่ควรโผล่ในหน้าเว็บ');
   assertTrue_(page.indexOf('api.telegram.org') === -1, 'และที่อยู่ของ Telegram ก็ไม่ต้องอยู่ในหน้า');
@@ -13911,18 +13916,18 @@ function test_notify_isolationAndSecrets() {
     };
 
     fetchExternal_ = function () { return { code: 200, body: '{"ok":true,"result":{}}' }; };
-    results.good = sendTelegramMessage_({ 'Chat_ID': '-100999123' }, 'ข้อความ', '');
+    results.good = await sendTelegramMessage_({ 'Chat_ID': '-100999123' }, 'ข้อความ', '');
 
     fetchExternal_ = function () {
       return { code: 400, body: '{"ok":false,"description":"chat not found"}' };
     };
-    results.badCode = sendTelegramMessage_({ 'Chat_ID': '-100999123' }, 'ข้อความ', '');
+    results.badCode = await sendTelegramMessage_({ 'Chat_ID': '-100999123' }, 'ข้อความ', '');
 
     // Telegram ตอบ 200 พร้อม ok:false ได้ การดูแต่รหัสจึงยังพลาดได้
     fetchExternal_ = function () {
       return { code: 200, body: '{"ok":false,"description":"bot was blocked by the user"}' };
     };
-    results.okFalse = sendTelegramMessage_({ 'Chat_ID': '-100999123' }, 'ข้อความ', '');
+    results.okFalse = await sendTelegramMessage_({ 'Chat_ID': '-100999123' }, 'ข้อความ', '');
   } finally {
     fetchExternal_ = originalFetch;
     getProp_ = originalGetProp;
@@ -13959,7 +13964,7 @@ function test_notify_isolationAndSecrets() {
 /**
  * เครื่องมือตรวจการแจ้งเตือน ต้องบอกสภาพจริงได้แม้ยังไม่ได้ตั้งค่า
  */
-function test_notify_checkTool() {
+async function test_notify_checkTool() {
   beginTest_('checkTelegram บอกสภาพจริงได้ และไม่พังเมื่อยังไม่ได้ตั้งค่า');
 
   var originalGetProp = getProp_;
@@ -13969,7 +13974,7 @@ function test_notify_checkTool() {
       if (key === PROP_KEY.TELEGRAM_BOT_TOKEN) return '';
       return originalGetProp(key, required);
     };
-    report = String(checkTelegram());
+    report = String(await checkTelegram());
   } finally {
     getProp_ = originalGetProp;
   }
@@ -13986,21 +13991,21 @@ function test_notify_checkTool() {
 /**
  * หน้ารายละเอียดใบงาน — ข้อมูลครบ เส้นเวลาถูก และใบที่ไม่มีจริงต้องบอกให้ชัด
  */
-function test_web_woDetail() {
+async function test_web_woDetail() {
   beginTest_('หน้ารายละเอียดใบงาน — SPEC 17.2');
 
   var users = serviceTestUsers_();
-  var created = createTestWo_(users);
+  var created = await createTestWo_(users);
 
   /* ---------- ใบที่ไม่มีอยู่จริง ---------- */
-  var missing = workOrderDetail('WO-ไม่มีจริง-0001');
+  var missing = await workOrderDetail('WO-ไม่มีจริง-0001');
   assertEquals_(missing.found, false, 'ใบที่ไม่มีอยู่จริง ต้องบอกว่าไม่พบ');
   assertTrue_(String(missing.reason).indexOf('ไม่พบใบงาน') !== -1,
     'และต้องเป็นข้อความไทยที่อ่านรู้เรื่อง ไม่ใช่ข้อผิดพลาดดิบ');
-  assertEquals_(workOrderDetail('').found, false, 'ไม่ได้ระบุเลขที่มาเลย ก็ต้องไม่พังเช่นกัน');
+  assertEquals_((await workOrderDetail('')).found, false, 'ไม่ได้ระบุเลขที่มาเลย ก็ต้องไม่พังเช่นกัน');
 
   /* ---------- ใบจริง ข้อมูลครบทุกช่องตาม SPEC 9.3 ---------- */
-  var detail = workOrderDetail(created.woId);
+  var detail = await workOrderDetail(created.woId);
   assertEquals_(detail.found, true, 'ใบที่มีอยู่จริงต้องเปิดได้');
 
   var fields = ['customerName', 'customerCode', 'salesPerson', 'contact', 'phone',
@@ -14040,10 +14045,10 @@ function test_web_woDetail() {
    * เขียนบันทึกของระบบลงไปหนึ่งแถวโดยตั้งใจ แล้วดูว่ามันขึ้นบนเส้นเวลาไหม
    * ถ้าไม่ใส่ของแบบนี้ลงไป เทสต์จะผ่านเพราะ "ไม่มีอะไรให้ปน" ไม่ใช่เพราะตัวกรองทำงาน
    */
-  writeAudit(ENTITY.WO, created.woId, ACTION.RECALC, STATUS_FIELD[ENTITY.WO],
+  await writeAudit(ENTITY.WO, created.woId, ACTION.RECALC, STATUS_FIELD[ENTITY.WO],
     WO_STATUS.APPROVED, WO_STATUS.IN_PROGRESS, 'ระบบคำนวณสถานะรวมใหม่',
     { woId: created.woId });
-  after = workOrderDetail(created.woId);
+  after = await workOrderDetail(created.woId);
 
   var allowedLabels = {};
   var declared = timelineEvents_();
@@ -14065,13 +14070,13 @@ function test_web_woDetail() {
 
   /* ---------- ตีกลับแล้ว ต้องเก็บเหตุผลทุกครั้ง ไม่ใช่แค่ครั้งล่าสุด ---------- */
   // ตีกลับได้จากสถานะรออนุมัติเท่านั้น จึงต้องส่งกลับเข้ามาใหม่ก่อนตีกลับรอบสอง
-  returnWorkOrder(created.woId, 'เหตุผลครั้งที่หนึ่ง', users.approver);
-  submitWorkOrder(created.woId, users.admin);
-  returnWorkOrder(created.woId, 'เหตุผลครั้งที่สอง', users.approver);
-  submitWorkOrder(created.woId, users.admin);
-  approveWorkOrder(created.woId, ASSIGNMENT.SERVICE, users.approver, {});
+  await returnWorkOrder(created.woId, 'เหตุผลครั้งที่หนึ่ง', users.approver);
+  await submitWorkOrder(created.woId, users.admin);
+  await returnWorkOrder(created.woId, 'เหตุผลครั้งที่สอง', users.approver);
+  await submitWorkOrder(created.woId, users.admin);
+  await approveWorkOrder(created.woId, ASSIGNMENT.SERVICE, users.approver, {});
 
-  var after = workOrderDetail(created.woId);
+  var after = await workOrderDetail(created.woId);
   var reasons = [];
   for (var r = 0; r < after.reasons.length; r++) reasons.push(after.reasons[r].remark);
 
@@ -14097,31 +14102,31 @@ function test_web_woDetail() {
 /**
  * หน้ารายละเอียดใบงานต้องเปิดได้ทุก Role และต้องไม่มีปุ่มที่เปลี่ยนข้อมูล
  */
-function test_permission_woDetailOpenToAll() {
+async function test_permission_woDetailOpenToAll() {
   beginTest_('รายละเอียดใบงาน ทุก Role เปิดได้ และอ่านอย่างเดียวจริง');
 
   var users = serviceTestUsers_();
-  var created = createTestWo_(users);
+  var created = await createTestWo_(users);
 
   var everyone = [ROLE.ADMIN, ROLE.SALE, ROLE.APPROVER_SP, ROLE.APPROVER_LAB,
     ROLE.SERVICE, ROLE.PROJECT, ROLE.LAB];
 
   for (var i = 0; i < everyone.length; i++) {
-    var result = withTestUser_({ email: 'TEST-detail@cnr.co.th', roles: [everyone[i]] },
-      function () { return api_getWoDetail(created.woId); });
+    var result = await withTestUser_({ email: 'TEST-detail@cnr.co.th', roles: [everyone[i]] },
+      async function () { return await api_getWoDetail(created.woId); });
     assertEquals_(result.ok, true, everyone[i] + ' ต้องเปิดดูรายละเอียดใบงานได้ (SPEC หัวข้อ 2)');
     assertEquals_(result.data.detail.found, true, 'และต้องได้ข้อมูลของใบงานจริง');
   }
 
   /* ---------- แต่ยังต้องระบุตัวตนให้ได้ก่อน ---------- */
-  var anonymous = api_call('api_getWoDetail', [created.woId], '');
+  var anonymous = await api_call('api_getWoDetail', [created.woId], '');
   assertEquals_(anonymous.ok, false, 'ไม่มีโทเคน ต้องเปิดไม่ได้ แม้เป็นการอ่าน (กฎข้อ 16)');
   assertEquals_(anonymous.message, NEED_LOGIN_MESSAGE, 'และต้องบอกให้เข้าสู่ระบบก่อน');
 
   /* ---------- เมนูที่ 8 ต้องเปิดได้ทุก Role ---------- */
   for (var m = 0; m < everyone.length; m++) {
-    var menu = withTestUser_({ email: 'TEST-detail@cnr.co.th', roles: [everyone[m]] },
-      function () { return menuForUser_(getCurrentUser_()); });
+    var menu = await withTestUser_({ email: 'TEST-detail@cnr.co.th', roles: [everyone[m]] },
+      async function () { return menuForUser_(await getCurrentUser_()); });
     var found = null;
     for (var k = 0; k < menu.length; k++) if (menu[k].page === 'wo') found = menu[k];
     assertTrue_(!!found, 'ต้องมีเมนูรายละเอียดใบงานอยู่ในเมนูหลัก');
@@ -14173,9 +14178,9 @@ function countNotifications_(outbox, event) {
  * @param {string} assignmentType แผนกผู้รับงาน
  * @return {Object} {woId, tasks}
  */
-function notifyTestWo_(users, assignmentType) {
-  var created = createTestWo_(users, { 'Assignment_Type': assignmentType });
-  var result = approveWorkOrder(created.woId, assignmentType, users.approver);
+async function notifyTestWo_(users, assignmentType) {
+  var created = await createTestWo_(users, { 'Assignment_Type': assignmentType });
+  var result = await approveWorkOrder(created.woId, assignmentType, users.approver);
   return { woId: created.woId, tasks: result.tasks };
 }
 
@@ -14186,21 +14191,21 @@ function notifyTestWo_(users, assignmentType) {
  * เทสต์ที่ถามแค่ว่ามีข้อความไหม จะผ่านทั้งตอนส่งครั้งเดียวและตอนส่งสองครั้ง
  * จึงจับบั๊กที่กำลังแก้อยู่ไม่ได้เลย
  */
-function test_notify_woLevelSingle() {
+async function test_notify_woLevelSingle() {
   beginTest_('งานแผนกเดียว ต้องไม่มีข้อความระดับใบงานซ้ำ — SPEC 15.3');
 
   var users = serviceTestUsers_();
-  addTestChannels_();
+  await addTestChannels_();
 
   /* ---------- 1. งานแผนกเดียว ปิดงาน ---------- */
-  var single = notifyTestWo_(users, ASSIGNMENT.SERVICE);
+  var single = await notifyTestWo_(users, ASSIGNMENT.SERVICE);
   var singleTask = single.tasks[0]['Task_ID'];
-  acceptTask(singleTask, users.service);
-  finishAllSteps_(singleTask, users.service);
-  attachRequiredReports_(singleTask);
+  await acceptTask(singleTask, users.service);
+  await finishAllSteps_(singleTask, users.service);
+  await attachRequiredReports_(singleTask);
 
-  var box1 = captureNotifications_(function () {
-    completeTask(singleTask, users.service);
+  var box1 = await captureNotifications_(async function () {
+    await completeTask(singleTask, users.service);
   });
 
   assertEquals_(countNotifications_(box1, NOTIFY_EVENT.TASK_COMPLETE), 1,
@@ -14208,22 +14213,22 @@ function test_notify_woLevelSingle() {
   assertEquals_(countNotifications_(box1, NOTIFY_EVENT.WO_COMPLETED), 0,
     'งานแผนกเดียว ต้องไม่มีข้อความระดับใบงานตามมาอีก — ผู้รับเคยได้ซ้ำสองรอบเรื่องเดียวกัน');
   assertEquals_(box1.length, 1, 'รวมทั้งหมดต้องมีข้อความเดียวเท่านั้น');
-  assertEquals_(getWorkOrder(single.woId)[STATUS_FIELD[ENTITY.WO]], WO_STATUS.COMPLETED,
+  assertEquals_((await getWorkOrder(single.woId))[STATUS_FIELD[ENTITY.WO]], WO_STATUS.COMPLETED,
     'และใบงานต้องปิดจริง — ระงับแค่ข้อความ ไม่ใช่ระงับการปิดงาน');
 
   /* ---------- 2. งานแผนกเดียว แผนกยกเลิก ---------- */
-  var solo = notifyTestWo_(users, ASSIGNMENT.SERVICE);
+  var solo = await notifyTestWo_(users, ASSIGNMENT.SERVICE);
   var soloTask = solo.tasks[0]['Task_ID'];
 
-  var box2 = captureNotifications_(function () {
-    cancelTask(soloTask, 'ลูกค้าแจ้งยกเลิก', users.service);
+  var box2 = await captureNotifications_(async function () {
+    await cancelTask(soloTask, 'ลูกค้าแจ้งยกเลิก', users.service);
   });
 
   assertEquals_(countNotifications_(box2, NOTIFY_EVENT.TASK_CANCEL), 2,
     'แผนกยกเลิกงาน ต้องเข้าห้อง Admin และห้องผู้อนุมัติ รวมสองห้อง');
   assertEquals_(countNotifications_(box2, NOTIFY_EVENT.WO_CANCELLED), 0,
     'งานแผนกเดียว ต้องไม่มีข้อความระดับใบงานตามมา');
-  assertEquals_(getWorkOrder(solo.woId)[STATUS_FIELD[ENTITY.WO]], WO_STATUS.CANCELLED,
+  assertEquals_((await getWorkOrder(solo.woId))[STATUS_FIELD[ENTITY.WO]], WO_STATUS.CANCELLED,
     'แต่ใบงานต้องถูกยกเลิกจริง');
 
   /* ---------- 5. ยกเลิกใบงานตอนยังไม่มี Task ---------- */
@@ -14231,11 +14236,11 @@ function test_notify_woLevelSingle() {
    * ข้อที่สำคัญที่สุดของทั้งชุด · ใบที่ถูกยกเลิกก่อนอนุมัติไม่เคยมีข้อความระดับ Task เลย
    * ถ้าเผลอระงับด้วยกติกาเดียวกัน จะไม่มีใครรู้ว่าใบนี้ถูกยกเลิก และไม่มีอะไรฟ้อง
    */
-  var pending = createTestWo_(users);
-  assertEquals_(listTasksByWo(pending.woId).length, 0, 'ใบที่ยังไม่อนุมัติ ต้องยังไม่มี Task');
+  var pending = await createTestWo_(users);
+  assertEquals_((await listTasksByWo(pending.woId)).length, 0, 'ใบที่ยังไม่อนุมัติ ต้องยังไม่มี Task');
 
-  var box5 = captureNotifications_(function () {
-    cancelWorkOrder(pending.woId, 'ลูกค้ายกเลิกก่อนเริ่มงาน', users.admin);
+  var box5 = await captureNotifications_(async function () {
+    await cancelWorkOrder(pending.woId, 'ลูกค้ายกเลิกก่อนเริ่มงาน', users.admin);
   });
 
   /*
@@ -14247,9 +14252,9 @@ function test_notify_woLevelSingle() {
   assertEquals_(box5.length, 2, 'และต้องไม่มีข้อความอื่นปนมา');
 
   // ใบที่ระบุแผนกไว้แล้วแต่ยังไม่อนุมัติ ต้องได้ห้องแผนกเพิ่มอีกหนึ่งห้อง
-  var pendingSv = createTestWo_(users, { 'Assignment_Type': ASSIGNMENT.SERVICE });
-  var box5b = captureNotifications_(function () {
-    cancelWorkOrder(pendingSv.woId, 'ลูกค้ายกเลิก', users.admin);
+  var pendingSv = await createTestWo_(users, { 'Assignment_Type': ASSIGNMENT.SERVICE });
+  var box5b = await captureNotifications_(async function () {
+    await cancelWorkOrder(pendingSv.woId, 'ลูกค้ายกเลิก', users.admin);
   });
   assertEquals_(countNotifications_(box5b, NOTIFY_EVENT.WO_CANCELLED), 3,
     'ใบที่ระบุแผนกไว้แล้ว ต้องแจ้งห้องแผนกด้วย รวมสามห้อง');
@@ -14282,14 +14287,14 @@ function test_notify_woLevelSingle() {
  * แยกออกมาจากชุดงานแผนกเดียว เพราะการสร้างใบงานร่วมพร้อมปิดงานทั้งสองแผนก
  * ใช้การคุยกับชีตมากกว่าเท่าตัว · รวมอยู่ชุดเดียวแล้วกลุ่มจะเกินเพดาน 400 รอบ
  */
-function test_notify_woLevelJoint() {
+async function test_notify_woLevelJoint() {
   beginTest_('งานร่วมสองแผนก ต้องมีข้อความระดับใบงานครั้งเดียว — SPEC 15.3');
 
   var users = serviceTestUsers_();
-  addTestChannels_();
+  await addTestChannels_();
 
   /* ---------- 3. งานร่วมสองแผนก ปิดครบ ---------- */
-  var joint = notifyTestWo_(users, ASSIGNMENT.SERVICE_PROJECT);
+  var joint = await notifyTestWo_(users, ASSIGNMENT.SERVICE_PROJECT);
   assertEquals_(joint.tasks.length, 2, 'งานร่วมต้องมีงานของสองแผนก');
 
   var first = joint.tasks[0]['Task_ID'];
@@ -14297,16 +14302,16 @@ function test_notify_woLevelJoint() {
   var firstUser = (String(joint.tasks[0]['Department']) === DEPT.SERVICE) ? users.service : users.project;
   var secondUser = (String(joint.tasks[1]['Department']) === DEPT.SERVICE) ? users.service : users.project;
 
-  acceptTask(first, firstUser);
-  acceptTask(second, secondUser);
-  finishAllSteps_(first, firstUser);
-  attachRequiredReports_(first);
-  finishAllSteps_(second, secondUser);
-  attachRequiredReports_(second);
+  await acceptTask(first, firstUser);
+  await acceptTask(second, secondUser);
+  await finishAllSteps_(first, firstUser);
+  await attachRequiredReports_(first);
+  await finishAllSteps_(second, secondUser);
+  await attachRequiredReports_(second);
 
-  var box3 = captureNotifications_(function () {
-    completeTask(first, firstUser);
-    completeTask(second, secondUser);
+  var box3 = await captureNotifications_(async function () {
+    await completeTask(first, firstUser);
+    await completeTask(second, secondUser);
   });
 
   assertEquals_(countNotifications_(box3, NOTIFY_EVENT.TASK_COMPLETE), 2,
@@ -14316,22 +14321,22 @@ function test_notify_woLevelJoint() {
   assertEquals_(box3.length, 3, 'รวมทั้งหมดสามข้อความ');
 
   /* ---------- 4. งานร่วม แผนกหนึ่งปิด อีกแผนกยกเลิก ---------- */
-  var mixed = notifyTestWo_(users, ASSIGNMENT.SERVICE_PROJECT);
+  var mixed = await notifyTestWo_(users, ASSIGNMENT.SERVICE_PROJECT);
   var keepTask = mixed.tasks[0]['Task_ID'];
   var dropTask = mixed.tasks[1]['Task_ID'];
   var keepUser = (String(mixed.tasks[0]['Department']) === DEPT.SERVICE) ? users.service : users.project;
   var dropUser = (String(mixed.tasks[1]['Department']) === DEPT.SERVICE) ? users.service : users.project;
 
-  acceptTask(keepTask, keepUser);
-  finishAllSteps_(keepTask, keepUser);
-  attachRequiredReports_(keepTask);
-  completeTask(keepTask, keepUser);
+  await acceptTask(keepTask, keepUser);
+  await finishAllSteps_(keepTask, keepUser);
+  await attachRequiredReports_(keepTask);
+  await completeTask(keepTask, keepUser);
 
-  var box4 = captureNotifications_(function () {
-    cancelTask(dropTask, 'แผนกนี้ไม่ต้องเข้าแล้ว', dropUser);
+  var box4 = await captureNotifications_(async function () {
+    await cancelTask(dropTask, 'แผนกนี้ไม่ต้องเข้าแล้ว', dropUser);
   });
 
-  assertEquals_(getWorkOrder(mixed.woId)[STATUS_FIELD[ENTITY.WO]], WO_STATUS.COMPLETED,
+  assertEquals_((await getWorkOrder(mixed.woId))[STATUS_FIELD[ENTITY.WO]], WO_STATUS.COMPLETED,
     'แผนกหนึ่งปิด อีกแผนกยกเลิก ใบงานต้องเป็นเสร็จสิ้น (SPEC A-5)');
   assertEquals_(countNotifications_(box4, NOTIFY_EVENT.WO_COMPLETED), 1,
     'และต้องมีข้อความระดับใบงานหนึ่งครั้ง ไม่งั้นจะไม่มีใครรู้ว่าทั้งใบจบแล้ว');
@@ -14340,9 +14345,9 @@ function test_notify_woLevelJoint() {
 
   /* ---------- ต้องตัดสินจากจำนวน Task ไม่ใช่จากสายงานที่เลือกไว้ ---------- */
   // ใบที่เลือกงานร่วมไว้แต่ยังไม่อนุมัติ ยังไม่มี Task สักตัว จึงต้องแจ้งเมื่อถูกยกเลิก
-  var jointPending = createTestWo_(users, { 'Assignment_Type': ASSIGNMENT.SERVICE_PROJECT });
-  var boxPending = captureNotifications_(function () {
-    cancelWorkOrder(jointPending.woId, 'ยังไม่ได้เริ่ม', users.admin);
+  var jointPending = await createTestWo_(users, { 'Assignment_Type': ASSIGNMENT.SERVICE_PROJECT });
+  var boxPending = await captureNotifications_(async function () {
+    await cancelWorkOrder(jointPending.woId, 'ยังไม่ได้เริ่ม', users.admin);
   });
   assertTrue_(countNotifications_(boxPending, NOTIFY_EVENT.WO_CANCELLED) > 0,
     'ใบที่เลือกงานร่วมแต่ยังไม่มี Task ต้องแจ้งเมื่อถูกยกเลิก — ตัดสินจากจำนวน Task ไม่ใช่สายงาน');
@@ -14429,8 +14434,8 @@ function test_notify_noOverdueEvent() {
  * @param {function()} fn สิ่งที่จะเรียก
  * @return {Object} data ที่ api_ คืนมา
  */
-function callApiAs_(user, name, fn) {
-  var result = withTestUser_(user, fn);
+async function callApiAs_(user, name, fn) {
+  var result = await withTestUser_(user, fn);
   assertEquals_(result.ok, true, name + ' ต้องทำรายการสำเร็จก่อน จึงจะตรวจการแจ้งเตือนได้' +
     (result.ok ? '' : (' (ได้: ' + result.message + ')')));
   return result.data;
@@ -14441,8 +14446,8 @@ function callApiAs_(user, name, fn) {
  * @param {string} woId เลขที่ใบงาน
  * @return {string}
  */
-function lockOf_(woId) {
-  return toIsoText_(getWorkOrder(woId)['Updated_Date']);
+async function lockOf_(woId) {
+  return toIsoText_((await getWorkOrder(woId))['Updated_Date']);
 }
 
 /**
@@ -14455,33 +14460,33 @@ function lockOf_(woId) {
  * ทุกข้อในชุดนี้เริ่มจาก api_ ที่หน้าเว็บเรียกจริง ไม่ใช่เรียกตัวส่งตรง ๆ
  * เพราะเทสต์ที่เรียกตัวส่งตรง ๆ ผ่านมาตลอดทั้งที่ของจริงไม่ทำงาน
  */
-function test_notify_returnThroughApi() {
+async function test_notify_returnThroughApi() {
   beginTest_('ตีกลับแล้วต้องมีข้อความเข้าห้อง Admin — เริ่มจาก api_ จริง');
 
   var users = serviceTestUsers_();
-  addTestChannels_();
+  await addTestChannels_();
 
   /* ---------- 1. ใบที่มี 1 Task ถูกผู้อนุมัติตีกลับ (เคสที่พังอยู่) ---------- */
   /*
    * ใบที่มี Task แล้วกลับมารออนุมัติอีกครั้งได้ เมื่อแผนกตีกลับแล้วธุรการส่งใหม่
    * เคสนี้สำคัญเพราะเป็นเคสเดียวที่ "มี 1 Task" ซึ่งชนกับด่านจำนวน Task พอดี
    */
-  var withTask = createTestWo_(users, { 'Assignment_Type': ASSIGNMENT.SERVICE });
-  callApiAs_(users.approver, 'อนุมัติใบงาน', function () {
-    return api_approveWorkOrder(withTask.woId, ASSIGNMENT.SERVICE, {});
+  var withTask = await createTestWo_(users, { 'Assignment_Type': ASSIGNMENT.SERVICE });
+  await callApiAs_(users.approver, 'อนุมัติใบงาน', async function () {
+    return await api_approveWorkOrder(withTask.woId, ASSIGNMENT.SERVICE, {});
   });
-  var taskId = listTasksByWo(withTask.woId)[0]['Task_ID'];
-  callApiAs_(users.service, 'แผนกตีกลับ', function () {
-    return api_returnTask(taskId, 'ข้อมูลหน้างานไม่พอ');
+  var taskId = (await listTasksByWo(withTask.woId))[0]['Task_ID'];
+  await callApiAs_(users.service, 'แผนกตีกลับ', async function () {
+    return await api_returnTask(taskId, 'ข้อมูลหน้างานไม่พอ');
   });
-  callApiAs_(users.admin, 'ส่งขออนุมัติใหม่', function () {
-    return api_submitWorkOrder(withTask.woId, lockOf_(withTask.woId));
+  await callApiAs_(users.admin, 'ส่งขออนุมัติใหม่', async function () {
+    return await api_submitWorkOrder(withTask.woId, await lockOf_(withTask.woId));
   });
-  assertEquals_(listTasksByWo(withTask.woId).length, 1, 'ใบนี้ต้องมี Task หนึ่งตัวจริง ๆ');
+  assertEquals_((await listTasksByWo(withTask.woId)).length, 1, 'ใบนี้ต้องมี Task หนึ่งตัวจริง ๆ');
 
-  var box1 = captureNotifications_(function () {
-    callApiAs_(users.approver, 'ตีกลับใบงาน', function () {
-      return api_returnWorkOrder(withTask.woId, 'ยังไม่แนบใบเสนอราคา', lockOf_(withTask.woId));
+  var box1 = await captureNotifications_(async function () {
+    await callApiAs_(users.approver, 'ตีกลับใบงาน', async function () {
+      return await api_returnWorkOrder(withTask.woId, 'ยังไม่แนบใบเสนอราคา', await lockOf_(withTask.woId));
     });
   });
 
@@ -14492,27 +14497,27 @@ function test_notify_returnThroughApi() {
     'พร้อมเหตุผลที่ตีกลับ ไม่งั้นผู้เปิดใบงานไม่รู้ว่าต้องแก้อะไร');
 
   /* ---------- 2. ใบที่ยังไม่มี Task ถูกตีกลับ ---------- */
-  var noTask = createTestWo_(users);
-  assertEquals_(listTasksByWo(noTask.woId).length, 0, 'ใบนี้ต้องยังไม่มี Task');
+  var noTask = await createTestWo_(users);
+  assertEquals_((await listTasksByWo(noTask.woId)).length, 0, 'ใบนี้ต้องยังไม่มี Task');
 
-  var box2 = captureNotifications_(function () {
-    callApiAs_(users.approver, 'ตีกลับใบที่ยังไม่มี Task', function () {
-      return api_returnWorkOrder(noTask.woId, 'กรอกสถานที่ไม่ครบ', lockOf_(noTask.woId));
+  var box2 = await captureNotifications_(async function () {
+    await callApiAs_(users.approver, 'ตีกลับใบที่ยังไม่มี Task', async function () {
+      return await api_returnWorkOrder(noTask.woId, 'กรอกสถานที่ไม่ครบ', await lockOf_(noTask.woId));
     });
   });
   assertEquals_(countNotifications_(box2, NOTIFY_EVENT.RETURN), 1,
     'ใบที่ยังไม่มี Task ถูกตีกลับ ก็ต้องมีข้อความเข้าห้อง Admin เช่นกัน');
 
   /* ---------- 3. แผนกตีกลับเอง ---------- */
-  var byDept = createTestWo_(users, { 'Assignment_Type': ASSIGNMENT.SERVICE });
-  callApiAs_(users.approver, 'อนุมัติใบงาน', function () {
-    return api_approveWorkOrder(byDept.woId, ASSIGNMENT.SERVICE, {});
+  var byDept = await createTestWo_(users, { 'Assignment_Type': ASSIGNMENT.SERVICE });
+  await callApiAs_(users.approver, 'อนุมัติใบงาน', async function () {
+    return await api_approveWorkOrder(byDept.woId, ASSIGNMENT.SERVICE, {});
   });
-  var deptTask = listTasksByWo(byDept.woId)[0]['Task_ID'];
+  var deptTask = (await listTasksByWo(byDept.woId))[0]['Task_ID'];
 
-  var box3 = captureNotifications_(function () {
-    callApiAs_(users.service, 'แผนกตีกลับ', function () {
-      return api_returnTask(deptTask, 'หน้างานเข้าไม่ได้');
+  var box3 = await captureNotifications_(async function () {
+    await callApiAs_(users.service, 'แผนกตีกลับ', async function () {
+      return await api_returnTask(deptTask, 'หน้างานเข้าไม่ได้');
     });
   });
   assertTrue_(countNotifications_(box3, NOTIFY_EVENT.RETURN) > 0,
@@ -14528,7 +14533,7 @@ function test_notify_returnThroughApi() {
  * ข้อนี้กันไม่ให้ด่านที่สร้างขึ้นเพื่อแก้เรื่องหนึ่ง ไปปิดปากเหตุการณ์อื่นในอนาคต
  * ซึ่งเป็นสิ่งที่เกือบเกิดขึ้นแล้วรอบนี้ และจะหาสาเหตุยากมากถ้าไม่มีเทสต์ดักไว้
  */
-function test_notify_gateTouchesOnlyWoLevel() {
+async function test_notify_gateTouchesOnlyWoLevel() {
   beginTest_('ด่านระงับต้องแตะแค่ WO_COMPLETED และ WO_CANCELLED');
 
   var gated = [];
@@ -14556,19 +14561,19 @@ function test_notify_gateTouchesOnlyWoLevel() {
    * ต้องยังส่งออกได้ตามปกติในสภาพนี้ ไม่งั้นแปลว่าด่านลามไปกินเหตุการณ์อื่นแล้ว
    */
   var users = serviceTestUsers_();
-  addTestChannels_();
-  var wo = createTestWo_(users, { 'Assignment_Type': ASSIGNMENT.SERVICE });
-  approveWorkOrder(wo.woId, ASSIGNMENT.SERVICE, users.approver, {});
-  var row = getWorkOrder(wo.woId);
-  assertEquals_(listTasksByWo(wo.woId).length, 1, 'ต้องอยู่ในสภาพที่ด่านระงับทำงาน');
+  await addTestChannels_();
+  var wo = await createTestWo_(users, { 'Assignment_Type': ASSIGNMENT.SERVICE });
+  await approveWorkOrder(wo.woId, ASSIGNMENT.SERVICE, users.approver, {});
+  var row = await getWorkOrder(wo.woId);
+  assertEquals_((await listTasksByWo(wo.woId)).length, 1, 'ต้องอยู่ในสภาพที่ด่านระงับทำงาน');
 
   var silent = [];
   for (var f = 0; f < free.length; f++) {
     var event = free[f];
-    var sent = captureNotifications_(function () {
+    var sent = await captureNotifications_(async function () {
       // ล้างกุญแจกันซ้ำก่อนทุกครั้ง เพราะเทสต์ยิงหลายเหตุการณ์ในนาทีเดียวกัน
       forgetNotifyKey_(wo.woId, event);
-      notifyEvent_(event, row, { reason: 'เหตุผลทดสอบ', department: ASSIGNMENT.SERVICE });
+      await notifyEvent_(event, row, { reason: 'เหตุผลทดสอบ', department: ASSIGNMENT.SERVICE });
     });
     if (!sent.length) silent.push(event);
   }
@@ -14577,9 +14582,9 @@ function test_notify_gateTouchesOnlyWoLevel() {
 
   /* ---------- และสองตัวที่ต้องถูกระงับ ก็ต้องถูกระงับจริง ---------- */
   for (var g = 0; g < gated.length; g++) {
-    var blocked = captureNotifications_(function () {
+    var blocked = await captureNotifications_(async function () {
       forgetNotifyKey_(wo.woId, gated[g]);
-      notifyEvent_(gated[g], row, {});
+      await notifyEvent_(gated[g], row, {});
     });
     assertEquals_(blocked.length, 0,
       gated[g] + ' ต้องถูกระงับเมื่อใบงานมี 1 Task');
@@ -14607,56 +14612,56 @@ function forgetNotifyKey_(woId, event) {
  * เทสต์นี้คือด่านที่จะจับ "โค้ดแจ้งเตือนไม่ถูกเรียก" ได้ทุกแบบ ไม่ว่าจะเพราะวางไว้หลัง return
  * ลืมใส่ ใส่ผิดฟังก์ชัน หรือถูกด่านใดด่านหนึ่งกินไป — เพราะมันเดินเส้นทางเดียวกับผู้ใช้จริง
  */
-function test_notify_everyRowThroughApi() {
+async function test_notify_everyRowThroughApi() {
   beginTest_('ทุกแถวในตาราง 15.3 ต้องมีข้อความออกจริงผ่าน api_');
 
   var users = serviceTestUsers_();
-  addTestChannels_();
+  await addTestChannels_();
   var fired = {};
 
   /* ---------- เปิดใบงาน = ขออนุมัติ ---------- */
-  var box = captureNotifications_(function () {
-    var data = callApiAs_(users.admin, 'สร้างใบงาน', function () {
-      return api_createWorkOrder(testWoForm_({ 'Assignment_Type': ASSIGNMENT.SERVICE }));
+  var box = await captureNotifications_(async function () {
+    var data = await callApiAs_(users.admin, 'สร้างใบงาน', async function () {
+      return await api_createWorkOrder(testWoForm_({ 'Assignment_Type': ASSIGNMENT.SERVICE }));
     });
     fired.woId = data.woId;
   });
   var woId = fired.woId;
-  attachRequiredTestFiles_(woId);
+  await attachRequiredTestFiles_(woId);
   assertTrue_(countNotifications_(box, NOTIFY_EVENT.SUBMIT) > 0,
     'เปิดใบงานแล้วต้องแจ้งผู้อนุมัติ (แถว SUBMIT)');
 
   /* ---------- อนุมัติ ---------- */
-  box = captureNotifications_(function () {
-    callApiAs_(users.approver, 'อนุมัติ', function () {
-      return api_approveWorkOrder(woId, ASSIGNMENT.SERVICE, {});
+  box = await captureNotifications_(async function () {
+    await callApiAs_(users.approver, 'อนุมัติ', async function () {
+      return await api_approveWorkOrder(woId, ASSIGNMENT.SERVICE, {});
     });
   });
   assertTrue_(countNotifications_(box, NOTIFY_EVENT.ACCEPT) > 0, 'อนุมัติแล้วต้องแจ้ง (แถว ACCEPT)');
 
-  var taskId = listTasksByWo(woId)[0]['Task_ID'];
+  var taskId = (await listTasksByWo(woId))[0]['Task_ID'];
 
   /* ---------- แผนกรับงาน ---------- */
-  box = captureNotifications_(function () {
-    callApiAs_(users.service, 'รับงาน', function () { return api_acceptTask(taskId); });
+  box = await captureNotifications_(async function () {
+    await callApiAs_(users.service, 'รับงาน', async function () { return await api_acceptTask(taskId); });
   });
   assertTrue_(countNotifications_(box, NOTIFY_EVENT.TASK_ACCEPT) > 0,
     'แผนกรับงานแล้วต้องแจ้ง (แถวแผนกกดรับงาน)');
 
   /* ---------- อัปเดตขั้นตอน ---------- */
-  var steps = listStepsByTask(taskId);
-  box = captureNotifications_(function () {
-    callApiAs_(users.service, 'อัปเดตขั้นตอน', function () {
-      return api_updateTaskStep(steps[0]['Step_ID'], { 'Status': STEP_STATUS.COMPLETED });
+  var steps = await listStepsByTask(taskId);
+  box = await captureNotifications_(async function () {
+    await callApiAs_(users.service, 'อัปเดตขั้นตอน', async function () {
+      return await api_updateTaskStep(steps[0]['Step_ID'], { 'Status': STEP_STATUS.COMPLETED });
     });
   });
   assertTrue_(countNotifications_(box, NOTIFY_EVENT.TASK_UPDATE) > 0,
     'อัปเดตขั้นตอนแล้วต้องแจ้ง (แถวอัปเดต Step / งวดงาน)');
 
   /* ---------- บันทึกรับชำระเงิน ---------- */
-  box = captureNotifications_(function () {
-    callApiAs_(users.admin, 'บันทึกรับชำระ', function () {
-      return api_recordPayment(woId, 'รับชำระแล้ว');
+  box = await captureNotifications_(async function () {
+    await callApiAs_(users.admin, 'บันทึกรับชำระ', async function () {
+      return await api_recordPayment(woId, 'รับชำระแล้ว');
     });
   });
   assertTrue_(countNotifications_(box, NOTIFY_EVENT.PAYMENT) > 0,
@@ -14664,35 +14669,35 @@ function test_notify_everyRowThroughApi() {
 
   /* ---------- แผนกปิดงาน ---------- */
   for (var s = 1; s < steps.length; s++) {
-    callApiAs_(users.service, 'ปิดขั้นตอน', function () {
-      return api_updateTaskStep(steps[s]['Step_ID'], { 'Status': STEP_STATUS.COMPLETED });
+    await callApiAs_(users.service, 'ปิดขั้นตอน', async function () {
+      return await api_updateTaskStep(steps[s]['Step_ID'], { 'Status': STEP_STATUS.COMPLETED });
     });
   }
-  box = captureNotifications_(function () {
-    callApiAs_(users.service, 'ปิดงาน', function () { return api_completeTask(taskId); });
+  box = await captureNotifications_(async function () {
+    await callApiAs_(users.service, 'ปิดงาน', async function () { return await api_completeTask(taskId); });
   });
   assertTrue_(countNotifications_(box, NOTIFY_EVENT.TASK_COMPLETE) > 0,
     'แผนกปิดงานแล้วต้องแจ้ง (แถว TASK COMPLETE)');
 
   /* ---------- แผนกยกเลิกงาน และยกเลิกทั้งใบ ---------- */
-  var second = createTestWo_(users, { 'Assignment_Type': ASSIGNMENT.SERVICE });
-  callApiAs_(users.approver, 'อนุมัติใบที่สอง', function () {
-    return api_approveWorkOrder(second.woId, ASSIGNMENT.SERVICE, {});
+  var second = await createTestWo_(users, { 'Assignment_Type': ASSIGNMENT.SERVICE });
+  await callApiAs_(users.approver, 'อนุมัติใบที่สอง', async function () {
+    return await api_approveWorkOrder(second.woId, ASSIGNMENT.SERVICE, {});
   });
-  var secondTask = listTasksByWo(second.woId)[0]['Task_ID'];
+  var secondTask = (await listTasksByWo(second.woId))[0]['Task_ID'];
 
-  box = captureNotifications_(function () {
-    callApiAs_(users.service, 'ยกเลิกงานของแผนก', function () {
-      return api_cancelTask(secondTask, 'ลูกค้าเลื่อนงาน');
+  box = await captureNotifications_(async function () {
+    await callApiAs_(users.service, 'ยกเลิกงานของแผนก', async function () {
+      return await api_cancelTask(secondTask, 'ลูกค้าเลื่อนงาน');
     });
   });
   assertTrue_(countNotifications_(box, NOTIFY_EVENT.TASK_CANCEL) > 0,
     'แผนกยกเลิกงานแล้วต้องแจ้ง (แถว TASK CANCEL)');
 
-  var third = createTestWo_(users);
-  box = captureNotifications_(function () {
-    callApiAs_(users.admin, 'ยกเลิกใบงาน', function () {
-      return api_cancelWorkOrder(third.woId, 'ลูกค้ายกเลิก', lockOf_(third.woId));
+  var third = await createTestWo_(users);
+  box = await captureNotifications_(async function () {
+    await callApiAs_(users.admin, 'ยกเลิกใบงาน', async function () {
+      return await api_cancelWorkOrder(third.woId, 'ลูกค้ายกเลิก', await lockOf_(third.woId));
     });
   });
   assertTrue_(countNotifications_(box, NOTIFY_EVENT.WO_CANCELLED) > 0,
@@ -14836,7 +14841,7 @@ function functionName_(fn) {
  * @return {string} ข้อความสรุปผล
  * @throws {Error} เมื่อเวลาที่วัดไว้บอกว่าไม่พอ หรือยังวัดไม่ครบทุกกลุ่ม
  */
-function test_all() {
+async function test_all() {
   assertTestAllFits_();
 
   var summaries = [];
@@ -14846,7 +14851,7 @@ function test_all() {
 
   for (var i = 0; i < groups.length; i++) {
     try {
-      summaries.push(groups[i].fn());
+      summaries.push(await groups[i].fn());
     } catch (e) {
       failed.push(groups[i].name);
       summaries.push('[' + groups[i].name + '] ' + e.message);
@@ -14871,14 +14876,14 @@ function test_all() {
  * @return {string} ข้อความสรุปผลของกลุ่ม
  * @throws {Error} เมื่อมีข้อที่ไม่ผ่าน
  */
-function runGroup_(groupName, suites) {
+async function runGroup_(groupName, suites) {
   // ออกรหัสรอบใหม่ให้ทั้งกลุ่ม ข้อมูลของกลุ่มนี้จึงไม่ชนกับร่องรอยของรอบก่อน
   var startedDate = new Date();
   Logger.log('########## กลุ่ม ' + groupName + ' (รอบ ' + beginTestRun_() + ') ' +
     'เริ่ม ' + formatForDisplay_(startedDate) + ' ##########');
 
   var startedAt = startedDate.getTime();
-  var result = runSuites_(suites, true);
+  var result = await runSuites_(suites, true);
 
   // เวลาของ cleanup ต้องแยกออกมาเสมอ เพราะการลบแถวแพงพอ ๆ กับการอ่านเขียน
   // แต่ตัวนับจำนวนครั้งที่เรียกชีตไม่ได้นับมันด้วย เวลาที่หายไปโดยไม่รู้ตัวมักอยู่ตรงนี้
@@ -14887,7 +14892,7 @@ function runGroup_(groupName, suites) {
   var cleanupStart = new Date().getTime();
   var cleaned = { deleted: 0 };
   try {
-    cleaned = test_cleanup();
+    cleaned = await test_cleanup();
   } catch (e) {
     Logger.log('!! ล้างข้อมูลทดสอบของกลุ่ม ' + groupName + ' ไม่สำเร็จ: ' + e.message);
   }
@@ -15066,7 +15071,7 @@ function assertTestAllFits_() {
  * @return {string} ข้อความสรุปผล
  * @throws {Error} เมื่อมีข้อที่ไม่ผ่าน
  */
-function runSuites_(suites, returnResult) {
+async function runSuites_(suites, returnResult) {
   var totalPass = 0;
   var totalFail = 0;
   var failedSuites = [];
@@ -15083,7 +15088,7 @@ function runSuites_(suites, returnResult) {
   for (var i = 0; i < suites.length; i++) {
     var suiteStart = new Date().getTime();
     try {
-      var result = suites[i].fn();
+      var result = await suites[i].fn();
       totalPass += result.pass;
       totalFail += result.fail;
     } catch (e) {
@@ -15151,23 +15156,23 @@ function runSuites_(suites, returnResult) {
  * นี่คือครึ่งที่คนมักลืม เวลาทำระบบแยกบันทึกแล้วเผลอเขียนลงทั้งสองที่ "เผื่อไว้"
  * ซึ่งแย่กว่าอยู่ผิดที่ เพราะพอนับจำนวนครั้งจะได้เลขคูณสอง โดยไม่มีอะไรฟ้อง
  */
-function test_log_woEventsStayInAudit() {
+async function test_log_woEventsStayInAudit() {
   beginTest_('เหตุการณ์ของใบงาน ลง Audit_Log ที่เดียว');
 
   var users = serviceTestUsers_();
 
-  var created = callApiAs_(users.admin, 'สร้างใบงาน', function () {
-    return api_createWorkOrder(testWoForm_({ 'Assignment_Type': ASSIGNMENT.SERVICE }));
+  var created = await callApiAs_(users.admin, 'สร้างใบงาน', async function () {
+    return await api_createWorkOrder(testWoForm_({ 'Assignment_Type': ASSIGNMENT.SERVICE }));
   });
   var woId = String(created.woId);
-  attachRequiredTestFiles_(woId);
+  await attachRequiredTestFiles_(woId);
 
-  callApiAs_(users.approver, 'อนุมัติใบงาน', function () {
-    return api_approveWorkOrder(woId, ASSIGNMENT.SERVICE, {});
+  await callApiAs_(users.approver, 'อนุมัติใบงาน', async function () {
+    return await api_approveWorkOrder(woId, ASSIGNMENT.SERVICE, {});
   });
 
   /* ---------- ร่องรอยของใบงานต้องครบอยู่ใน Audit_Log ---------- */
-  var logs = listAuditByWo(woId);
+  var logs = await listAuditByWo(woId);
   var actions = {};
   for (var i = 0; i < logs.length; i++) actions[String(logs[i]['Action'])] = true;
 
@@ -15175,7 +15180,7 @@ function test_log_woEventsStayInAudit() {
   assertTrue_(!!actions[ACTION.ACCEPT], 'การอนุมัติต้องอยู่ใน Audit_Log');
 
   /* ---------- และต้องไม่มีอะไรของใบนี้ไปโผล่อีกตาราง ---------- */
-  var strays = listSystemLogByWo(woId);
+  var strays = await listSystemLogByWo(woId);
   var names = [];
   for (var s = 0; s < strays.length; s++) names.push(String(strays[s]['Event']));
   assertEquals_(names.join(', '), '',
@@ -15184,7 +15189,7 @@ function test_log_woEventsStayInAudit() {
   /* ---------- ไม่มีเลขบันทึกใบไหนซ้ำกันสองตาราง ---------- */
   // ตรวจจากเลขบันทึก ไม่ใช่จากเนื้อความ เพราะเนื้อความคนละตารางเขียนคนละแบบอยู่แล้ว
   var systemIds = {};
-  var systemRows = testRowsFromDb_(SHEET.SYSTEM_LOG, 'User');
+  var systemRows = await testRowsFromDb_(SHEET.SYSTEM_LOG, 'User');
   for (var y = 0; y < systemRows.length; y++) systemIds[String(systemRows[y]['Log_ID'])] = true;
 
   var duplicated = [];
@@ -15203,17 +15208,17 @@ function test_log_woEventsStayInAudit() {
  * ไม่ใช่แค่ "ใครเข้าไม่ได้" · แลกมาด้วยการที่แถวชุดนี้โตเร็วที่สุดในตาราง
  * ซึ่งรับได้ เพราะ System_Log ลบของเก่าทิ้งได้ ต่างจาก Audit_Log ที่ห้ามลบ
  */
-function test_log_authGoesToSystem() {
+async function test_log_authGoesToSystem() {
   beginTest_('ล็อกอินไม่สำเร็จและสำเร็จ ลง System_Log เท่านั้น');
 
   var password = 'รหัสผ่านของชุดแยกบันทึก';
-  var user = addLoginTestUser_('LOGSPLIT', ROLE.ADMIN, password);
+  var user = await addLoginTestUser_('LOGSPLIT', ROLE.ADMIN, password);
 
   /* ---------- เข้าไม่ได้ ---------- */
-  var failed = loginThroughApi_(user.username, 'รหัสผิดแน่นอน');
+  var failed = await loginThroughApi_(user.username, 'รหัสผิดแน่นอน');
   assertEquals_(failed.ok, false, 'รหัสผิดต้องเข้าไม่ได้');
 
-  var failedRows = systemRowsOf_(ACTION.LOGIN_FAILED, user.email);
+  var failedRows = await systemRowsOf_(ACTION.LOGIN_FAILED, user.email);
   assertEquals_(failedRows.length, 1, 'ต้องมีบรรทัดล็อกอินไม่สำเร็จใน System_Log หนึ่งบรรทัด');
   assertEquals_(String(failedRows[0]['Level']), LOG_LEVEL.WARN, 'ระดับต้องเป็น WARN');
   assertEquals_(String(failedRows[0]['Source']), LOG_SOURCE.AUTH, 'ต้นทางต้องเป็น AUTH');
@@ -15227,16 +15232,16 @@ function test_log_authGoesToSystem() {
   assertTrue_(line.indexOf(password) === -1, 'และรหัสที่ถูกยิ่งห้ามโผล่');
 
   /* ---------- เข้าได้ ก็ต้องบันทึก ---------- */
-  var ok = loginThroughApi_(user.username, password);
+  var ok = await loginThroughApi_(user.username, password);
   assertEquals_(ok.ok, true, 'รหัสถูกต้องเข้าได้');
 
-  var okRows = systemRowsOf_(ACTION.LOGIN, user.email);
+  var okRows = await systemRowsOf_(ACTION.LOGIN, user.email);
   assertEquals_(okRows.length, 1, 'ล็อกอินสำเร็จต้องมีบรรทัดของตัวเองด้วย');
   assertEquals_(String(okRows[0]['Level']), LOG_LEVEL.INFO, 'ระดับต้องเป็น INFO');
   assertEquals_(String(okRows[0]['User']), user.email, 'และต้องบอกว่าเป็นใคร');
 
   /* ---------- ห้ามเหลืออยู่ใน Audit_Log อีก ---------- */
-  var leftover = auditRowsOf_(ACTION.LOGIN_FAILED).length + auditRowsOf_(ACTION.LOGIN).length;
+  var leftover = (await auditRowsOf_(ACTION.LOGIN_FAILED)).length + (await auditRowsOf_(ACTION.LOGIN)).length;
   assertEquals_(leftover, 0,
     'เรื่องของบัญชีผู้ใช้ต้องไม่ปนอยู่ใน Audit_Log อีก เพราะไม่ได้ผูกกับใบงานใด');
 
@@ -15251,14 +15256,14 @@ function test_log_authGoesToSystem() {
  * ถ้าเครื่องมือไล่ปัญหาอ่านแค่ตารางเดียว มันจะตอบว่า "ไม่เคยถูกกระตุ้น"
  * ทั้งที่ความจริงคือกระตุ้นแล้วแต่ส่งไม่ออก ซึ่งชี้ไปคนละทางกันคนละเรื่อง
  */
-function test_log_notifyFailedGoesToSystem() {
+async function test_log_notifyFailedGoesToSystem() {
   beginTest_('แจ้งเตือนไม่สำเร็จ ลง System_Log และ traceNotify ต้องยังเห็น');
 
   var users = serviceTestUsers_();
-  addTestChannels_();
+  await addTestChannels_();
 
-  var created = callApiAs_(users.admin, 'สร้างใบงาน', function () {
-    return api_createWorkOrder(testWoForm_());
+  var created = await callApiAs_(users.admin, 'สร้างใบงาน', async function () {
+    return await api_createWorkOrder(testWoForm_());
   });
   var woId = String(created.woId);
 
@@ -15268,9 +15273,9 @@ function test_log_notifyFailedGoesToSystem() {
     sendTelegramMessage_ = function () {
       return { ok: false, code: 502, message: 'เครือข่ายล่มระหว่างทดสอบ' };
     };
-    captureNotifications_(function () {
-      callApiAs_(users.approver, 'ตีกลับใบงาน', function () {
-        return api_returnWorkOrder(woId, 'เอกสารไม่ครบ', lockOf_(woId));
+    await captureNotifications_(async function () {
+      await callApiAs_(users.approver, 'ตีกลับใบงาน', async function () {
+        return await api_returnWorkOrder(woId, 'เอกสารไม่ครบ', await lockOf_(woId));
       });
     });
   } finally {
@@ -15278,7 +15283,7 @@ function test_log_notifyFailedGoesToSystem() {
   }
 
   /* ---------- บรรทัดต้องอยู่ใน System_Log ---------- */
-  var failure = systemLogOf_(woId, ACTION.NOTIFY_FAILED);
+  var failure = await systemLogOf_(woId, ACTION.NOTIFY_FAILED);
   assertTrue_(!!failure, 'ต้องบันทึก NOTIFY_FAILED ไว้ เพื่อให้ตามได้ว่าใบไหนไม่ได้ถูกแจ้ง');
   assertEquals_(String(failure['Level']), LOG_LEVEL.ERROR, 'ระดับต้องเป็น ERROR');
   assertEquals_(String(failure['Source']), LOG_SOURCE.NOTIFY, 'ต้นทางต้องเป็น NOTIFY');
@@ -15288,7 +15293,7 @@ function test_log_notifyFailedGoesToSystem() {
     'พร้อมสาเหตุจริง ไม่ใช่บอกแค่ว่าไม่สำเร็จ');
 
   /* ---------- และต้องไม่อยู่ใน Audit_Log ---------- */
-  var logs = listAuditByWo(woId);
+  var logs = await listAuditByWo(woId);
   var strays = [];
   for (var i = 0; i < logs.length; i++) {
     if (String(logs[i]['Action']) === ACTION.NOTIFY_FAILED) strays.push(String(logs[i]['Log_ID']));
@@ -15296,7 +15301,7 @@ function test_log_notifyFailedGoesToSystem() {
   assertEquals_(strays.length, 0, 'การส่งไม่สำเร็จเป็นเรื่องของระบบ ต้องไม่อยู่ใน Audit_Log');
 
   /* ---------- เครื่องมือไล่ปัญหาต้องยังเห็น ---------- */
-  var report = traceNotify(woId);
+  var report = await traceNotify(woId);
   var returnLine = '';
   var lines = report.split(NEW_LINE_);
   for (var r = 0; r < lines.length; r++) {
@@ -15316,7 +15321,7 @@ function test_log_notifyFailedGoesToSystem() {
  * ที่ต้องมีชั้นที่สองเพราะการสแกนพิสูจน์ได้แค่ "ไม่มีใครเรียก" ไม่ได้พิสูจน์ว่า
  * ตัวที่เรียกอยู่ตัวเดียวนั้น แยกของถูกจริงหรือเปล่า
  */
-function test_log_neverBoth() {
+async function test_log_neverBoth() {
   beginTest_('เขียนที่เดียวเสมอ ไม่มีทางลงทั้งสองตาราง');
 
   /* ---------- ชั้นที่ 1 สแกนโค้ด ---------- */
@@ -15349,7 +15354,7 @@ function test_log_neverBoth() {
    * เพราะตารางบันทึกโตเกินเพดานอ่าน ผลต่างจึงเป็นศูนย์เสมอบนของจริง
    */
 
-  writeAuditRecords([
+  await writeAuditRecords([
     { WO_ID: woId, Action: ACTION.EDIT, Entity: ENTITY.WO, Field: 'Contact',
       From_Value: 'ก', To_Value: 'ข', User: actor },
     /*
@@ -15365,8 +15370,8 @@ function test_log_neverBoth() {
       Remark: 'ทดสอบการแยกตาราง', User: actor }
   ]);
 
-  var addedAudit = queryRows_(SHEET.AUDIT_LOG, { 'User': actor }).length;
-  var addedSystem = queryRows_(SHEET.SYSTEM_LOG, { 'User': actor }).length;
+  var addedAudit = (await queryRows_(SHEET.AUDIT_LOG, { 'User': actor })).length;
+  var addedSystem = (await queryRows_(SHEET.SYSTEM_LOG, { 'User': actor })).length;
 
   assertEquals_(addedAudit, 2,
     'บรรทัดที่เกิดกับใบงานและกับงานแผนก ลง Audit_Log ทั้งคู่');
@@ -15461,7 +15466,7 @@ function test_log_everySystemEventDeclared() {
  * พิสูจน์ด้วยการถามด่านตัดสินตัวเดียวกับที่ test_cleanup ใช้ ไม่ใช่สั่งลบจริง
  * เพราะการสั่งลบกลางกลุ่มจะล้างข้อมูลของชุดอื่นที่ยังทำงานอยู่ไปด้วย
  */
-function test_log_cleanupClearsSystemLog() {
+async function test_log_cleanupClearsSystemLog() {
   beginTest_('test_cleanup ต้องกวาด System_Log ด้วย');
 
   /* ---------- 1. ต้องมีรายการพา cleanup ไปถึงตารางนั้นจริง ---------- */
@@ -15474,8 +15479,8 @@ function test_log_cleanupClearsSystemLog() {
 
   /* ---------- 2. แถวที่เขียนจริงต้องถูกจับได้ทั้งสองแบบ ---------- */
   var sweeper = testPrefix_() + 'sweep@cnr.co.th';
-  logSystemEvent_(ACTION.LOGOUT, 'ทดสอบการกวาดบันทึก', sweeper);
-  writeAuditRecord({
+  await logSystemEvent_(ACTION.LOGOUT, 'ทดสอบการกวาดบันทึก', sweeper);
+  await writeAuditRecord({
     WO_ID:  testPrefix_() + 'WO-SWEEP-1',
     Action: ACTION.NOTIFY_FAILED,
     Entity: ENTITY.WO,
@@ -15485,8 +15490,8 @@ function test_log_cleanupClearsSystemLog() {
     User:   'jarernkit@cnr.co.th'          // เจ้าของเหตุการณ์เป็นคนจริง ไม่ใช่ TEST-
   });
 
-  var rows = testRowsFromDb_(SHEET.SYSTEM_LOG, 'User')
-    .concat(testRowsFromDb_(SHEET.SYSTEM_LOG, 'Detail'));
+  var rows = (await testRowsFromDb_(SHEET.SYSTEM_LOG, 'User'))
+    .concat(await testRowsFromDb_(SHEET.SYSTEM_LOG, 'Detail'));
   assertTrue_(testRowsOf_({ sheet: SHEET.SYSTEM_LOG, field: 'User' }, rows).length >= 1,
     'บรรทัดที่เจ้าของเหตุการณ์เป็นผู้ใช้ทดสอบ ต้องถูกกวาด');
   assertTrue_(
@@ -15607,8 +15612,8 @@ function systemEventsUsedInCode_(sources) {
  * @param {string} [user] อีเมลเจ้าของเหตุการณ์ เมื่อต้องการเจาะจงคนเดียว
  * @return {Object[]}
  */
-function systemRowsOf_(event, user) {
-  var rows = testRowsFromDb_(SHEET.SYSTEM_LOG, 'User', { 'Event': event });
+async function systemRowsOf_(event, user) {
+  var rows = await testRowsFromDb_(SHEET.SYSTEM_LOG, 'User', { 'Event': event });
   var found = [];
   for (var i = 0; i < rows.length; i++) {
     if (String(rows[i]['Event']) !== event) continue;
@@ -15625,8 +15630,8 @@ function systemRowsOf_(event, user) {
  * @param {string} event ชื่อเหตุการณ์
  * @return {Object|null}
  */
-function systemLogOf_(woId, event) {
-  var rows = listSystemLogByWo(woId);
+async function systemLogOf_(woId, event) {
+  var rows = await listSystemLogByWo(woId);
   var found = null;
   for (var i = 0; i < rows.length; i++) {
     if (String(rows[i]['Event']) === event) found = rows[i];
@@ -15655,7 +15660,7 @@ var HOME_TEST_DATA_ = null;
  *
  * @return {Object} {tag, a, b, c, d}
  */
-function homeTestData_() {
+async function homeTestData_() {
   var tag = testRunId_();
   if (HOME_TEST_DATA_ && HOME_TEST_DATA_.tag === tag) return HOME_TEST_DATA_;
 
@@ -15672,25 +15677,25 @@ function homeTestData_() {
     users: users
   };
 
-  data.a = createTestWo_(users, {
+  data.a = await createTestWo_(users, {
     'Customer_Name': 'บริษัท ' + word + ' จำกัด',
     'Project':       'โครงการ' + tower,
     'Location':      place,
     'Assignment_Type': ASSIGNMENT.SERVICE
   });
-  data.b = createTestWo_(users, {
+  data.b = await createTestWo_(users, {
     'Customer_Name': 'บริษัท' + word,              // ชื่อคล้ายใบ ก แต่เขียนต่างกัน
     'Project':       'โครงการบ่อบำบัด' + tag,
     'Location':      'บางนา' + tag,
     'Assignment_Type': ASSIGNMENT.LAB
   });
-  data.c = createTestWo_(users, {
+  data.c = await createTestWo_(users, {
     'Customer_Name': word + ' ซัพพลาย',
     'Project':       'โครงการ' + tower + ' เฟสสอง',
     'Location':      'ระยอง' + tag,
     'Assignment_Type': ASSIGNMENT.PROJECT
   });
-  data.d = createTestWo_(users, {
+  data.d = await createTestWo_(users, {
     'Customer_Name': 'บริษัทอื่นที่ไม่เกี่ยวข้อง' + tag,
     'Project':       'โครงการอื่น' + tag,
     'Location':      'ขอนแก่น' + tag,
@@ -15706,10 +15711,10 @@ function homeTestData_() {
  * @param {Object} query เงื่อนไข
  * @return {Object} ข้อมูลที่หน้าเว็บจะได้
  */
-function homeList_(query) {
+async function homeList_(query) {
   var users = serviceTestUsers_();
-  return callApiAs_(users.admin, 'ขอรายการใบงาน', function () {
-    return api_listWorkOrders(query);
+  return await callApiAs_(users.admin, 'ขอรายการใบงาน', async function () {
+    return await api_listWorkOrders(query);
   });
 }
 
@@ -15736,7 +15741,7 @@ function homeIdsOf_(data) {
  * @param {Object} [overrides] ค่าที่ต้องการเปลี่ยน
  * @return {string} คำนำหน้าเลขที่ใบงานที่สร้าง ใช้ทั้งตอนค้นและตอนล้าง
  */
-function seedWorkOrders_(count, overrides) {
+async function seedWorkOrders_(count, overrides) {
   var prefix = testPrefix_() + 'LIST' + Utilities.formatDate(new Date(), TIMEZONE, 'HHmmss');
   var rows = [];
   var base = new Date('2026-01-01T08:00:00').getTime();
@@ -15756,7 +15761,7 @@ function seedWorkOrders_(count, overrides) {
     rows.push(row);
   }
 
-  if (rows.length) db_insert_(SHEET.WORK_ORDER, rows);
+  if (rows.length) await db_insert_(SHEET.WORK_ORDER, rows);
   dbInvalidate_(SHEET.WORK_ORDER);
   clearRowCache_();
   return prefix;
@@ -15767,8 +15772,8 @@ function seedWorkOrders_(count, overrides) {
  * @param {string} prefix คำนำหน้าที่ได้จาก seedWorkOrders_
  * @param {number} count จำนวนที่เขียนลงไป
  */
-function cleanSeededWorkOrders_(prefix, count) {
-  dbDeleteVerified_(SHEET.WORK_ORDER,
+async function cleanSeededWorkOrders_(prefix, count) {
+  await dbDeleteVerified_(SHEET.WORK_ORDER,
     { 'WO_ID': { op: 'like', value: dbLikeLiteral_(prefix) + '*' } }, 'ใบงานทดสอบรายการ', count);
   dbInvalidate_(SHEET.WORK_ORDER);
   clearRowCache_();
@@ -15781,15 +15786,15 @@ function cleanSeededWorkOrders_(prefix, count) {
  * เกาะอยู่กับทางผ่านของการเขียนจริง · ดัชนีถูกรื้อไปแล้ว แต่ข้อนี้ยังจริงและยังสำคัญ
  * เท่าเดิม เพราะตอนนี้มันพิสูจน์ว่าการอ่านไปที่ฐานข้อมูลจริง ไม่ได้ค้างอยู่กับภาพเก่า
  */
-function test_home_defaultListing() {
+async function test_home_defaultListing() {
   beginTest_('ไม่มีตัวกรอง ต้องได้ใบล่าสุดหนึ่งหน้า เรียงใหม่ไปเก่า');
 
   var count = 45;
-  var prefix = seedWorkOrders_(count);
+  var prefix = await seedWorkOrders_(count);
 
   try {
     /* ---------- ขนาดหน้าและการเรียง ---------- */
-    var data = homeList_({ text: prefix });
+    var data = await homeList_({ text: prefix });
 
     assertEquals_(data.rows.length, WO_LIST_PAGE_SIZE,
       'หน้าหนึ่งต้องได้ ' + WO_LIST_PAGE_SIZE + ' ใบ ไม่ใช่ทั้งหมด');
@@ -15806,12 +15811,12 @@ function test_home_defaultListing() {
     assertTrue_(data.total > data.rows.length,
       'ยอดรวมต้องมากกว่าจำนวนแถวในหน้านี้ — ถ้าเท่ากัน แปลว่ากำลังนับแถวที่ดึงมาเอง');
 
-    var last = homeList_({ text: prefix, page: 3 });
+    var last = await homeList_({ text: prefix, page: 3 });
     assertEquals_(last.rows.length, 5, 'หน้าสุดท้ายได้เท่าที่เหลือจริง');
     assertEquals_(last.rows[4].woId, prefix + '-0000', 'และใบที่เก่าที่สุดอยู่ท้ายสุด');
 
     /* ---------- หน้าที่สองต้องต่อจากหน้าแรกพอดี ไม่ซ้ำและไม่ขาด ---------- */
-    var second = homeList_({ text: prefix, page: 2 });
+    var second = await homeList_({ text: prefix, page: 2 });
     assertEquals_(second.rows[0].woId, prefix + '-0024',
       'หน้าที่สองต้องต่อจากหน้าแรกพอดี · ถ้าลำดับไม่แน่นอน แถวจะซ้ำและหายโดยยอดรวมยังดูถูก');
 
@@ -15826,16 +15831,16 @@ function test_home_defaultListing() {
     }
     assertEquals_(Object.keys(seen).length, count, 'สามหน้ารวมกันต้องได้ครบทุกใบ ไม่ขาดสักใบ');
   } finally {
-    cleanSeededWorkOrders_(prefix, count);
+    await cleanSeededWorkOrders_(prefix, count);
   }
 
   /* ---------- ของจริงจากเส้นทางสร้างใบงาน ต้องเห็นทันที ---------- */
-  var fixture = homeTestData_();
-  var fresh = homeList_({ text: fixture.d.woId });
+  var fixture = await homeTestData_();
+  var fresh = await homeList_({ text: fixture.d.woId });
   assertEquals_(homeIdsOf_(fresh).join(', '), fixture.d.woId,
     'ใบที่เพิ่งเปิดต้องค้นเจอทันที ไม่ต้องรอแคชหมดอายุ');
 
-  var ordered = homeIdsOf_(homeList_({ text: fixture.tag }));
+  var ordered = homeIdsOf_(await homeList_({ text: fixture.tag }));
   assertEquals_(ordered.join(', '),
     [fixture.d.woId, fixture.c.woId, fixture.b.woId, fixture.a.woId].join(', '),
     'ใบที่เปิดทีหลังต้องอยู่บนสุด ไล่ลงไปหาใบที่เปิดก่อน');
@@ -15851,14 +15856,14 @@ function test_home_defaultListing() {
  * ซึ่งเป็นรอยต่อที่ผิดได้เงียบกว่าเดิมมาก — ตัวกรองที่แปลผิดจะได้รายการว่างเปล่า
  * ซึ่งหน้าตาเหมือนกับ "ไม่มีใบงานที่ตรง" ทุกประการ
  */
-function test_home_multipleFilters() {
+async function test_home_multipleFilters() {
   beginTest_('กรองหลายเงื่อนไขพร้อมกัน ต้องตรงทุกข้อ');
 
-  var fixture = homeTestData_();
+  var fixture = await homeTestData_();
   var today = Utilities.formatDate(new Date(), TIMEZONE, 'yyyy-MM-dd');
 
   /* ---------- คำค้น + แผนก + สถานะ + การชำระเงิน + ช่วงวันที่ ---------- */
-  var data = homeList_({
+  var data = await homeList_({
     text:        fixture.word,
     departments: [ASSIGNMENT.SERVICE],
     statuses:    [WO_STATUS.PENDING_APPROVE],
@@ -15877,7 +15882,7 @@ function test_home_multipleFilters() {
   }
 
   /* ---------- เงื่อนไขที่ขัดกันเอง ต้องได้ว่าง ไม่ใช่ได้ทุกใบ ---------- */
-  var none = homeList_({ text: fixture.word, departments: [ASSIGNMENT.SERVICE],
+  var none = await homeList_({ text: fixture.word, departments: [ASSIGNMENT.SERVICE],
     routes: [ROUTE.LAB] });
   assertEquals_(none.rows.length, 0,
     'แผนก Service ที่อยู่ในสายอนุมัติ Lab ไม่มีจริง ต้องได้รายการว่าง');
@@ -15889,12 +15894,12 @@ function test_home_multipleFilters() {
    * ใบที่รออนุมัติยังไม่มี Task สักตัว ถ้ากรองด้วยแผนกของ Task ใบเหล่านั้นจะหายหมด
    * ทั้งที่ผู้ใช้เห็นบนหน้าจอว่าระบุแผนกไว้แล้ว
    */
-  var byAssignment = homeList_({ text: fixture.word, departments: [ASSIGNMENT.SERVICE] });
+  var byAssignment = await homeList_({ text: fixture.word, departments: [ASSIGNMENT.SERVICE] });
   assertEquals_(homeIdsOf_(byAssignment).join(', '), fixture.a.woId,
     'กรองแผนกผู้รับงานต้องเจอใบที่รออนุมัติด้วย ไม่ใช่เจอเฉพาะใบที่มีงานของแผนกแล้ว');
 
   /* ---------- ช่วงวันที่ที่ไม่ครอบใบไหนเลย ---------- */
-  var outside = homeList_({ text: fixture.word, from: '2020-01-01', to: '2020-01-31' });
+  var outside = await homeList_({ text: fixture.word, from: '2020-01-01', to: '2020-01-31' });
   assertEquals_(outside.rows.length, 0, 'ช่วงวันที่ในอดีตที่ไม่มีใบงาน ต้องได้รายการว่าง');
 
   /*
@@ -15903,12 +15908,12 @@ function test_home_multipleFilters() {
    * ถ้าขอบใดขอบหนึ่งหายไป ผลลัพธ์ยังแคบลงอยู่ดี จึงดูเหมือนตัวกรองทำงาน —
    * ข้อนี้จับกรณีนั้นด้วยการขอช่วงที่จบ "ก่อน" วันที่ใบงานถูกสร้าง
    */
-  var onlyPast = homeList_({ text: fixture.word, to: '2020-01-31' });
+  var onlyPast = await homeList_({ text: fixture.word, to: '2020-01-31' });
   assertEquals_(onlyPast.rows.length, 0,
     'ระบุแต่ขอบบนที่อยู่ในอดีต ต้องได้ว่าง — ถ้าได้ทุกใบ แปลว่าขอบบนหายไป');
 
   /* ---------- สถานะรายแผนก: ใบที่ยังไม่มี Task ต้องไม่ติดมา ---------- */
-  var byTask = homeList_({ text: fixture.word, taskStatuses: [TASK_STATUS.PENDING_ACCEPT] });
+  var byTask = await homeList_({ text: fixture.word, taskStatuses: [TASK_STATUS.PENDING_ACCEPT] });
   assertEquals_(byTask.rows.length, 0,
     'ใบที่ยังไม่ได้อนุมัติยังไม่มีงานของแผนก จึงต้องไม่ติดตัวกรองสถานะรายแผนกมา');
 
@@ -15927,10 +15932,10 @@ function test_home_multipleFilters() {
  * เดิมกลัวตัวเลือกผีที่ไม่มีใบงานไหนใช้ ตอนนี้กลัวตัวเลือกที่ขาดหายไป เพราะสถานะ
  * ที่ไม่มีในกล่องคือสถานะที่ผู้ใช้กรองหาไม่ได้เลย ทั้งที่มีใบงานอยู่จริง
  */
-function test_home_filterOptionsFromData() {
+async function test_home_filterOptionsFromData() {
   beginTest_('ตัวเลือกในตัวกรองต้องครบทุกค่าที่ระบบมี');
 
-  var data = homeList_({});
+  var data = await homeList_({});
   /*
    * `departments` คือ Assignment_Type ของใบงาน จึงต้องมี SERVICE_PROJECT กับ
    * UNSPECIFIED ด้วย · สองค่านั้นไม่ใช่ชื่อแผนก แต่เป็นตัวเลือกที่ผู้ใช้เลือกได้จริง
@@ -15983,11 +15988,11 @@ function test_home_filterOptionsFromData() {
  * ทางใหม่ทำงานจริง คือการค้นแบบ "มีคำนี้อยู่ข้างใน" ที่ฐานข้อมูล ซึ่งเจอครบทุกแบบ
  * ด้วยการพิมพ์ครั้งเดียว โดยไม่ต้องกดเลือกอะไรเพิ่มเลย
  */
-function test_home_similarNames() {
+async function test_home_similarNames() {
   beginTest_('ชื่อลูกค้าที่เขียนต่างกัน ต้องค้นเจอครบด้วยคำเดียว');
 
-  var fixture = homeTestData_();
-  var data = homeList_({ text: fixture.word });
+  var fixture = await homeTestData_();
+  var data = await homeList_({ text: fixture.word });
   var names = {};
 
   for (var i = 0; i < data.rows.length; i++) names[data.rows[i].customer] = true;
@@ -16009,18 +16014,18 @@ function test_home_similarNames() {
 /**
  * รายการว่างสองแบบ ต้องบอกคนละอย่าง (SPEC 17.4)
  */
-function test_home_emptyStates() {
+async function test_home_emptyStates() {
   beginTest_('รายการว่างสองแบบ ต้องบอกคนละอย่าง');
 
   /* ---------- มีใบงาน แต่ค้นไม่เจอ ---------- */
-  homeTestData_();   // ทำให้แน่ใจว่าระบบมีใบงานอยู่จริง
-  var noMatch = homeList_({ text: 'คำที่ไม่มีวันตรงกับอะไรเลย' + testRunId_() });
+  await homeTestData_();   // ทำให้แน่ใจว่าระบบมีใบงานอยู่จริง
+  var noMatch = await homeList_({ text: 'คำที่ไม่มีวันตรงกับอะไรเลย' + testRunId_() });
   assertEquals_(noMatch.emptyReason, 'NO_MATCH', 'ค้นไม่เจอ ต้องบอกว่าไม่ตรงกับที่ค้น');
   assertEquals_(noMatch.rows.length, 0, 'และไม่มีแถวใดเลย');
   assertEquals_(noMatch.total, 0, 'ยอดรวมของผลการค้นต้องเป็นศูนย์');
 
   /* ---------- มีผลลัพธ์ ต้องไม่ใช่สถานะว่าง ---------- */
-  var ok = homeList_({});
+  var ok = await homeList_({});
   assertEquals_(ok.emptyReason, '', 'มีผลลัพธ์ ต้องไม่มีสถานะว่างติดมา');
 
   /* ---------- ยังไม่มีใบงานเลยในระบบ ---------- */
@@ -16031,7 +16036,7 @@ function test_home_emptyStates() {
   var saved = DASHBOARD_RUN_CACHE_;
   try {
     DASHBOARD_RUN_CACHE_ = { total: 0, isEmpty: true };
-    var nothing = homeList_({ text: 'อะไรก็ได้ที่ไม่มีทางตรง' + testRunId_() });
+    var nothing = await homeList_({ text: 'อะไรก็ได้ที่ไม่มีทางตรง' + testRunId_() });
     assertEquals_(nothing.emptyReason, 'NO_DATA',
       'ระบบที่ยังไม่มีใบงานเลย ต้องบอกว่ายังไม่มีข้อมูล ไม่ใช่บอกว่าค้นไม่เจอ');
   } finally {
@@ -16071,7 +16076,7 @@ function test_home_emptyStates() {
  * เพราะคนอ่านต้องไล่อ่านทุกใบก่อนถึงจะรู้ว่าใบไหนเกี่ยวกับตัวเอง · ข้อนี้จึงบังคับว่า
  * ทุกการ์ดต้องสังกัดกลุ่มที่บอกว่าใครต้องลงมือ และกลุ่มต้องมาจากประกาศชุดเดียว
  */
-function test_home_cardsGroupedByWhoActs() {
+async function test_home_cardsGroupedByWhoActs() {
   beginTest_('การ์ดบนแดชบอร์ดต้องถูกจัดกลุ่มตามคนที่ต้องลงมือทำ');
 
   var users = serviceTestUsers_();
@@ -16098,7 +16103,7 @@ function test_home_cardsGroupedByWhoActs() {
 
   /* ---------- ของจริงที่ส่งให้หน้าเว็บ ต้องครบและไม่ซ้ำ ---------- */
   clearDashboardCache_();
-  var dash = withTestUser_(users.admin, function () { return dashboardFor(getCurrentUser_()); });
+  var dash = await withTestUser_(users.admin, async function () { return await dashboardFor(await getCurrentUser_()); });
 
   assertTrue_(dash.cardGroups.length >= 2, 'ผู้ดูแลต้องเห็นมากกว่าหนึ่งกลุ่ม');
 
@@ -16144,7 +16149,7 @@ function test_home_cardsGroupedByWhoActs() {
    * มาวาดเป็นการ์ดแล้วตายทันที · เทสต์เดิมเรียก dashboardFor() ตรง ๆ จึงเขียวอยู่
    * ทั้งที่หน้าแรกเปิดไม่ขึ้นเลย — ต้องตรวจผ่านทางที่หน้าเว็บใช้จริง
    */
-  var boot = withTestUser_(users.admin, function () { return pageBootstrap_('home', {}); });
+  var boot = await withTestUser_(users.admin, async function () { return await pageBootstrap_('home', {}); });
 
   assertEquals_(boot.error, '', 'ก้อนข้อมูลตั้งต้นของหน้าแรกต้องไม่มีข้อผิดพลาด');
   assertTrue_(!!boot.cardGroups && boot.cardGroups.length >= 2,
@@ -16168,7 +16173,7 @@ function test_home_cardsGroupedByWhoActs() {
   return endTest_();
 }
 
-function test_home_overdueFilter() {
+async function test_home_overdueFilter() {
   beginTest_('ตัวกรอง "เลยกำหนด" กรองที่ฐานข้อมูล และตรงกับยอดบนแดชบอร์ด');
 
   var users = serviceTestUsers_();
@@ -16216,24 +16221,24 @@ function test_home_overdueFilter() {
   ];
 
   for (var p = 0; p < plan.length; p++) {
-    var wo = createTestWo_(users, {
+    var wo = await createTestWo_(users, {
       'Location': 'จุดกำหนดเวลา' + tag,
       'Project':  'โครงการกำหนดเวลา' + tag,
       'Duration_Days': plan[p].days
     });
-    updateRow_(SHEET.WORK_ORDER, 'WO_ID', wo.woId, {
+    await updateRow_(SHEET.WORK_ORDER, 'WO_ID', wo.woId, {
       'Created_Date': new Date(Date.now() - plan[p].ago * 86400000)
     });
     made[plan[p].key] = wo.woId;
   }
 
-  callApiAs_(users.approver, 'ยกเลิกใบที่จบไปแล้ว', function () {
-    return api_cancelWorkOrder(made.closed, 'ลูกค้ายกเลิกงาน', lockOf_(made.closed));
+  await callApiAs_(users.approver, 'ยกเลิกใบที่จบไปแล้ว', async function () {
+    return await api_cancelWorkOrder(made.closed, 'ลูกค้ายกเลิกงาน', await lockOf_(made.closed));
   });
   clearDashboardCache_();
 
   /* ---------- ผลลัพธ์ต้องมีเฉพาะใบที่เลยกำหนดจริง ---------- */
-  var got = homeList_({ overdue: true });
+  var got = await homeList_({ overdue: true });
   var ids = homeIdsOf_(got);
 
   assertTrue_(ids.indexOf(made.long) !== -1, 'ใบที่เลยมา 25 วัน ต้องอยู่ในผลลัพธ์');
@@ -16270,7 +16275,7 @@ function test_home_overdueFilter() {
    * เพราะคนจะเลิกเชื่อตัวเลขทุกตัวบนหน้านั้นไปพร้อมกัน
    */
   clearDashboardCache_();
-  var dash = withTestUser_(users.admin, function () { return dashboardFor(getCurrentUser_()); });
+  var dash = await withTestUser_(users.admin, async function () { return await dashboardFor(await getCurrentUser_()); });
   var card = null;
   for (var c = 0; c < dash.cards.length; c++) {
     if (dash.cards[c].key === 'overdue') card = dash.cards[c];
@@ -16298,8 +16303,8 @@ function test_home_overdueFilter() {
    * ไม่เคยเห็น · ถ้าเซิร์ฟเวอร์ไม่ส่งกลับไป รอบแรกจะกรองถูก แต่พอกดหน้าถัดไป
    * ตัวกรองจะหายไปเงียบ ๆ แล้วผู้ใช้จะได้รายการทั้งหมดโดยไม่มีอะไรบอก
    */
-  var boot = withTestUser_(users.admin, function () {
-    return pageBootstrap_('wolist', { overdue: '1' });
+  var boot = await withTestUser_(users.admin, async function () {
+    return await pageBootstrap_('wolist', { overdue: '1' });
   });
   assertEquals_(boot.query.overdue, true,
     'หน้ารายการต้องได้เงื่อนไขที่ใช้จริงกลับไปด้วย ไม่ใช่ได้แต่แถว');
@@ -16309,23 +16314,23 @@ function test_home_overdueFilter() {
   assertTrue_(page.indexOf('state.query = data.query') !== -1,
     'และหน้าเว็บต้องรับเงื่อนไขชุดนั้นไปถือไว้แทนชุดที่ตัวเองเดา');
 
-  var echoed = homeList_({ overdue: true, statuses: [WO_STATUS.PENDING_APPROVE], text: 'abc' });
+  var echoed = await homeList_({ overdue: true, statuses: [WO_STATUS.PENDING_APPROVE], text: 'abc' });
   assertEquals_(echoed.query.overdue, true, 'ธงเลยกำหนดต้องเดินทางกลับไปด้วย');
   assertEquals_(echoed.query.text, 'abc', 'คำค้นก็เหมือนกัน');
   assertEquals_(echoed.query.statuses.join(','), WO_STATUS.PENDING_APPROVE,
     'และรายการสถานะที่ผ่านการคัดแล้ว');
 
-  var junk = homeList_({ statuses: ['สถานะที่ไม่มีอยู่จริง'] });
+  var junk = await homeList_({ statuses: ['สถานะที่ไม่มีอยู่จริง'] });
   assertEquals_(junk.query.statuses.length, 0,
     'ค่าที่เซิร์ฟเวอร์ปฏิเสธต้องหายไปจากชุดที่ส่งกลับด้วย — หน้าจอจะได้แสดงสิ่งที่กรองอยู่จริง');
 
   /* ---------- ต้นทุนต้องไม่เพิ่มจากการกรองปกติ ---------- */
   dbCallReset_();
-  homeList_({ overdue: true });
+  await homeList_({ overdue: true });
   var overdueCalls = dbCallCount();
 
   dbCallReset_();
-  homeList_({ statuses: [WO_STATUS.PENDING_APPROVE] });
+  await homeList_({ statuses: [WO_STATUS.PENDING_APPROVE] });
   var plainCalls = dbCallCount();
 
   assertEquals_(overdueCalls, plainCalls,
@@ -16333,14 +16338,14 @@ function test_home_overdueFilter() {
     '(เลยกำหนด ' + overdueCalls + ' · ปกติ ' + plainCalls + ')');
 
   /* ---------- เงื่อนไขที่ขัดกันเอง ต้องได้ผลว่าง ไม่ใช่ทิ้งเงื่อนไขทิ้ง ---------- */
-  var impossible = homeList_({ overdue: true, statuses: [WO_STATUS.COMPLETED] });
+  var impossible = await homeList_({ overdue: true, statuses: [WO_STATUS.COMPLETED] });
   assertEquals_(impossible.total, 0,
     'ขอใบที่เลยกำหนดแต่เลือกเฉพาะสถานะที่จบแล้ว ต้องได้ผลว่าง เพราะใบที่จบแล้วหยุดนับ');
   assertEquals_(impossible.emptyReason, 'NO_MATCH',
     'และต้องบอกว่าไม่ตรงกับที่ค้น ไม่ใช่บอกว่าระบบไม่มีข้อมูล');
 
   /* ---------- กรองสถานะพร้อมกับเลยกำหนด ต้องได้ทั้งสองเงื่อนไข ---------- */
-  var both = homeList_({ overdue: true, statuses: [WO_STATUS.PENDING_APPROVE] });
+  var both = await homeList_({ overdue: true, statuses: [WO_STATUS.PENDING_APPROVE] });
   for (var i = 0; i < both.rows.length; i++) {
     assertEquals_(both.rows[i].status, WO_STATUS.PENDING_APPROVE,
       'ตัวกรองสถานะต้องไม่ถูกเงื่อนไข "ใบยังไม่จบ" เขียนทับ');
@@ -16363,7 +16368,7 @@ function test_home_overdueFilter() {
  *
  * วัดที่ศูนย์ใบกับห้าสิบใบ ถ้าตัวเลขขยับแม้แต่หนึ่ง แปลว่ามีอะไรกลับไปอ่านทีละแถว
  */
-function test_home_tripsAreConstant() {
+async function test_home_tripsAreConstant() {
   beginTest_('เปิดหน้าหนึ่งครั้ง ใช้คำขอเท่าเดิมไม่ว่าจะมีกี่ใบงาน');
 
   var admin = serviceTestUsers_().admin;
@@ -16373,12 +16378,12 @@ function test_home_tripsAreConstant() {
    * @param {string} page ชื่อหน้า
    * @return {number} จำนวนคำขอ
    */
-  var measure = function (page) {
+  var measure = async function (page) {
     clearRowCache_();
     clearMasterCache_();
     clearDashboardCache_();
     dbCallReset_();
-    withTestUser_(admin, function () { return pageBootstrap_(page, {}); });
+    await withTestUser_(admin, async function () { return await pageBootstrap_(page, {}); });
     return dbCallCount();
   };
 
@@ -16388,7 +16393,7 @@ function test_home_tripsAreConstant() {
 
   /* ---------- มีใบงานห้าสิบใบ ---------- */
   var count = 50;
-  var prefix = seedWorkOrders_(count);
+  var prefix = await seedWorkOrders_(count);
   var fullHome, fullList;
 
   try {
@@ -16412,7 +16417,7 @@ function test_home_tripsAreConstant() {
     dbCallReset_();
     ROW_CACHE_ = {};
     DASHBOARD_RUN_CACHE_ = null;
-    withTestUser_(admin, function () { return pageBootstrap_('home', {}); });
+    await withTestUser_(admin, async function () { return await pageBootstrap_('home', {}); });
     var warmHome = dbCallCount();
     assertTrue_(warmHome <= DB_CALL_BUDGET.warm.home,
       'หน้าแรกตอนแคชอุ่น ต้องไม่เกิน ' + DB_CALL_BUDGET.warm.home + ' คำขอ (ยิงจริง ' + warmHome + ')');
@@ -16420,12 +16425,12 @@ function test_home_tripsAreConstant() {
       'แคชอุ่นต้องไม่แพงกว่าแคชว่าง — ถ้าแพงกว่า แปลว่าแคชยอดไม่ได้ทำงาน');
 
     /* ---------- และหน้ารายการยังส่งแค่หน้าละยี่สิบแถว ---------- */
-    var data = homeList_({ text: prefix });
+    var data = await homeList_({ text: prefix });
     assertEquals_(data.rows.length, WO_LIST_PAGE_SIZE,
       'ส่งกลับแค่หน้าละ ' + WO_LIST_PAGE_SIZE + ' แถว ไม่ใช่ส่งทั้งห้าสิบใบข้ามไปหน้าเว็บ');
     assertEquals_(data.total, count, 'แต่ยังนับได้ครบว่าตรงเงื่อนไขกี่ใบ');
   } finally {
-    cleanSeededWorkOrders_(prefix, count);
+    await cleanSeededWorkOrders_(prefix, count);
     clearDashboardCache_();
   }
 
@@ -16440,14 +16445,14 @@ function test_home_tripsAreConstant() {
    */
   var tableWrites = [SHEET.WORK_ORDER, SHEET.DEPARTMENT_TASK];
   for (var w = 0; w < tableWrites.length; w++) {
-    assertTrue_(!!dashboardTotals_(), 'ต้องอ่านยอดได้ก่อน');
+    assertTrue_(!!await dashboardTotals_(), 'ต้องอ่านยอดได้ก่อน');
     noteRepoWrite_(tableWrites[w]);
     assertEquals_(DASHBOARD_RUN_CACHE_, null,
       'เขียน ' + tableWrites[w] + ' แล้ว ยอดที่แคชไว้ต้องถูกทิ้งทันที ' +
       'ไม่ใช่ปล่อยให้ผู้ใช้ที่เพิ่งกดอนุมัติกลับมาเห็นตัวเลขเดิม');
   }
 
-  assertTrue_(!!dashboardTotals_(), 'อ่านยอดใหม่ได้');
+  assertTrue_(!!await dashboardTotals_(), 'อ่านยอดใหม่ได้');
   noteRepoWrite_(SHEET.REPORT_MASTER);
   assertTrue_(DASHBOARD_RUN_CACHE_ !== null,
     'การเขียนตารางที่ไม่เกี่ยวกับยอดใบงาน ต้องไม่ล้างยอดทิ้ง — ' +
@@ -16573,31 +16578,31 @@ var TEST_ONLY_FUNCTIONS_ = Object.freeze([
 /**
  * ช่องค้นหาเดียว ต้องค้นได้ทั้งเลขที่ใบงาน ลูกค้า โครงการ และสถานที่ (SPEC 17.1)
  */
-function test_home_searchOneBox() {
+async function test_home_searchOneBox() {
   beginTest_('ค้นด้วยคำเดียว เจอได้จากทุกช่องที่ตกลงไว้');
 
-  var fixture = homeTestData_();
+  var fixture = await homeTestData_();
 
   /* ---------- เลขที่ใบงาน ---------- */
-  assertEquals_(homeIdsOf_(homeList_({ text: fixture.a.woId })).join(', '), fixture.a.woId,
+  assertEquals_(homeIdsOf_(await homeList_({ text: fixture.a.woId })).join(', '), fixture.a.woId,
     'ค้นด้วยเลขที่ใบงาน ต้องได้ใบนั้นใบเดียว');
 
   /* ---------- ชื่อลูกค้า (สามใบที่ชื่อคล้ายกัน) ---------- */
-  var byCustomer = homeIdsOf_(homeList_({ text: fixture.word })).sort();
+  var byCustomer = homeIdsOf_(await homeList_({ text: fixture.word })).sort();
   assertEquals_(byCustomer.join(', '), [fixture.a.woId, fixture.b.woId, fixture.c.woId].sort().join(', '),
     'ค้นด้วยชื่อลูกค้า ต้องได้ครบทุกใบที่ชื่อมีคำนั้น');
 
   /* ---------- ชื่อโครงการ ---------- */
-  var byProject = homeIdsOf_(homeList_({ text: fixture.tower })).sort();
+  var byProject = homeIdsOf_(await homeList_({ text: fixture.tower })).sort();
   assertEquals_(byProject.join(', '), [fixture.a.woId, fixture.c.woId].sort().join(', '),
     'ค้นด้วยชื่อโครงการ ต้องได้ทุกใบที่โครงการมีคำนั้น');
 
   /* ---------- สถานที่ ---------- */
-  assertEquals_(homeIdsOf_(homeList_({ text: fixture.place })).join(', '), fixture.a.woId,
+  assertEquals_(homeIdsOf_(await homeList_({ text: fixture.place })).join(', '), fixture.a.woId,
     'ค้นด้วยสถานที่ ต้องได้ใบที่หน้างานอยู่ตรงนั้น');
 
   /* ---------- ไม่สนตัวพิมพ์เล็กใหญ่ ---------- */
-  var upper = homeIdsOf_(homeList_({ text: String(fixture.a.woId).toLowerCase() }));
+  var upper = homeIdsOf_(await homeList_({ text: String(fixture.a.woId).toLowerCase() }));
   assertEquals_(upper.join(', '), fixture.a.woId,
     'พิมพ์เลขที่ใบงานด้วยตัวพิมพ์เล็ก ก็ต้องเจอ');
 
@@ -16619,22 +16624,22 @@ function test_home_searchOneBox() {
  * @param {Object} user ผู้ใช้ของแผนกนั้น
  * @return {Object} {woId, taskId, reports}
  */
-function acceptedTaskFor_(assignmentType, department, user) {
+async function acceptedTaskFor_(assignmentType, department, user) {
   var users = serviceTestUsers_();
-  var reports = addTestReports_();
+  var reports = await addTestReports_();
 
   // สาย Lab มีผู้อนุมัติของตัวเอง (SPEC 3) ใช้ผู้อนุมัติผิดสายจะถูกปฏิเสธตั้งแต่ต้น
   var approver = (assignmentType === ASSIGNMENT.LAB) ? users.labApprover : users.approver;
-  var created = createTestWo_(users, {
+  var created = await createTestWo_(users, {
     'Assignment_Type': assignmentType, 'Location': 'จุดทดสอบเอกสารแผนก'
   });
-  approveWorkOrder(created.woId, assignmentType, approver);
+  await approveWorkOrder(created.woId, assignmentType, approver);
 
-  var task = findTaskOfDepartment_(created.woId, department);
+  var task = await findTaskOfDepartment_(created.woId, department);
   var taskId = task ? task['Task_ID'] : '';
   assertTrue_(!!taskId, 'ต้องมีงานของแผนก ' + department + ' หลังอนุมัติ');
 
-  callApiAs_(user, 'กดรับงาน', function () { return api_acceptTask(taskId); });
+  await callApiAs_(user, 'กดรับงาน', async function () { return await api_acceptTask(taskId); });
   return { woId: created.woId, taskId: taskId, reports: reports };
 }
 
@@ -16644,9 +16649,9 @@ function acceptedTaskFor_(assignmentType, department, user) {
  * @param {Object} request {woId, scope, taskId, stepId, reportCode, fileName}
  * @return {Object} ผลจาก api_uploadFile
  */
-function uploadReport_(user, request) {
-  return callApiAs_(user, 'แนบเอกสาร ' + request.reportCode, function () {
-    return api_uploadFile({
+async function uploadReport_(user, request) {
+  return await callApiAs_(user, 'แนบเอกสาร ' + request.reportCode, async function () {
+    return await api_uploadFile({
       woId: request.woId, scope: request.scope, taskId: request.taskId,
       stepId: request.stepId || '', reportCode: request.reportCode,
       fileName: request.fileName || 'เอกสาร.pdf',
@@ -16665,9 +16670,9 @@ function uploadReport_(user, request) {
  * @param {Object} request {woId, scope, taskId, stepId, fileName, mimeType}
  * @return {Object} ผลจาก api_uploadFile
  */
-function uploadPhoto_(user, request) {
-  return callApiAs_(user, 'แนบรูปหน้างาน', function () {
-    return api_uploadFile(photoRequest_(request));
+async function uploadPhoto_(user, request) {
+  return await callApiAs_(user, 'แนบรูปหน้างาน', async function () {
+    return await api_uploadFile(photoRequest_(request));
   });
 }
 
@@ -16701,17 +16706,17 @@ function savedNameOf_(result) {
  * สามแบบนี้คือสิ่งที่ทำให้ค้นเอกสารย้อนหลังได้โดยไม่ต้องเปิดไฟล์ ถ้าตั้งผิดแม้แบบเดียว
  * เอกสารของงานนั้นจะหาไม่เจอในอีกหกเดือน และไม่มีอะไรฟ้องตอนที่ตั้งผิด
  */
-function test_report_fileNameShapes() {
+async function test_report_fileNameShapes() {
   beginTest_('ชื่อไฟล์ถูกตามรูปแบบทั้งสามแบบ — SPEC 14.1');
 
   var users = serviceTestUsers_();
 
   /* ---------- Service: <SV_ID>_Step<n>_<Form_No>_<ลำดับ> ---------- */
-  var sv = acceptedTaskFor_(ASSIGNMENT.SERVICE, DEPT.SERVICE, users.service);
-  var svSteps = listStepsByTask(sv.taskId);
+  var sv = await acceptedTaskFor_(ASSIGNMENT.SERVICE, DEPT.SERVICE, users.service);
+  var svSteps = await listStepsByTask(sv.taskId);
   var svId = String(sv.woId).replace('WO-', 'SV-');   // คำนวณเองไม่ผ่านโค้ดที่กำลังทดสอบ
 
-  var svUpload = uploadReport_(users.service, {
+  var svUpload = await uploadReport_(users.service, {
     woId: sv.woId, scope: FILE_SCOPE.SERVICE, taskId: sv.taskId,
     stepId: svSteps[1]['Step_ID'], reportCode: sv.reports.svOptional.code
   });
@@ -16720,13 +16725,13 @@ function test_report_fileNameShapes() {
     'ฝั่ง Service ต้องได้ <SV_ID>_Step<n>_<Form_No>_<ลำดับ>');
 
   /* ---------- Project: <SV_ID>_งวด<n>_<Form_No>_<ลำดับ> ---------- */
-  var pj = acceptedTaskFor_(ASSIGNMENT.PROJECT, DEPT.PROJECT, users.project);
+  var pj = await acceptedTaskFor_(ASSIGNMENT.PROJECT, DEPT.PROJECT, users.project);
   var pjId = String(pj.woId).replace('WO-', 'SV-');
-  var period = callApiAs_(users.project, 'เพิ่มงวดงาน', function () {
-    return api_addTaskPeriod(pj.taskId, 'งวดทดสอบ');
+  var period = await callApiAs_(users.project, 'เพิ่มงวดงาน', async function () {
+    return await api_addTaskPeriod(pj.taskId, 'งวดทดสอบ');
   });
 
-  var pjUpload = uploadReport_(users.project, {
+  var pjUpload = await uploadReport_(users.project, {
     woId: pj.woId, scope: FILE_SCOPE.PROJECT, taskId: pj.taskId,
     stepId: period.step['Step_ID'], reportCode: pj.reports.peRequired.code
   });
@@ -16735,10 +16740,10 @@ function test_report_fileNameShapes() {
     'ฝั่ง Project ต้องได้ <SV_ID>_งวด<n>_<Form_No>_<ลำดับ>');
 
   /* ---------- Lab: <LAB_ID>_<Form_No>_<ลำดับ> และ Form_No ว่างต้องไม่พัง ---------- */
-  var lab = acceptedTaskFor_(ASSIGNMENT.LAB, DEPT.LAB, users.lab);
+  var lab = await acceptedTaskFor_(ASSIGNMENT.LAB, DEPT.LAB, users.lab);
   var labId = String(lab.woId).replace('WO-', 'LAB-');
 
-  var labUpload = uploadReport_(users.lab, {
+  var labUpload = await uploadReport_(users.lab, {
     woId: lab.woId, scope: FILE_SCOPE.LAB, taskId: lab.taskId,
     reportCode: lab.reports.labRequired.code
   });
@@ -16760,19 +16765,19 @@ function test_report_fileNameShapes() {
 /**
  * แนบหลายไฟล์ในเอกสารรายการเดียว ต้องได้ลำดับต่อกัน ไม่ทับกัน (SPEC 14.2)
  */
-function test_report_manyFilesOneReport() {
+async function test_report_manyFilesOneReport() {
   beginTest_('แนบสามไฟล์ในเอกสารเดียว ได้ _01 _02 _03');
 
   var users = serviceTestUsers_();
-  var sv = acceptedTaskFor_(ASSIGNMENT.SERVICE, DEPT.SERVICE, users.service);
-  var steps = listStepsByTask(sv.taskId);
+  var sv = await acceptedTaskFor_(ASSIGNMENT.SERVICE, DEPT.SERVICE, users.service);
+  var steps = await listStepsByTask(sv.taskId);
   var stepId = steps[0]['Step_ID'];
   var svId = String(sv.woId).replace('WO-', 'SV-');
   var head = svId + '_Step1_' + sv.reports.svRequired.form + '_';
 
   var names = [];
   for (var i = 1; i <= 3; i++) {
-    names.push(savedNameOf_(uploadReport_(users.service, {
+    names.push(savedNameOf_(await uploadReport_(users.service, {
       woId: sv.woId, scope: FILE_SCOPE.SERVICE, taskId: sv.taskId,
       stepId: stepId, reportCode: sv.reports.svRequired.code,
       fileName: 'หน้างาน' + i + '.pdf'
@@ -16785,8 +16790,8 @@ function test_report_manyFilesOneReport() {
   assertEquals_(uniqueCount_(names), 3, 'ชื่อทั้งสามต้องไม่ซ้ำกัน ไม่งั้นไฟล์หลังทับไฟล์หน้าใน Drive');
 
   /* ---------- ทั้งสามไฟล์ต้องอยู่ในเอกสารรายการเดียวกันของขั้นตอนนั้น ---------- */
-  var view = callApiAs_(users.service, 'เปิดรายการเอกสาร', function () {
-    return api_listTaskReports(sv.taskId);
+  var view = await callApiAs_(users.service, 'เปิดรายการเอกสาร', async function () {
+    return await api_listTaskReports(sv.taskId);
   });
   var slot = null;
   for (var s = 0; s < view.slots.length; s++) {
@@ -16804,21 +16809,21 @@ function test_report_manyFilesOneReport() {
  * ถ้าเข้าผิดโฟลเดอร์ ระบบยังทำงานได้ทุกอย่างและไม่มีอะไรฟ้องเลย จนถึงวันที่มีคน
  * เปิด Drive หาเอกสารของงวดที่สอง แล้วเจอทุกอย่างกองรวมกันอยู่ที่เดียว
  */
-function test_report_folderPerStep() {
+async function test_report_folderPerStep() {
   beginTest_('ไฟล์เข้าโฟลเดอร์ถูกตามขั้นตอนและงวด — SPEC 16');
 
   var users = serviceTestUsers_();
 
   /* ---------- Service: Service/Step 3 ---------- */
-  var sv = acceptedTaskFor_(ASSIGNMENT.SERVICE, DEPT.SERVICE, users.service);
-  var steps = listStepsByTask(sv.taskId);
+  var sv = await acceptedTaskFor_(ASSIGNMENT.SERVICE, DEPT.SERVICE, users.service);
+  var steps = await listStepsByTask(sv.taskId);
   var third = steps[2];
-  var upload = uploadReport_(users.service, {
+  var upload = await uploadReport_(users.service, {
     woId: sv.woId, scope: FILE_SCOPE.SERVICE, taskId: sv.taskId,
     stepId: third['Step_ID'], reportCode: sv.reports.svRequired.code
   });
 
-  var map = parseFolderMap_(getWorkOrder(sv.woId)['Folder_Map']);
+  var map = parseFolderMap_((await getWorkOrder(sv.woId))['Folder_Map']);
   assertTrue_(!!map['Service/Step 3'],
     'ต้องมีโฟลเดอร์ Service/Step 3 ของใบงานนี้ (คีย์ที่บันทึกไว้: ' +
     Object.keys(map).join(', ') + ')');
@@ -16831,25 +16836,25 @@ function test_report_folderPerStep() {
   assertTrue_(found, 'ไฟล์ของขั้นตอนที่ 3 ต้องอยู่ในโฟลเดอร์ Step 3 จริง ๆ ไม่ใช่แค่ชื่อไฟล์บอก');
 
   /* ---------- Project: Project/Period N ---------- */
-  var pj = acceptedTaskFor_(ASSIGNMENT.PROJECT, DEPT.PROJECT, users.project);
-  var period = callApiAs_(users.project, 'เพิ่มงวดงาน', function () {
-    return api_addTaskPeriod(pj.taskId, '');
+  var pj = await acceptedTaskFor_(ASSIGNMENT.PROJECT, DEPT.PROJECT, users.project);
+  var period = await callApiAs_(users.project, 'เพิ่มงวดงาน', async function () {
+    return await api_addTaskPeriod(pj.taskId, '');
   });
-  uploadReport_(users.project, {
+  await uploadReport_(users.project, {
     woId: pj.woId, scope: FILE_SCOPE.PROJECT, taskId: pj.taskId,
     stepId: period.step['Step_ID'], reportCode: pj.reports.peRequired.code
   });
-  var pjMap = parseFolderMap_(getWorkOrder(pj.woId)['Folder_Map']);
+  var pjMap = parseFolderMap_((await getWorkOrder(pj.woId))['Folder_Map']);
   assertTrue_(!!pjMap['Project/Period 1'], 'งวดที่ 1 ต้องมีโฟลเดอร์ Project/Period 1');
 
   /* ---------- Project ที่ยังไม่มีงวด: อยู่ที่โฟลเดอร์ Project ---------- */
   // งานที่จบในวันเดียวไม่มีงวดเลย แต่ยังต้องแนบเอกสารที่บังคับได้ (SPEC 20.2)
-  var quick = acceptedTaskFor_(ASSIGNMENT.PROJECT, DEPT.PROJECT, users.project);
-  var quickUpload = uploadReport_(users.project, {
+  var quick = await acceptedTaskFor_(ASSIGNMENT.PROJECT, DEPT.PROJECT, users.project);
+  var quickUpload = await uploadReport_(users.project, {
     woId: quick.woId, scope: FILE_SCOPE.PROJECT, taskId: quick.taskId,
     reportCode: quick.reports.peRequired.code
   });
-  var quickMap = parseFolderMap_(getWorkOrder(quick.woId)['Folder_Map']);
+  var quickMap = parseFolderMap_((await getWorkOrder(quick.woId))['Folder_Map']);
   assertTrue_(!!quickMap['Project'], 'งานที่ยังไม่มีงวด เอกสารอยู่ที่โฟลเดอร์ Project ของใบงาน');
   assertEquals_(savedNameOf_(quickUpload),
     String(quick.woId).replace('WO-', 'SV-') + '_' + quick.reports.peRequired.form + '_01.pdf',
@@ -16864,14 +16869,14 @@ function test_report_folderPerStep() {
  * ผู้ดูแลปิดแบบฟอร์มรุ่นเก่าด้วยการตั้ง Active เป็นเท็จ ถ้ายังขึ้นให้เลือก
  * จะมีคนแนบเอกสารรุ่นที่เลิกใช้แล้วต่อไปอีกเป็นปี โดยไม่มีใครรู้
  */
-function test_report_inactiveHidden() {
+async function test_report_inactiveHidden() {
   beginTest_('เอกสารที่ปิดใช้งานแล้ว ต้องไม่ขึ้นในรายการให้เลือก');
 
   var users = serviceTestUsers_();
-  var sv = acceptedTaskFor_(ASSIGNMENT.SERVICE, DEPT.SERVICE, users.service);
+  var sv = await acceptedTaskFor_(ASSIGNMENT.SERVICE, DEPT.SERVICE, users.service);
 
-  var view = callApiAs_(users.service, 'เปิดรายการเอกสาร', function () {
-    return api_listTaskReports(sv.taskId);
+  var view = await callApiAs_(users.service, 'เปิดรายการเอกสาร', async function () {
+    return await api_listTaskReports(sv.taskId);
   });
 
   var codes = [];
@@ -16919,20 +16924,20 @@ function test_report_inactiveHidden() {
  * เรื่องที่ต้องกันไว้คือการเอารูปไปนับเป็นเอกสาร — ถ้ารูปนับได้ ช่างที่ถ่ายรูปหน้างาน
  * สามรูปจะปิดงานได้ทันทีโดยไม่ต้องแนบ Service Report เลย ซึ่งเป็นรูที่มองไม่เห็นจากหน้าจอ
  */
-function test_report_stepPhotos() {
+async function test_report_stepPhotos() {
   beginTest_('รูปหน้างานของขั้นตอน — ชื่อไฟล์ โฟลเดอร์ และไม่นับเป็นเอกสารบังคับ');
 
   var users = serviceTestUsers_();
-  var sv = acceptedTaskFor_(ASSIGNMENT.SERVICE, DEPT.SERVICE, users.service);
-  var steps = listStepsByTask(sv.taskId);
+  var sv = await acceptedTaskFor_(ASSIGNMENT.SERVICE, DEPT.SERVICE, users.service);
+  var steps = await listStepsByTask(sv.taskId);
   var second = steps[1]['Step_ID'];
   var svId = String(sv.woId).replace('WO-', 'SV-');
 
   /* ---------- แนบได้หลายรูปต่อหนึ่งขั้นตอน และได้เลขลำดับต่อกัน ---------- */
-  var first = uploadPhoto_(users.service, {
+  var first = await uploadPhoto_(users.service, {
     woId: sv.woId, scope: FILE_SCOPE.SERVICE, taskId: sv.taskId, stepId: second
   });
-  var again = uploadPhoto_(users.service, {
+  var again = await uploadPhoto_(users.service, {
     woId: sv.woId, scope: FILE_SCOPE.SERVICE, taskId: sv.taskId, stepId: second,
     fileName: 'IMG_0002.jpg'
   });
@@ -16942,7 +16947,7 @@ function test_report_stepPhotos() {
   assertEquals_(savedNameOf_(again), svId + '_Step2_รูปภาพ_02.jpg',
     'รูปที่สองของขั้นเดียวกันได้เลขถัดไป ไม่ทับของเดิม');
 
-  var map = parseFolderMap_(getWorkOrder(sv.woId)['Folder_Map']);
+  var map = parseFolderMap_((await getWorkOrder(sv.woId))['Folder_Map']);
   assertTrue_(!!map['Service/Picture'],
     'รูปหน้างานเก็บที่โฟลเดอร์ Picture ของแผนกนั้น (SPEC 16) · คีย์ที่บันทึกไว้: ' +
     Object.keys(map).join(', '));
@@ -16952,8 +16957,8 @@ function test_report_stepPhotos() {
     'และไม่ได้ไปสร้างโฟลเดอร์ของขั้นตอนทิ้งไว้ ทั้งที่ยังไม่มีเอกสารสักใบในขั้นนั้น');
 
   /* ---------- หน้าจอเห็นรูปแยกจากเอกสาร ---------- */
-  var view = callApiAs_(users.service, 'เปิดแผงขั้นตอนงาน', function () {
-    return api_listTaskReports(sv.taskId);
+  var view = await callApiAs_(users.service, 'เปิดแผงขั้นตอนงาน', async function () {
+    return await api_listTaskReports(sv.taskId);
   });
   assertEquals_(view.slots[1].photos.length, 2, 'รูปทั้งสองอยู่ในช่องรูปของขั้นตอนที่ 2');
   assertEquals_(view.slots[1].files.length, 0, 'และต้องไม่ไปโผล่ในช่องเอกสาร');
@@ -16966,14 +16971,14 @@ function test_report_stepPhotos() {
   assertTrue_(codes.join(',').indexOf(sv.reports.svRequired.code) !== -1,
     'แนบรูปแล้วเอกสารที่บังคับต้องยังขาดอยู่เหมือนเดิม');
 
-  finishAllSteps_(sv.taskId, users.service);
-  var blocked = withTestUser_(users.service, function () { return api_completeTask(sv.taskId); });
+  await finishAllSteps_(sv.taskId, users.service);
+  var blocked = await withTestUser_(users.service, async function () { return await api_completeTask(sv.taskId); });
   assertEquals_(blocked.ok, false, 'และปิดงานด้วยรูปอย่างเดียวไม่ได้');
 
   /* ---------- ช่องรูปรับเฉพาะรูป ---------- */
   // ถ้ารับไฟล์เอกสารด้วย จะได้ไฟล์ชื่อ "_รูปภาพ_" ที่เป็น PDF อยู่ในโฟลเดอร์รูป ซึ่งตามหาไม่เจอ
-  var wrongKind = withTestUser_(users.service, function () {
-    return api_uploadFile(photoRequest_({
+  var wrongKind = await withTestUser_(users.service, async function () {
+    return await api_uploadFile(photoRequest_({
       woId: sv.woId, scope: FILE_SCOPE.SERVICE, taskId: sv.taskId, stepId: second,
       fileName: 'เอกสาร.pdf', mimeType: 'application/pdf'
     }));
@@ -16987,11 +16992,11 @@ function test_report_stepPhotos() {
    * รูปไม่มีรหัสเอกสาร ของเดิมจึงตกไปเป็นไฟล์ระดับใบงาน แล้วสิทธิ์ลบกลายเป็นของธุรการ
    * คนที่ถ่ายรูปผิดใบจึงลบของตัวเองไม่ได้ · สิทธิ์ต้องมาจากงานที่ไฟล์นั้นผูกอยู่
    */
-  callApiAs_(users.service, 'ลบรูปที่แนบผิด', function () {
-    return api_removeFile(first.file.fileId);
+  await callApiAs_(users.service, 'ลบรูปที่แนบผิด', async function () {
+    return await api_removeFile(first.file.fileId);
   });
-  var after = callApiAs_(users.service, 'เปิดแผงอีกครั้ง', function () {
-    return api_listTaskReports(sv.taskId);
+  var after = await callApiAs_(users.service, 'เปิดแผงอีกครั้ง', async function () {
+    return await api_listTaskReports(sv.taskId);
   });
   assertEquals_(after.slots[1].photos.length, 1, 'ลบแล้วเหลือรูปเดียว');
 
@@ -17004,15 +17009,15 @@ function test_report_stepPhotos() {
  * ด่านจริงอยู่ที่ updateTaskStep (ดู test_task_stepsInOrder) ข้อนี้ตรวจว่าเซิร์ฟเวอร์
  * บอกหน้าจอด้วยกติกาเดียวกัน ไม่ปล่อยให้หน้าเว็บคิดเอง ซึ่งวันหนึ่งจะคิดคนละแบบ
  */
-function test_report_stepLocks() {
+async function test_report_stepLocks() {
   beginTest_('แผงขั้นตอนงานบอกว่าขั้นไหนทำได้ตอนนี้ และติดอะไรอยู่');
 
   var users = serviceTestUsers_();
-  var sv = acceptedTaskFor_(ASSIGNMENT.SERVICE, DEPT.SERVICE, users.service);
-  var steps = listStepsByTask(sv.taskId);
+  var sv = await acceptedTaskFor_(ASSIGNMENT.SERVICE, DEPT.SERVICE, users.service);
+  var steps = await listStepsByTask(sv.taskId);
 
-  var view = callApiAs_(users.service, 'เปิดแผงขั้นตอนงาน', function () {
-    return api_listTaskReports(sv.taskId);
+  var view = await callApiAs_(users.service, 'เปิดแผงขั้นตอนงาน', async function () {
+    return await api_listTaskReports(sv.taskId);
   });
   assertEquals_(view.canEdit, true, 'งานที่รับแล้วและใบงานยังปกติ แก้ไขได้');
   assertEquals_(view.slots[0].locked, false, 'ขั้นแรกทำได้เลย');
@@ -17022,11 +17027,11 @@ function test_report_stepLocks() {
   assertEquals_(view.slots[view.slots.length - 1].locked, true, 'ขั้นสุดท้ายก็ล็อกอยู่เช่นกัน');
 
   /* ---------- ปิดขั้นแรกแล้ว ขั้นที่สองต้องเปิด ---------- */
-  callApiAs_(users.service, 'ปิดขั้นแรก', function () {
-    return api_updateTaskStep(steps[0]['Step_ID'], { 'Status': STEP_STATUS.COMPLETED });
+  await callApiAs_(users.service, 'ปิดขั้นแรก', async function () {
+    return await api_updateTaskStep(steps[0]['Step_ID'], { 'Status': STEP_STATUS.COMPLETED });
   });
-  var next = callApiAs_(users.service, 'เปิดแผงอีกครั้ง', function () {
-    return api_listTaskReports(sv.taskId);
+  var next = await callApiAs_(users.service, 'เปิดแผงอีกครั้ง', async function () {
+    return await api_listTaskReports(sv.taskId);
   });
   assertEquals_(next.slots[0].done, true, 'ขั้นแรกขึ้นว่าเสร็จแล้ว');
   assertEquals_(next.slots[0].doneBy, users.service.email,
@@ -17059,17 +17064,17 @@ function test_report_stepLocks() {
 /**
  * ขั้นตอนที่ยังไม่มีเอกสาร ต้องบอกด้วยถ้อยคำที่เข้าใจได้ (SPEC 17.3)
  */
-function test_report_emptyStep() {
+async function test_report_emptyStep() {
   beginTest_('ขั้นตอนที่ยังไม่มีเอกสาร แสดงสถานะว่างตามกติกา 17.3');
 
   var users = serviceTestUsers_();
-  var sv = acceptedTaskFor_(ASSIGNMENT.SERVICE, DEPT.SERVICE, users.service);
+  var sv = await acceptedTaskFor_(ASSIGNMENT.SERVICE, DEPT.SERVICE, users.service);
 
-  var view = callApiAs_(users.service, 'เปิดรายการเอกสาร', function () {
-    return api_listTaskReports(sv.taskId);
+  var view = await callApiAs_(users.service, 'เปิดรายการเอกสาร', async function () {
+    return await api_listTaskReports(sv.taskId);
   });
 
-  assertEquals_(view.slots.length, listStepsByTask(sv.taskId).length,
+  assertEquals_(view.slots.length, (await listStepsByTask(sv.taskId)).length,
     'ทุกขั้นตอนต้องมีที่ให้แนบเอกสารของตัวเอง');
   var empty = 0;
   for (var i = 0; i < view.slots.length; i++) {
@@ -17082,9 +17087,9 @@ function test_report_emptyStep() {
    * งานแล็บไม่มีขั้นตอนย่อยตาม SPEC 7.3 ถ้าไม่มีที่ให้แนบ หน้าจอแล็บจะไม่มีปุ่มแนบเลย
    * แล้วเอกสารที่บังคับของแล็บจะแนบไม่ได้ตลอดกาล ซึ่งแปลว่าปิดงานแล็บไม่ได้เลยสักใบ
    */
-  var lab = acceptedTaskFor_(ASSIGNMENT.LAB, DEPT.LAB, users.lab);
-  var labView = callApiAs_(users.lab, 'เปิดรายการเอกสารของแล็บ', function () {
-    return api_listTaskReports(lab.taskId);
+  var lab = await acceptedTaskFor_(ASSIGNMENT.LAB, DEPT.LAB, users.lab);
+  var labView = await callApiAs_(users.lab, 'เปิดรายการเอกสารของแล็บ', async function () {
+    return await api_listTaskReports(lab.taskId);
   });
   assertEquals_(labView.slots.length, 1, 'งานแล็บต้องมีที่แนบเอกสารหนึ่งที่ คือตัวงานเอง');
   assertEquals_(labView.slots[0].stepId, '', 'และที่นั้นไม่ผูกกับขั้นตอนใด');
@@ -17104,16 +17109,16 @@ function test_report_emptyStep() {
 /**
  * ปิดงานไม่ได้เมื่อเอกสารที่บังคับยังไม่ครบ และข้อความต้องบอกว่าขาดอะไร (SPEC 20.3)
  */
-function test_report_completeBlockedWhenMissing() {
+async function test_report_completeBlockedWhenMissing() {
   beginTest_('เอกสารบังคับยังไม่ครบ ปิดงานไม่ได้ และบอกว่าขาดอะไร');
 
   var users = serviceTestUsers_();
-  var sv = acceptedTaskFor_(ASSIGNMENT.SERVICE, DEPT.SERVICE, users.service);
+  var sv = await acceptedTaskFor_(ASSIGNMENT.SERVICE, DEPT.SERVICE, users.service);
 
   // ทำทุกขั้นตอนให้ครบก่อน เพื่อให้เหลือด่านเดียวคือเรื่องเอกสาร
-  finishAllSteps_(sv.taskId, users.service);
+  await finishAllSteps_(sv.taskId, users.service);
 
-  var blocked = withTestUser_(users.service, function () { return api_completeTask(sv.taskId); });
+  var blocked = await withTestUser_(users.service, async function () { return await api_completeTask(sv.taskId); });
   assertEquals_(blocked.ok, false, 'เอกสารที่บังคับยังไม่ครบ ปิดงานไม่ได้');
   assertTrue_(String(blocked.message).indexOf(sv.reports.svRequired.name) !== -1,
     'ข้อความต้องบอกชื่อเอกสารที่ขาด ไม่ใช่บอกแค่ว่าเอกสารไม่ครบ');
@@ -17122,18 +17127,18 @@ function test_report_completeBlockedWhenMissing() {
   assertTrue_(String(blocked.message).indexOf('แนบได้ที่ขั้นตอน') !== -1,
     'พร้อมบอกว่าต้องไปทำอะไรต่อ');
 
-  assertEquals_(getTask(sv.taskId)['Status'], TASK_STATUS.IN_PROGRESS,
+  assertEquals_((await getTask(sv.taskId))['Status'], TASK_STATUS.IN_PROGRESS,
     'รายการที่ถูกปฏิเสธต้องไม่เปลี่ยนสถานะงาน');
-  assertEquals_(getWorkOrder(sv.woId)['Overall_Status'], WO_STATUS.IN_PROGRESS,
+  assertEquals_((await getWorkOrder(sv.woId))['Overall_Status'], WO_STATUS.IN_PROGRESS,
     'และต้องไม่ลามไปเปลี่ยนสถานะใบงาน');
 
   /* ---------- เอกสารที่ไม่บังคับ แนบแล้วก็ยังปิดไม่ได้ ---------- */
   // ด่านต้องดูรายการที่บังคับจริง ไม่ใช่ดูว่า "มีไฟล์อะไรสักไฟล์" ในงานนี้
-  uploadReport_(users.service, {
+  await uploadReport_(users.service, {
     woId: sv.woId, scope: FILE_SCOPE.SERVICE, taskId: sv.taskId,
-    stepId: listStepsByTask(sv.taskId)[0]['Step_ID'], reportCode: sv.reports.svOptional.code
+    stepId: (await listStepsByTask(sv.taskId))[0]['Step_ID'], reportCode: sv.reports.svOptional.code
   });
-  var still = withTestUser_(users.service, function () { return api_completeTask(sv.taskId); });
+  var still = await withTestUser_(users.service, async function () { return await api_completeTask(sv.taskId); });
   assertEquals_(still.ok, false, 'แนบเอกสารที่ไม่บังคับ ไม่ช่วยให้ผ่านด่าน');
 
   return endTest_();
@@ -17142,44 +17147,44 @@ function test_report_completeBlockedWhenMissing() {
 /**
  * แนบครบแล้วปิดงานได้ตามปกติ และใบงานปิดตาม (SPEC 20.3)
  */
-function test_report_completeWhenReady() {
+async function test_report_completeWhenReady() {
   beginTest_('เอกสารบังคับครบแล้ว ปิดงานได้ตามปกติ');
 
   var users = serviceTestUsers_();
-  var sv = acceptedTaskFor_(ASSIGNMENT.SERVICE, DEPT.SERVICE, users.service);
-  finishAllSteps_(sv.taskId, users.service);
+  var sv = await acceptedTaskFor_(ASSIGNMENT.SERVICE, DEPT.SERVICE, users.service);
+  await finishAllSteps_(sv.taskId, users.service);
 
   /* ---------- แนบผ่านทางเดียวกับหน้าเว็บ ---------- */
-  uploadReport_(users.service, {
+  await uploadReport_(users.service, {
     woId: sv.woId, scope: FILE_SCOPE.SERVICE, taskId: sv.taskId,
-    stepId: listStepsByTask(sv.taskId)[0]['Step_ID'], reportCode: sv.reports.svRequired.code
+    stepId: (await listStepsByTask(sv.taskId))[0]['Step_ID'], reportCode: sv.reports.svRequired.code
   });
   // บนชีตจริงอาจมีรายการบังคับของบริษัทอยู่ด้วย จึงเติมส่วนที่เหลือให้ครบ
-  attachRequiredReports_(sv.taskId);
+  await attachRequiredReports_(sv.taskId);
 
-  var view = callApiAs_(users.service, 'เปิดรายการเอกสาร', function () {
-    return api_listTaskReports(sv.taskId);
+  var view = await callApiAs_(users.service, 'เปิดรายการเอกสาร', async function () {
+    return await api_listTaskReports(sv.taskId);
   });
   assertEquals_(view.missing.length, 0, 'แผงเอกสารต้องบอกว่าครบแล้ว');
   assertEquals_(view.missingMessage, '', 'และไม่มีข้อความเตือนค้างอยู่');
 
-  var done = callApiAs_(users.service, 'ปิดงาน', function () {
-    return api_completeTask(sv.taskId);
+  var done = await callApiAs_(users.service, 'ปิดงาน', async function () {
+    return await api_completeTask(sv.taskId);
   });
-  assertEquals_(getTask(sv.taskId)['Status'], TASK_STATUS.COMPLETED, 'ปิดงานของแผนกได้');
-  assertEquals_(getWorkOrder(sv.woId)['Overall_Status'], WO_STATUS.COMPLETED,
+  assertEquals_((await getTask(sv.taskId))['Status'], TASK_STATUS.COMPLETED, 'ปิดงานของแผนกได้');
+  assertEquals_((await getWorkOrder(sv.woId))['Overall_Status'], WO_STATUS.COMPLETED,
     'แผนกเดียวปิดครบ ใบงานปิดตามในรายการเดียวกัน (กฎข้อ 2)');
   assertTrue_(!!done, 'รายการต้องคืนผลกลับมาให้หน้าจอ');
 
   /* ---------- ลบไฟล์ที่บังคับออก ต้องกลับไปขาดอีกครั้ง ---------- */
   // ป้องกันด่านที่นับ "เคยแนบ" แทนที่จะนับ "มีอยู่ตอนนี้"
-  var files = listFilesByTask(sv.taskId);
+  var files = await listFilesByTask(sv.taskId);
   var target = '';
   for (var i = 0; i < files.length; i++) {
     if (String(files[i]['Report_Code']) === sv.reports.svRequired.code) target = files[i]['File_ID'];
   }
-  deactivateFile(target);
-  assertTrue_(missingRequiredReports_(sv.taskId).length >= 1,
+  await deactivateFile(target);
+  assertTrue_((await missingRequiredReports_(sv.taskId)).length >= 1,
     'ลบไฟล์ที่บังคับออกแล้ว ต้องกลับไปนับว่าขาด');
 
   return endTest_();
@@ -17188,24 +17193,24 @@ function test_report_completeWhenReady() {
 /**
  * งาน Project ที่ไม่มีงวดเลย ปิดได้ถ้าเอกสารครบ (SPEC 20.2 · ภาคผนวก ข.1)
  */
-function test_report_projectNoPeriodCloses() {
+async function test_report_projectNoPeriodCloses() {
   beginTest_('งาน Project ที่ไม่มีงวดเลย ปิดได้เมื่อเอกสารครบ');
 
   var users = serviceTestUsers_();
-  var pj = acceptedTaskFor_(ASSIGNMENT.PROJECT, DEPT.PROJECT, users.project);
+  var pj = await acceptedTaskFor_(ASSIGNMENT.PROJECT, DEPT.PROJECT, users.project);
 
-  assertEquals_(listStepsByTask(pj.taskId).length, 0, 'งานนี้ไม่มีงวดเลย ตามที่ตกลงกันใหม่');
+  assertEquals_((await listStepsByTask(pj.taskId)).length, 0, 'งานนี้ไม่มีงวดเลย ตามที่ตกลงกันใหม่');
 
-  uploadReport_(users.project, {
+  await uploadReport_(users.project, {
     woId: pj.woId, scope: FILE_SCOPE.PROJECT, taskId: pj.taskId,
     reportCode: pj.reports.peRequired.code
   });
-  attachRequiredReports_(pj.taskId);
+  await attachRequiredReports_(pj.taskId);
 
-  callApiAs_(users.project, 'ปิดงาน', function () { return api_completeTask(pj.taskId); });
-  assertEquals_(getTask(pj.taskId)['Status'], TASK_STATUS.COMPLETED,
+  await callApiAs_(users.project, 'ปิดงาน', async function () { return await api_completeTask(pj.taskId); });
+  assertEquals_((await getTask(pj.taskId))['Status'], TASK_STATUS.COMPLETED,
     'งานที่จบในวันเดียวต้องปิดได้ ไม่ต้องสร้างงวดหลอก ๆ ขึ้นมาก่อน');
-  assertEquals_(getWorkOrder(pj.woId)['Overall_Status'], WO_STATUS.COMPLETED, 'ใบงานปิดตาม');
+  assertEquals_((await getWorkOrder(pj.woId))['Overall_Status'], WO_STATUS.COMPLETED, 'ใบงานปิดตาม');
 
   return endTest_();
 }
@@ -17216,21 +17221,21 @@ function test_report_projectNoPeriodCloses() {
  * ข้อนี้สำคัญที่สุดในชุด เพราะงานที่ไม่มีงวดไม่มีด่านอื่นเหลืออยู่เลย
  * ถ้าด่านเอกสารไม่ทำงาน แผนกจะกดรับงานแล้วกดปิดงานรวดเดียวได้โดยไม่ต้องทำอะไรเลย
  */
-function test_report_projectNoPeriodBlocked() {
+async function test_report_projectNoPeriodBlocked() {
   beginTest_('งาน Project ที่ไม่มีงวดเลย ปิดไม่ได้เมื่อเอกสารยังไม่ครบ');
 
   var users = serviceTestUsers_();
-  var pj = acceptedTaskFor_(ASSIGNMENT.PROJECT, DEPT.PROJECT, users.project);
+  var pj = await acceptedTaskFor_(ASSIGNMENT.PROJECT, DEPT.PROJECT, users.project);
 
-  assertEquals_(listStepsByTask(pj.taskId).length, 0, 'งานนี้ไม่มีงวดเลย');
-  assertEquals_(stepProgressOf_(pj.taskId).allDone, true,
+  assertEquals_((await listStepsByTask(pj.taskId)).length, 0, 'งานนี้ไม่มีงวดเลย');
+  assertEquals_((await stepProgressOf_(pj.taskId)).allDone, true,
     'ด่าน "ทุกงวดเสร็จครบ" เป็นจริงทันทีเมื่อไม่มีงวด — ตั้งใจให้เป็นแบบนั้น');
 
-  var blocked = withTestUser_(users.project, function () { return api_completeTask(pj.taskId); });
+  var blocked = await withTestUser_(users.project, async function () { return await api_completeTask(pj.taskId); });
   assertEquals_(blocked.ok, false, 'ยังปิดไม่ได้ เพราะเอกสารที่บังคับยังไม่ครบ');
   assertTrue_(String(blocked.message).indexOf(pj.reports.peRequired.name) !== -1,
     'และต้องบอกชื่อเอกสารที่ขาด');
-  assertEquals_(getTask(pj.taskId)['Status'], TASK_STATUS.IN_PROGRESS, 'สถานะต้องไม่เปลี่ยน');
+  assertEquals_((await getTask(pj.taskId))['Status'], TASK_STATUS.IN_PROGRESS, 'สถานะต้องไม่เปลี่ยน');
 
   return endTest_();
 }
@@ -17238,19 +17243,19 @@ function test_report_projectNoPeriodBlocked() {
 /**
  * แผนกเพิ่มงวดเอง ทำไม่ครบปิดไม่ได้ ครบแล้วปิดได้ และลบงวดได้เฉพาะงวดที่ยังว่าง
  */
-function test_report_projectPeriodsByDepartment() {
+async function test_report_projectPeriodsByDepartment() {
   beginTest_('แผนกเพิ่มงวดเอง 3 งวด — ทำครบจึงปิดได้');
 
   var users = serviceTestUsers_();
-  var pj = acceptedTaskFor_(ASSIGNMENT.PROJECT, DEPT.PROJECT, users.project);
+  var pj = await acceptedTaskFor_(ASSIGNMENT.PROJECT, DEPT.PROJECT, users.project);
 
   /* ---------- แผนกแบ่งงานเป็น 3 งวดเอง ---------- */
   for (var i = 1; i <= 3; i++) {
-    callApiAs_(users.project, 'เพิ่มงวดที่ ' + i, function () {
-      return api_addTaskPeriod(pj.taskId, '');
+    await callApiAs_(users.project, 'เพิ่มงวดที่ ' + i, async function () {
+      return await api_addTaskPeriod(pj.taskId, '');
     });
   }
-  var created = listStepsByTask(pj.taskId);
+  var created = await listStepsByTask(pj.taskId);
   assertEquals_(created.length, 3, 'แผนกเพิ่มงวดเองได้ 3 งวด');
   assertEquals_(String(created[0]['Type']), STEP_TYPE.PERIOD, 'และเป็นงวดงาน ไม่ใช่ขั้นตอน');
   assertEquals_(String(created[2]['Step_Name']), 'งวดที่ 3', 'ไม่ได้ตั้งชื่อมา ระบบตั้งให้ตามลำดับ');
@@ -17261,18 +17266,18 @@ function test_report_projectPeriodsByDepartment() {
    * ซึ่งซ้ำกับงวดที่ยังอยู่ แล้ว Step_ID จะชนกันทันที — เป็นข้อมูลเสียหายจริง
    * ไม่ใช่แค่เรื่องเลขสวยหรือไม่สวย
    */
-  callApiAs_(users.project, 'ลบงวดกลาง', function () {
-    return api_removeTaskPeriod(created[1]['Step_ID']);
+  await callApiAs_(users.project, 'ลบงวดกลาง', async function () {
+    return await api_removeTaskPeriod(created[1]['Step_ID']);
   });
-  var afterMiddle = callApiAs_(users.project, 'เพิ่มงวดหลังลบงวดกลาง', function () {
-    return api_addTaskPeriod(pj.taskId, 'งวดที่เพิ่มแทนงวดกลาง');
+  var afterMiddle = await callApiAs_(users.project, 'เพิ่มงวดหลังลบงวดกลาง', async function () {
+    return await api_addTaskPeriod(pj.taskId, 'งวดที่เพิ่มแทนงวดกลาง');
   });
   assertEquals_(Number(afterMiddle.step['Step_No']), 4,
     'งวดใหม่ต้องนับต่อจากเลขสูงสุด ไม่ใช่จากจำนวนงวดที่เหลือ');
 
   var seen = {};
   var duplicated = [];
-  var periods = listStepsByTask(pj.taskId);
+  var periods = await listStepsByTask(pj.taskId);
   for (var d = 0; d < periods.length; d++) {
     var no = String(periods[d]['Step_No']);
     if (seen[no]) duplicated.push(no);
@@ -17281,44 +17286,44 @@ function test_report_projectPeriodsByDepartment() {
   assertEquals_(duplicated.join(', '), '', 'เลขงวดต้องไม่ซ้ำกันเอง แม้จะเคยลบงวดกลางไปแล้ว');
   assertEquals_(periods.length, 3, 'ตอนนี้มีสามงวดเหมือนเดิม (เลข 1, 3, 4)');
 
-  attachRequiredReports_(pj.taskId);
+  await attachRequiredReports_(pj.taskId);
 
   /* ---------- ทำเสร็จ 2 จาก 3 ยังปิดไม่ได้ ---------- */
   for (var c = 0; c < 2; c++) {
-    callApiAs_(users.project, 'ปิดงวด', function () {
-      return api_updateTaskStep(periods[c]['Step_ID'], { 'Status': STEP_STATUS.COMPLETED });
+    await callApiAs_(users.project, 'ปิดงวด', async function () {
+      return await api_updateTaskStep(periods[c]['Step_ID'], { 'Status': STEP_STATUS.COMPLETED });
     });
   }
-  var blocked = withTestUser_(users.project, function () { return api_completeTask(pj.taskId); });
+  var blocked = await withTestUser_(users.project, async function () { return await api_completeTask(pj.taskId); });
   assertEquals_(blocked.ok, false, 'เหลืออีกงวดที่ยังไม่เสร็จ ปิดงานไม่ได้');
   assertTrue_(String(blocked.message).indexOf('งวด') !== -1, 'และต้องบอกว่าติดที่งวดงาน');
 
   /* ---------- ลบงวดที่มีไฟล์แนบไม่ได้ ---------- */
-  uploadReport_(users.project, {
+  await uploadReport_(users.project, {
     woId: pj.woId, scope: FILE_SCOPE.PROJECT, taskId: pj.taskId,
     stepId: periods[2]['Step_ID'], reportCode: pj.reports.peRequired.code
   });
-  var withFile = withTestUser_(users.project, function () {
-    return api_removeTaskPeriod(periods[2]['Step_ID']);
+  var withFile = await withTestUser_(users.project, async function () {
+    return await api_removeTaskPeriod(periods[2]['Step_ID']);
   });
   assertEquals_(withFile.ok, false, 'งวดที่มีไฟล์แนบอยู่ ลบไม่ได้');
   assertTrue_(String(withFile.message).indexOf('ไฟล์') !== -1, 'และต้องบอกว่าติดที่ไฟล์');
-  assertEquals_(listStepsByTask(pj.taskId).length, 3, 'งวดต้องยังอยู่ครบ');
+  assertEquals_((await listStepsByTask(pj.taskId)).length, 3, 'งวดต้องยังอยู่ครบ');
 
   /* ---------- ลบงวดที่ทำเสร็จแล้วก็ไม่ได้ ---------- */
-  var doneOne = withTestUser_(users.project, function () {
-    return api_removeTaskPeriod(periods[0]['Step_ID']);
+  var doneOne = await withTestUser_(users.project, async function () {
+    return await api_removeTaskPeriod(periods[0]['Step_ID']);
   });
   assertEquals_(doneOne.ok, false, 'งวดที่ทำเสร็จแล้ว ลบไม่ได้');
   assertTrue_(String(doneOne.message).indexOf('เสร็จ') !== -1, 'พร้อมบอกเหตุผลที่แก้ได้');
 
   /* ---------- ทำงวดสุดท้ายให้เสร็จ แล้วปิดได้ ---------- */
-  callApiAs_(users.project, 'ปิดงวดสุดท้าย', function () {
-    return api_updateTaskStep(periods[2]['Step_ID'], { 'Status': STEP_STATUS.COMPLETED });
+  await callApiAs_(users.project, 'ปิดงวดสุดท้าย', async function () {
+    return await api_updateTaskStep(periods[2]['Step_ID'], { 'Status': STEP_STATUS.COMPLETED });
   });
-  callApiAs_(users.project, 'ปิดงาน', function () { return api_completeTask(pj.taskId); });
-  assertEquals_(getTask(pj.taskId)['Status'], TASK_STATUS.COMPLETED, 'ครบทุกงวดแล้วปิดงานได้');
-  assertEquals_(getWorkOrder(pj.woId)['Overall_Status'], WO_STATUS.COMPLETED, 'ใบงานปิดตาม');
+  await callApiAs_(users.project, 'ปิดงาน', async function () { return await api_completeTask(pj.taskId); });
+  assertEquals_((await getTask(pj.taskId))['Status'], TASK_STATUS.COMPLETED, 'ครบทุกงวดแล้วปิดงานได้');
+  assertEquals_((await getWorkOrder(pj.woId))['Overall_Status'], WO_STATUS.COMPLETED, 'ใบงานปิดตาม');
 
   return endTest_();
 }
@@ -17328,28 +17333,28 @@ function test_report_projectPeriodsByDepartment() {
  * ถ้าตรวจรวมทั้งใบ แผนกที่ยังไม่ได้ทำอะไรเลยจะปิดงานได้เพราะอีกแผนกแนบไปแล้ว
  * ซึ่งเป็นรูที่ไม่มีใครเห็นจนกว่าจะมีคนใช้ช่องนี้จริง
  */
-function test_report_jointChecksEachDepartment() {
+async function test_report_jointChecksEachDepartment() {
   beginTest_('งานร่วม — ด่านเอกสารตรวจแยกรายแผนก');
 
   var users = serviceTestUsers_();
-  var reports = addTestReports_();
-  var wo = approvedTestWo_(users, ASSIGNMENT.SERVICE_PROJECT, { 'Location': 'จุดงานร่วมเอกสาร' });
+  var reports = await addTestReports_();
+  var wo = await approvedTestWo_(users, ASSIGNMENT.SERVICE_PROJECT, { 'Location': 'จุดงานร่วมเอกสาร' });
   var svTask = wo.taskOf(DEPT.SERVICE);
   var pjTask = wo.taskOf(DEPT.PROJECT);
 
-  callApiAs_(users.service, 'Service รับงาน', function () { return api_acceptTask(svTask); });
-  callApiAs_(users.project, 'Project รับงาน', function () { return api_acceptTask(pjTask); });
+  await callApiAs_(users.service, 'Service รับงาน', async function () { return await api_acceptTask(svTask); });
+  await callApiAs_(users.project, 'Project รับงาน', async function () { return await api_acceptTask(pjTask); });
 
   /* ---------- Service แนบของตัวเองแล้วปิดได้ ---------- */
-  finishAllSteps_(svTask, users.service);
-  uploadReport_(users.service, {
+  await finishAllSteps_(svTask, users.service);
+  await uploadReport_(users.service, {
     woId: wo.woId, scope: FILE_SCOPE.SERVICE, taskId: svTask,
-    stepId: listStepsByTask(svTask)[0]['Step_ID'], reportCode: reports.svRequired.code
+    stepId: (await listStepsByTask(svTask))[0]['Step_ID'], reportCode: reports.svRequired.code
   });
-  attachRequiredReports_(svTask);
+  await attachRequiredReports_(svTask);
 
-  callApiAs_(users.service, 'Service ปิดงาน', function () { return api_completeTask(svTask); });
-  assertEquals_(getTask(svTask)['Status'], TASK_STATUS.COMPLETED, 'Service ปิดงานของตัวเองได้');
+  await callApiAs_(users.service, 'Service ปิดงาน', async function () { return await api_completeTask(svTask); });
+  assertEquals_((await getTask(svTask))['Status'], TASK_STATUS.COMPLETED, 'Service ปิดงานของตัวเองได้');
 
   /*
    * ---------- ไฟล์ของแผนกอื่นในใบเดียวกัน ต้องไม่ช่วยให้ผ่านด่าน ----------
@@ -17357,30 +17362,30 @@ function test_report_jointChecksEachDepartment() {
    * แนบเอกสารที่ Project ต้องใช้ เข้าไปที่งานของ Service แทน — ถ้าด่านนับรวมทั้งใบงาน
    * Project จะผ่านทันทีทั้งที่ยังไม่ได้ทำอะไรเลย ซึ่งเป็นรูที่มองไม่เห็นจากหน้าจอ
    */
-  uploadReport_(users.service, {
+  await uploadReport_(users.service, {
     woId: wo.woId, scope: FILE_SCOPE.SERVICE, taskId: svTask,
-    stepId: listStepsByTask(svTask)[1]['Step_ID'], reportCode: reports.peRequired.code
+    stepId: (await listStepsByTask(svTask))[1]['Step_ID'], reportCode: reports.peRequired.code
   });
 
   /* ---------- Project ยังปิดไม่ได้ เพราะยังไม่ได้แนบของตัวเอง ---------- */
-  var blocked = withTestUser_(users.project, function () { return api_completeTask(pjTask); });
+  var blocked = await withTestUser_(users.project, async function () { return await api_completeTask(pjTask); });
   assertEquals_(blocked.ok, false,
     'Project ต้องยังปิดไม่ได้ แม้อีกแผนกจะแนบเอกสารไปแล้ว — ต้องมีคนละใบ');
   assertTrue_(String(blocked.message).indexOf(reports.peRequired.name) !== -1,
     'และต้องบอกชื่อเอกสารของแผนกตัวเอง ไม่ใช่ของแผนกอื่น');
-  assertEquals_(getWorkOrder(wo.woId)['Overall_Status'], WO_STATUS.IN_PROGRESS,
+  assertEquals_((await getWorkOrder(wo.woId))['Overall_Status'], WO_STATUS.IN_PROGRESS,
     'ใบงานต้องยังไม่ปิด เพราะยังมีแผนกที่ทำไม่เสร็จ');
 
   /* ---------- Project แนบของตัวเองแล้วปิดได้ ใบงานจึงปิดตาม ---------- */
-  uploadReport_(users.project, {
+  await uploadReport_(users.project, {
     woId: wo.woId, scope: FILE_SCOPE.PROJECT, taskId: pjTask,
     reportCode: reports.peRequired.code
   });
-  attachRequiredReports_(pjTask);
+  await attachRequiredReports_(pjTask);
 
-  callApiAs_(users.project, 'Project ปิดงาน', function () { return api_completeTask(pjTask); });
-  assertEquals_(getTask(pjTask)['Status'], TASK_STATUS.COMPLETED, 'Project ปิดงานของตัวเองได้');
-  assertEquals_(getWorkOrder(wo.woId)['Overall_Status'], WO_STATUS.COMPLETED,
+  await callApiAs_(users.project, 'Project ปิดงาน', async function () { return await api_completeTask(pjTask); });
+  assertEquals_((await getTask(pjTask))['Status'], TASK_STATUS.COMPLETED, 'Project ปิดงานของตัวเองได้');
+  assertEquals_((await getWorkOrder(wo.woId))['Overall_Status'], WO_STATUS.COMPLETED,
     'ปิดครบทุกแผนกแล้ว ใบงานจึงปิดตาม');
 
   return endTest_();
@@ -17392,7 +17397,7 @@ function test_report_jointChecksEachDepartment() {
  * ตรวจตัวสรุปด้วยข้อมูลที่ป้อนเอง เพราะสภาพที่ต้องเตือนคือสภาพที่ชีตจริงไม่ได้เป็น
  * (ถ้ารอให้ชีตจริงเป็นแบบนั้นก่อนค่อยรู้ว่าเตือนถูกไหม ก็สายไปแล้ว)
  */
-function test_report_masterCheck() {
+async function test_report_masterCheck() {
   beginTest_('checkReportMaster เตือนสภาพที่มองไม่เห็นจากหน้าจอ');
 
   /* ---------- ตารางที่ครบถ้วน ต้องไม่เตือนอะไรเลย ---------- */
@@ -17438,8 +17443,8 @@ function test_report_masterCheck() {
     'แถวที่ชนิดไม่ตรงกับแผนกใด ต้องเตือน ไม่ใช่เงียบแล้วหายไปจากทุกหน้าจอ');
 
   /* ---------- ตัวเครื่องมือเองต้องรันได้จริงและอ่านรู้เรื่อง ---------- */
-  addTestReports_();
-  var report = checkReportMaster();
+  await addTestReports_();
+  var report = await checkReportMaster();
   assertTrue_(report.indexOf('ตรวจตาราง Report_Master') === 0, 'รายงานต้องขึ้นหัวเรื่องชัดเจน');
   assertTrue_(report.indexOf(DEPT.SERVICE) !== -1, 'และต้องรายงานแยกตามชนิดครบทุกชนิด');
   assertTrue_(report.indexOf(DEPT.LAB) !== -1, 'รวมถึงชนิดที่อาจไม่มีรายการเลย');
@@ -17481,8 +17486,8 @@ function testBackupFolder_() {
  * ลบข้อมูลและไฟล์ที่ชุดสำรองสร้างไว้
  * @param {number} knownRows จำนวนแถวที่ชุดนี้เขียนลง _test_bulk
  */
-function cleanBackupTest_(knownRows) {
-  dbDeleteVerified_(TEST_BULK_TABLE, { 'Row_ID': { op: 'like', value: TEST_PREFIX + '*' } },
+async function cleanBackupTest_(knownRows) {
+  await dbDeleteVerified_(TEST_BULK_TABLE, { 'Row_ID': { op: 'like', value: TEST_PREFIX + '*' } },
     'แถวทดสอบสำรองข้อมูล', knownRows);
   driveTrashById_(testBackupFolder_(), true);
   dbInvalidate_(TEST_BULK_TABLE);
@@ -17498,7 +17503,7 @@ function cleanBackupTest_(knownRows) {
  *   ตัวเลขที่มีศูนย์นำ    — กลายเป็นตัวเลขเมื่อไร ศูนย์หน้าหายทันที
  *   false                — หายไปได้แบบเดียวกับศูนย์
  */
-function test_db_backupCanBeRestored() {
+async function test_db_backupCanBeRestored() {
   beginTest_('ลบข้อมูลจริงแล้วกู้กลับ ต้องเหมือนเดิมทุกฟิลด์');
 
   var rows = [
@@ -17509,15 +17514,15 @@ function test_db_backupCanBeRestored() {
   ];
 
   try {
-    db_insert_(TEST_BULK_TABLE, rows);
+    await db_insert_(TEST_BULK_TABLE, rows);
     dbInvalidate_(TEST_BULK_TABLE);
 
-    var before = db_selectAll_(TEST_BULK_TABLE, { raw: true });
+    var before = await db_selectAll_(TEST_BULK_TABLE, { raw: true });
     assertEquals_(before.length, rows.length, 'ต้องมีแถวทดสอบครบก่อนสำรอง');
 
     /* ---------- สำรอง ---------- */
     var folderId = testBackupFolder_();
-    var saved = backupOneTable_(folderId, TEST_BULK_TABLE, new Date());
+    var saved = await backupOneTable_(folderId, TEST_BULK_TABLE, new Date());
     assertTrue_(saved.ok, 'การสำรองต้องสำเร็จ · ที่ได้: ' + saved.note);
     assertEquals_(saved.written, rows.length, 'ต้องเขียนลงไฟล์ครบทุกแถว');
     assertEquals_(saved.counted, rows.length,
@@ -17528,25 +17533,25 @@ function test_db_backupCanBeRestored() {
     var fileId = files[0].id;
 
     /* ---------- ลบข้อมูลจริงทิ้ง ---------- */
-    var removed = db_delete_(TEST_BULK_TABLE,
-      { 'Row_ID': { op: 'like', value: TEST_PREFIX + '*' } }).length;
+    var removed = (await db_delete_(TEST_BULK_TABLE,
+      { 'Row_ID': { op: 'like', value: TEST_PREFIX + '*' } })).length;
     dbInvalidate_(TEST_BULK_TABLE);
     assertEquals_(removed, rows.length, 'ต้องลบทิ้งได้จริงก่อน ไม่งั้นการกู้ไม่ได้พิสูจน์อะไร');
-    assertEquals_(db_count_(TEST_BULK_TABLE,
+    assertEquals_(await db_count_(TEST_BULK_TABLE,
       { 'Row_ID': { op: 'like', value: TEST_PREFIX + '*' } }), 0, 'และต้องไม่เหลือสักแถว');
 
     /* ---------- ลองเปล่าต้องไม่เขียนอะไรเลย ---------- */
-    restoreTableFromBackup(TEST_BULK_TABLE, fileId);
+    await restoreTableFromBackup(TEST_BULK_TABLE, fileId);
     dbInvalidate_(TEST_BULK_TABLE);
-    assertEquals_(db_count_(TEST_BULK_TABLE,
+    assertEquals_(await db_count_(TEST_BULK_TABLE,
       { 'Row_ID': { op: 'like', value: TEST_PREFIX + '*' } }), 0,
       'โหมดลองเปล่าต้องไม่เขียนอะไรจริงสักแถว — นี่คือค่าตั้งต้น และเป็นด่านสุดท้าย' +
       'ที่กันไม่ให้คนที่กำลังตกใจเขียนทับของที่ยังดีอยู่');
 
     /* ---------- กู้จริง ---------- */
-    restoreTableFromBackup(TEST_BULK_TABLE, fileId, { write: true });
+    await restoreTableFromBackup(TEST_BULK_TABLE, fileId, { write: true });
     dbInvalidate_(TEST_BULK_TABLE);
-    var after = db_selectAll_(TEST_BULK_TABLE, { raw: true });
+    var after = await db_selectAll_(TEST_BULK_TABLE, { raw: true });
     assertEquals_(after.length, rows.length, 'กู้แล้วต้องได้แถวครบเท่าเดิม');
 
     /* ---------- เทียบทีละแถวทีละฟิลด์ ---------- */
@@ -17584,7 +17589,7 @@ function test_db_backupCanBeRestored() {
     assertEquals_(byKey[TEST_PREFIX + '00420']['row_id'], TEST_PREFIX + '00420',
       'รหัสที่มีศูนย์นำต้องไม่ถูกแปลงเป็นตัวเลขแล้วศูนย์หาย');
   } finally {
-    cleanBackupTest_(rows.length);
+    await cleanBackupTest_(rows.length);
   }
 
   return endTest_();
@@ -17599,7 +17604,7 @@ function test_db_backupCanBeRestored() {
  * กรณีที่ทดสอบคือกรณีที่เกิดจริง ไม่ใช่กรณีสมมติ — รหัสไฟล์บน Drive เป็นตัวอักษรสุ่ม
  * ที่ดูด้วยตาไม่ออกว่าเป็นของตารางไหน การหยิบผิดไฟล์จึงเป็นเรื่องของเวลาเท่านั้น
  */
-function test_db_badBackupFileIsRefused() {
+async function test_db_badBackupFileIsRefused() {
   beginTest_('ไฟล์สำรองที่ผิดหรือไม่ครบ ต้องถูกปฏิเสธ');
 
   var folderId = testBackupFolder_();
@@ -17609,7 +17614,7 @@ function test_db_badBackupFileIsRefused() {
     var wrongTable = driveCreateTextFile_(folderId, 'wrong.json', JSON.stringify({
       table: 'WorkOrder', rowCount: 0, rows: []
     }));
-    assertThrows_(function () { restoreTableFromBackup(TEST_BULK_TABLE, wrongTable.id, { write: true }); },
+    await assertThrows_(async function () { await restoreTableFromBackup(TEST_BULK_TABLE, wrongTable.id, { write: true }); },
       'ไฟล์ของตารางอื่นต้องถูกปฏิเสธ ไม่ใช่เอาไปเขียนทับ');
 
     /* ---------- ไฟล์ที่จำนวนแถวไม่ตรงกับที่ประกาศไว้ ---------- */
@@ -17617,21 +17622,21 @@ function test_db_badBackupFileIsRefused() {
       table: TEST_BULK_TABLE, rowCount: 9,
       rows: [{ row_id: TEST_PREFIX + 'X1', row_name: 'เหลือแถวเดียว', sort_order: 1, active: true }]
     }));
-    assertThrows_(function () { restoreTableFromBackup(TEST_BULK_TABLE, shortFile.id, { write: true }); },
+    await assertThrows_(async function () { await restoreTableFromBackup(TEST_BULK_TABLE, shortFile.id, { write: true }); },
       'ไฟล์ที่บอกว่ามี 9 แถวแต่มีจริงแถวเดียว ต้องถูกปฏิเสธ — ไฟล์ไม่ครบห้ามใช้กู้');
 
     /* ---------- เนื้อไฟล์เสีย ---------- */
     var broken = driveCreateTextFile_(folderId, 'broken.json', '{ นี่ไม่ใช่ JSON');
-    assertThrows_(function () { restoreTableFromBackup(TEST_BULK_TABLE, broken.id, { write: true }); },
+    await assertThrows_(async function () { await restoreTableFromBackup(TEST_BULK_TABLE, broken.id, { write: true }); },
       'ไฟล์ที่เนื้อเสียต้องถูกปฏิเสธพร้อมบอกเหตุผล');
 
     /* ---------- ไม่ได้ระบุไฟล์เลย ---------- */
-    assertThrows_(function () { restoreTableFromBackup(TEST_BULK_TABLE, '', { write: true }); },
+    await assertThrows_(async function () { await restoreTableFromBackup(TEST_BULK_TABLE, '', { write: true }); },
       'ไม่ระบุรหัสไฟล์ต้องถูกปฏิเสธ ไม่ใช่เดาเอาว่าจะใช้ไฟล์ไหน');
 
     /* ---------- ไม่มีแถวไหนถูกเขียนลงไปเลยจากทั้งสี่กรณี ---------- */
     dbInvalidate_(TEST_BULK_TABLE);
-    assertEquals_(db_count_(TEST_BULK_TABLE,
+    assertEquals_(await db_count_(TEST_BULK_TABLE,
       { 'Row_ID': { op: 'like', value: TEST_PREFIX + '*' } }), 0,
       'ทั้งสี่กรณีต้องไม่มีแถวไหนหลุดเข้าไปในตารางเลย');
   } finally {
@@ -17768,7 +17773,7 @@ function test_db_schemaVersionMovesWithColumns() {
  *
  * @return {string} ข้อความสรุปผล
  */
-function test_group_db() {
+async function test_group_db() {
   var suites = [
     { name: 'test_db_columnMapRoundTrip',    fn: test_db_columnMapRoundTrip },
     { name: 'test_db_columnMapRejectsUnknown', fn: test_db_columnMapRejectsUnknown },
@@ -17817,7 +17822,7 @@ function test_group_db() {
     Logger.log('!! เหลือแต่ชุดที่เป็นตรรกะล้วน — ชั้นเชื่อมต่อจริงยังไม่ถูกพิสูจน์ในรอบนี้');
   }
 
-  return runGroup_('DB', suites);
+  return await runGroup_('DB', suites);
 }
 
 /* ---------- ส่วนที่ 1: ตรรกะล้วน รันได้ทุกที่ ---------- */
@@ -17890,16 +17895,16 @@ function test_db_columnMapRoundTrip() {
  * การทิ้งเงียบคือความผิดพลาดที่แพงที่สุดแบบหนึ่ง เพราะค่าที่ตั้งใจบันทึกหายไป
  * โดยที่ทุกอย่างรายงานว่าสำเร็จ และจะรู้ตัวก็ต่อเมื่อมีคนไปเปิดดูข้อมูลนั้นอีกครั้ง
  */
-function test_db_columnMapRejectsUnknown() {
+async function test_db_columnMapRejectsUnknown() {
   beginTest_('คอลัมน์และตารางที่ไม่รู้จักต้องถูกปฏิเสธทันที');
 
-  assertThrowsMessage_(function () { dbColumnMap_('Mai_Mee_Tarang_Nee'); },
+  await assertThrowsMessage_(function () { dbColumnMap_('Mai_Mee_Tarang_Nee'); },
     'DB_COLUMNS', 'ตารางที่ไม่ได้ประกาศต้องถูกปฏิเสธ');
 
-  assertThrowsMessage_(function () { toDb_('WorkOrder', { Mai_Mee_Column: 1 }); },
+  await assertThrowsMessage_(function () { toDb_('WorkOrder', { Mai_Mee_Column: 1 }); },
     'DB_COLUMNS', 'คอลัมน์ที่ไม่ได้ประกาศต้องถูกปฏิเสธตอนเขียน');
 
-  assertThrowsMessage_(function () { fromDb_('WorkOrder', { mai_mee_column: 1 }); },
+  await assertThrowsMessage_(function () { fromDb_('WorkOrder', { mai_mee_column: 1 }); },
     'DB_COLUMNS', 'คอลัมน์แปลกที่ฐานข้อมูลคืนมาต้องถูกปฏิเสธตอนอ่าน');
 
   // ของจริงต้องผ่าน เพื่อพิสูจน์ว่าด่านไม่ได้ปฏิเสธทุกอย่างทิ้ง
@@ -17957,12 +17962,12 @@ function test_db_secretsNeverLeak() {
 /**
  * เพิ่มแถวแล้วอ่านกลับมาได้ พร้อมค่าที่ DEFAULT ของฐานข้อมูลเติมให้
  */
-function test_db_insertAndSelect() {
+async function test_db_insertAndSelect() {
   beginTest_('เพิ่มแถวแล้วอ่านกลับมาได้ครบ');
-  dbTestCleanup_();
+  await dbTestCleanup_();
 
   var id = DB_TEST_PREFIX + 'RQ1';
-  var written = db_insert_('Request_Type', {
+  var written = await db_insert_('Request_Type', {
     Request_ID: id, Request_Name: 'ทดสอบชั้นเชื่อมต่อ', Sort_Order: 901
   });
 
@@ -17975,114 +17980,114 @@ function test_db_insertAndSelect() {
    */
   assertEquals_(written[0].Active, true, 'ช่องว่างของ Active ต้องกลายเป็น true ตามกฎข้อ 25');
 
-  var read = db_select_('Request_Type', { filters: { Request_ID: id } });
+  var read = await db_select_('Request_Type', { filters: { Request_ID: id } });
   assertEquals_(read.length, 1, 'อ่านกลับมาต้องเจอแถวเดียว');
   assertEquals_(read[0].Request_Name, 'ทดสอบชั้นเชื่อมต่อ', 'ค่าที่อ่านกลับต้องตรงกับที่เขียนไป');
   assertEquals_(read[0].Sort_Order, 901, 'ตัวเลขต้องกลับมาเป็นตัวเลข ไม่ใช่ข้อความ');
 
-  dbTestCleanup_();
+  await dbTestCleanup_();
   return endTest_();
 }
 
 /**
  * ตัวกรอง การเรียง การเลือกคอลัมน์ และการแบ่งหน้า ต้องถูกผลักไปให้ฐานข้อมูลทำ
  */
-function test_db_selectFilters() {
+async function test_db_selectFilters() {
   beginTest_('ตัวกรอง เรียงลำดับ เลือกคอลัมน์ และแบ่งหน้า');
-  dbTestCleanup_();
+  await dbTestCleanup_();
 
-  db_insert_('Request_Type', [
+  await db_insert_('Request_Type', [
     { Request_ID: DB_TEST_PREFIX + 'A', Request_Name: 'กอ', Sort_Order: 903 },
     { Request_ID: DB_TEST_PREFIX + 'B', Request_Name: 'ขอ', Sort_Order: 902 },
     { Request_ID: DB_TEST_PREFIX + 'C', Request_Name: 'คอ', Sort_Order: 901 }
   ]);
 
-  var ordered = db_select_('Request_Type', {
+  var ordered = await db_select_('Request_Type', {
     filters: { Request_ID: { op: 'like', value: DB_TEST_PREFIX + '*' } },
     order: { column: 'Sort_Order', ascending: true }
   });
   assertEquals_(ordered.length, 3, 'ตัวกรองแบบ like ต้องเจอครบทั้งสามแถว');
   assertEquals_(ordered[0].Request_ID, DB_TEST_PREFIX + 'C', 'และต้องเรียงจากน้อยไปมากตามที่สั่ง');
 
-  var descending = db_select_('Request_Type', {
+  var descending = await db_select_('Request_Type', {
     filters: { Request_ID: { op: 'like', value: DB_TEST_PREFIX + '*' } },
     order: { column: 'Sort_Order', ascending: false }
   });
   assertEquals_(descending[0].Request_ID, DB_TEST_PREFIX + 'A', 'สั่งเรียงกลับทางต้องได้ผลกลับทางจริง');
 
-  var picked = db_select_('Request_Type', {
+  var picked = await db_select_('Request_Type', {
     filters: { Request_ID: { op: 'in', value: [DB_TEST_PREFIX + 'A', DB_TEST_PREFIX + 'B'] } }
   });
   assertEquals_(picked.length, 2, 'ตัวกรองแบบ in ต้องเจอสองแถว');
 
-  var thin = db_select_('Request_Type', {
+  var thin = await db_select_('Request_Type', {
     filters: { Request_ID: DB_TEST_PREFIX + 'A' },
     select: ['Request_ID', 'Sort_Order']
   });
   assertEquals_(thin.length, 1, 'เลือกเฉพาะบางคอลัมน์ต้องยังได้แถวครบ');
   assertTrue_(thin[0].Request_Name === undefined, 'คอลัมน์ที่ไม่ได้ขอต้องไม่ติดมาด้วย');
 
-  var paged = db_select_('Request_Type', {
+  var paged = await db_select_('Request_Type', {
     filters: { Request_ID: { op: 'like', value: DB_TEST_PREFIX + '*' } },
     order: 'Sort_Order', limit: 1, offset: 1
   });
   assertEquals_(paged.length, 1, 'limit ต้องจำกัดจำนวนแถวได้จริง');
   assertEquals_(paged[0].Request_ID, DB_TEST_PREFIX + 'B', 'และ offset ต้องข้ามแถวแรกไปจริง');
 
-  assertEquals_(db_count_('Request_Type',
+  assertEquals_(await db_count_('Request_Type',
     { Request_ID: { op: 'like', value: DB_TEST_PREFIX + '*' } }), 3,
     'การนับแถวต้องได้จำนวนจริงโดยไม่ต้องดึงข้อมูลลงมา');
 
-  dbTestCleanup_();
+  await dbTestCleanup_();
   return endTest_();
 }
 
 /**
  * แก้ไขและเพิ่ม-ทับ พร้อมด่านกันการแก้ทั้งตารางโดยไม่ได้ตั้งใจ
  */
-function test_db_updateAndUpsert() {
+async function test_db_updateAndUpsert() {
   beginTest_('แก้ไขแถวและเพิ่ม-ทับเมื่อคีย์ซ้ำ');
-  dbTestCleanup_();
+  await dbTestCleanup_();
 
   var id = DB_TEST_PREFIX + 'U1';
-  db_insert_('Request_Type', { Request_ID: id, Request_Name: 'ก่อนแก้', Sort_Order: 901 });
+  await db_insert_('Request_Type', { Request_ID: id, Request_Name: 'ก่อนแก้', Sort_Order: 901 });
 
-  var updated = db_update_('Request_Type', { Request_ID: id }, { Request_Name: 'หลังแก้' });
+  var updated = await db_update_('Request_Type', { Request_ID: id }, { Request_Name: 'หลังแก้' });
   assertEquals_(updated.length, 1, 'ต้องได้แถวที่แก้แล้วกลับมา');
   assertEquals_(updated[0].Request_Name, 'หลังแก้', 'ค่าต้องเปลี่ยนจริง');
   assertEquals_(updated[0].Sort_Order, 901, 'คอลัมน์ที่ไม่ได้สั่งแก้ต้องคงค่าเดิม');
 
-  var upserted = db_upsert_('Request_Type',
+  var upserted = await db_upsert_('Request_Type',
     { Request_ID: id, Request_Name: 'ทับของเดิม', Sort_Order: 902 });
   assertEquals_(upserted.length, 1, 'เพิ่ม-ทับต้องได้แถวเดียว ไม่ใช่สร้างแถวใหม่');
   assertEquals_(upserted[0].Request_Name, 'ทับของเดิม', 'และต้องทับค่าเดิมจริง');
-  assertEquals_(db_count_('Request_Type', { Request_ID: id }), 1, 'ต้องไม่มีแถวซ้ำเกิดขึ้น');
+  assertEquals_(await db_count_('Request_Type', { Request_ID: id }), 1, 'ต้องไม่มีแถวซ้ำเกิดขึ้น');
 
   /* ---------- ด่านกันอุบัติเหตุ ---------- */
   // ไม่มีเงื่อนไขแปลว่าโดนทั้งตาราง ซึ่งย้อนกลับไม่ได้และไม่มีใครตั้งใจทำ
-  assertThrowsMessage_(function () { db_update_('Request_Type', {}, { Sort_Order: 1 }); },
+  await assertThrowsMessage_(async function () { await db_update_('Request_Type', {}, { Sort_Order: 1 }); },
     'ต้องระบุเงื่อนไข', 'แก้ทั้งตารางโดยไม่มีเงื่อนไขต้องถูกปฏิเสธ');
 
-  dbTestCleanup_();
+  await dbTestCleanup_();
   return endTest_();
 }
 
 /**
  * ลบแถว พร้อมด่านกันการลบทั้งตาราง
  */
-function test_db_deleteRows() {
+async function test_db_deleteRows() {
   beginTest_('ลบแถวที่ตรงเงื่อนไข');
-  dbTestCleanup_();
+  await dbTestCleanup_();
 
   var id = DB_TEST_PREFIX + 'D1';
-  db_insert_('Request_Type', { Request_ID: id, Request_Name: 'รอลบ', Sort_Order: 901 });
+  await db_insert_('Request_Type', { Request_ID: id, Request_Name: 'รอลบ', Sort_Order: 901 });
 
-  var removed = db_delete_('Request_Type', { Request_ID: id });
+  var removed = await db_delete_('Request_Type', { Request_ID: id });
   assertEquals_(removed.length, 1, 'ต้องได้แถวที่ถูกลบกลับมา');
   assertEquals_(removed[0].Request_ID, id, 'และต้องเป็นแถวที่สั่งลบจริง');
-  assertEquals_(db_count_('Request_Type', { Request_ID: id }), 0, 'อ่านซ้ำต้องไม่เจอแล้ว');
+  assertEquals_(await db_count_('Request_Type', { Request_ID: id }), 0, 'อ่านซ้ำต้องไม่เจอแล้ว');
 
-  assertThrowsMessage_(function () { db_delete_('Request_Type', {}); },
+  await assertThrowsMessage_(async function () { await db_delete_('Request_Type', {}); },
     'ต้องระบุเงื่อนไข', 'ลบทั้งตารางโดยไม่มีเงื่อนไขต้องถูกปฏิเสธ');
 
   return endTest_();
@@ -18091,34 +18096,34 @@ function test_db_deleteRows() {
 /**
  * ตัวออกเลขแบบ atomic — เหตุผลหลักข้อหนึ่งของการย้าย (SPEC 22.4)
  */
-function test_db_rpcRunningNumber() {
+async function test_db_rpcRunningNumber() {
   beginTest_('ออกเลขที่ด้วย RPC ต้องไม่ซ้ำและเรียงติดกัน');
-  dbTestCleanup_();
+  await dbTestCleanup_();
 
   var key = DB_TEST_PREFIX + 'COUNTER';
-  var first  = Number(db_rpc_('next_running_number', { p_key: key }));
-  var second = Number(db_rpc_('next_running_number', { p_key: key }));
-  var third  = Number(db_rpc_('next_running_number', { p_key: key }));
+  var first  = Number(await db_rpc_('next_running_number', { p_key: key }));
+  var second = Number(await db_rpc_('next_running_number', { p_key: key }));
+  var third  = Number(await db_rpc_('next_running_number', { p_key: key }));
 
   assertEquals_(first, 1, 'คีย์ใหม่ต้องเริ่มที่ 1');
   assertEquals_(second, first + 1, 'ครั้งที่สองต้องเป็นเลขถัดไป');
   assertEquals_(third, second + 1, 'ครั้งที่สามต้องเป็นเลขถัดไปอีกหนึ่ง');
 
-  var row = db_select_('Counter', { filters: { 'Key': key } });
+  var row = await db_select_('Counter', { filters: { 'Key': key } });
   assertEquals_(row.length, 1, 'ต้องมีแถวตัวนับเกิดขึ้นจริงหนึ่งแถว');
   assertEquals_(row[0].Last_Number, third, 'และเลขล่าสุดในตารางต้องตรงกับที่เพิ่งออกให้');
 
-  dbTestCleanup_();
+  await dbTestCleanup_();
   return endTest_();
 }
 
 /**
  * อ่านหลายตารางพร้อมกันต้องได้ผลเท่ากับอ่านทีละตาราง
  */
-function test_db_fetchAllTables() {
+async function test_db_fetchAllTables() {
   beginTest_('อ่านหลายตารางพร้อมกันในรอบเดียว');
 
-  var together = db_fetchAll_([
+  var together = await db_fetchAll_([
     { tableKey: 'Request_Type',     order: 'Sort_Order', limit: 3 },
     { tableKey: 'Report_Master',    order: 'Sort_Order', limit: 3 },
     { tableKey: 'Attachment_Topic', order: 'Topic_ID',   limit: 3 }
@@ -18126,7 +18131,7 @@ function test_db_fetchAllTables() {
 
   assertEquals_(together.length, 3, 'ต้องได้ผลครบทั้งสามคำขอ');
 
-  var alone = db_select_('Report_Master', { order: 'Sort_Order', limit: 3 });
+  var alone = await db_select_('Report_Master', { order: 'Sort_Order', limit: 3 });
   assertEquals_(together[1].length, alone.length, 'จำนวนแถวต้องเท่ากับการอ่านทีละตาราง');
 
   if (alone.length) {
@@ -18149,28 +18154,28 @@ function test_db_fetchAllTables() {
  * หมายเหตุ: ข้อนี้ทำให้เกิดบรรทัด DB_FAILED ใน System_Log จริงสองบรรทัด
  * ซึ่งเป็นสิ่งที่ต้องการ เพราะกำลังพิสูจน์ว่าของจริงถูกบันทึกไว้ที่นั่น
  */
-function test_db_failuresStayThai() {
+async function test_db_failuresStayThai() {
   beginTest_('ความล้มเหลวทุกแบบต้องกลายเป็นข้อความไทยกลาง ๆ');
-  dbTestCleanup_();
+  await dbTestCleanup_();
 
   /* ---------- ตารางที่ไม่มีอยู่จริง ---------- */
-  dbExpectUserMessage_(function () {
-    db_fetch_('GET', '/tarang_tee_mai_mee_jing_loey?select=*', null, { retries: 0 });
+  await dbExpectUserMessage_(async function () {
+    await db_fetch_('GET', '/tarang_tee_mai_mee_jing_loey?select=*', null, { retries: 0 });
   }, 'ตารางที่ไม่มีอยู่จริงต้องได้ข้อความกลาง ๆ');
 
   /* ---------- คีย์ซ้ำ ---------- */
   var id = DB_TEST_PREFIX + 'DUP';
-  db_insert_('Request_Type', { Request_ID: id, Request_Name: 'ตัวแรก', Sort_Order: 901 });
+  await db_insert_('Request_Type', { Request_ID: id, Request_Name: 'ตัวแรก', Sort_Order: 901 });
 
-  dbExpectUserMessage_(function () {
-    db_insert_('Request_Type', { Request_ID: id, Request_Name: 'ตัวซ้ำ', Sort_Order: 902 });
+  await dbExpectUserMessage_(async function () {
+    await db_insert_('Request_Type', { Request_ID: id, Request_Name: 'ตัวซ้ำ', Sort_Order: 902 });
   }, 'คีย์ซ้ำต้องได้ข้อความกลาง ๆ ตัวเดียวกัน');
 
   // และต้องไม่ถูกยิงซ้ำจนเกิดแถวซ้ำขึ้นมาจริง — 4xx ห้ามลองใหม่ (กฎข้อ 24)
-  assertEquals_(db_count_('Request_Type', { Request_ID: id }), 1,
+  assertEquals_(await db_count_('Request_Type', { Request_ID: id }), 1,
     'ความล้มเหลวแบบ 4xx ต้องไม่ถูกยิงซ้ำจนเกิดข้อมูลซ้ำ');
 
-  dbTestCleanup_();
+  await dbTestCleanup_();
   return endTest_();
 }
 
@@ -18278,12 +18283,12 @@ var SEARCH_TRAP_NAMES_ = Object.freeze([
  * ตัวที่กำลังพิสูจน์คือชั้นประกอบตัวกรอง ซึ่งเป็นโค้ดชุดเดียวกันทุกตาราง
  * ผลที่ได้จึงใช้ยืนยันเส้นทางค้นลูกค้าได้
  */
-function test_db_searchSurvivesSpecialCharacters() {
+async function test_db_searchSurvivesSpecialCharacters() {
   beginTest_('คำค้นที่มีอักขระพิเศษต้องได้ผลตรงเป๊ะ');
 
   var prefix = testPrefix_() + 'TRAP-';
   var mine = { Row_ID: { op: 'like', value: prefix + '*' } };
-  dbDeleteVerified_(TEST_BULK_TABLE, mine, 'แถวทดสอบอักขระพิเศษ');
+  await dbDeleteVerified_(TEST_BULK_TABLE, mine, 'แถวทดสอบอักขระพิเศษ');
 
   var rows = [];
   for (var i = 0; i < SEARCH_TRAP_NAMES_.length; i++) {
@@ -18292,13 +18297,13 @@ function test_db_searchSurvivesSpecialCharacters() {
   }
 
   try {
-    db_insert_(TEST_BULK_TABLE, rows);
+    await db_insert_(TEST_BULK_TABLE, rows);
 
     for (var t = 0; t < SEARCH_TRAP_NAMES_.length; t++) {
       var name = SEARCH_TRAP_NAMES_[t];
       var filters = { Row_ID: { op: 'like', value: prefix + '*' },
         Row_Name: { op: 'ilike', value: dbContainsPattern_(name) } };
-      var found = db_select_(TEST_BULK_TABLE, { filters: filters, order: 'Row_ID' });
+      var found = await db_select_(TEST_BULK_TABLE, { filters: filters, order: 'Row_ID' });
 
       assertEquals_(found.length, 1,
         'ค้นชื่อเต็มที่มีอักขระพิเศษ ต้องได้แถวเดียวพอดี — "' + name + '"');
@@ -18311,34 +18316,34 @@ function test_db_searchSurvivesSpecialCharacters() {
      * นี่คือหัวใจของข้อนี้ · ถ้าไม่หลีก `_` คำค้น "A_B" จะเข้ากับ "AxB" ด้วย
      * แล้วผู้ใช้จะเห็นลูกค้าที่ไม่เกี่ยวข้องโผล่มาในรายการ โดยไม่มีอะไรผิดพลาดให้เห็น
      */
-    db_insert_(TEST_BULK_TABLE, [
+    await db_insert_(TEST_BULK_TABLE, [
       { Row_ID: prefix + 'X1', Row_Name: 'รหัส AxB ชั้นสอง', Sort_Order: 90, Active: true },
       { Row_ID: prefix + 'X2', Row_Name: 'ลดราคา 1000 ทั้งร้าน', Sort_Order: 91, Active: true }
     ]);
 
-    var underscore = db_select_(TEST_BULK_TABLE, { filters: {
+    var underscore = await db_select_(TEST_BULK_TABLE, { filters: {
       Row_ID: { op: 'like', value: prefix + '*' },
       Row_Name: { op: 'ilike', value: dbContainsPattern_('A_B') } } });
     assertEquals_(underscore.length, 1, 'ขีดล่างต้องเป็นตัวอักษร ไม่ใช่ "อักขระอะไรก็ได้หนึ่งตัว"');
     assertEquals_(String(underscore[0].Row_Name), 'รหัส A_B ชั้นสอง',
       'และต้องเป็นแถวที่มีขีดล่างจริง ไม่ใช่แถวที่มีตัวอักษรอื่นคั่นอยู่');
 
-    var percent = db_select_(TEST_BULK_TABLE, { filters: {
+    var percent = await db_select_(TEST_BULK_TABLE, { filters: {
       Row_ID: { op: 'like', value: prefix + '*' },
       Row_Name: { op: 'ilike', value: dbContainsPattern_('100%') } } });
     assertEquals_(percent.length, 1, 'เปอร์เซ็นต์ต้องเป็นตัวอักษร ไม่ใช่ "ข้อความอะไรก็ได้"');
 
     /* ---------- คำค้นว่างต้องไม่พังและต้องยังมีเพดาน ---------- */
-    var limited = db_select_(TEST_BULK_TABLE, { filters: {
+    var limited = await db_select_(TEST_BULK_TABLE, { filters: {
       Row_ID: { op: 'like', value: prefix + '*' },
       Row_Name: { op: 'ilike', value: dbContainsPattern_('') } }, limit: 3 });
     assertEquals_(limited.length, 3, 'คำค้นว่างต้องยังถูกจำกัดจำนวนตามที่สั่ง');
   } finally {
-    dbDeleteVerified_(TEST_BULK_TABLE, mine, 'แถวทดสอบอักขระพิเศษ');
+    await dbDeleteVerified_(TEST_BULK_TABLE, mine, 'แถวทดสอบอักขระพิเศษ');
     clearRowCache_();
   }
 
-  assertEquals_(db_count_(TEST_BULK_TABLE, mine), 0, 'ต้องไม่เหลือแถวทดสอบไว้เลย');
+  assertEquals_(await db_count_(TEST_BULK_TABLE, mine), 0, 'ต้องไม่เหลือแถวทดสอบไว้เลย');
 
   return endTest_();
 }
@@ -18353,11 +18358,11 @@ function test_db_searchSurvivesSpecialCharacters() {
  * ส่วนการเทียบกับวิธีเดิม คือสิ่งที่พิสูจน์ว่าย้ายการกรองไปฐานข้อมูลแล้วผู้ใช้
  * ยังเห็นของชุดเดิมในลำดับเดิม — ทั้งช่องที่ค้นและลำดับที่แสดง
  */
-function test_db_customerSearchCostsOneRequest() {
+async function test_db_customerSearchCostsOneRequest() {
   beginTest_('ค้นลูกค้าหนึ่งครั้ง = หนึ่งคำขอ และผลเหมือนเดิม');
 
   clearRowCache_();
-  var everyone = db_selectAll_(SHEET.CUSTOMER, {});
+  var everyone = await db_selectAll_(SHEET.CUSTOMER, {});
   assertTrue_(everyone.length >= 0, 'ต้องอ่านตารางลูกค้าได้ ไม่งั้นการเทียบไม่มีความหมาย');
 
   /* ---------- คำค้นที่หยิบมาจากข้อมูลจริง เพื่อให้มีผลลัพธ์แน่ ๆ ---------- */
@@ -18373,7 +18378,7 @@ function test_db_customerSearchCostsOneRequest() {
 
     clearRowCache_();
     dbCallReset_();
-    var got = searchCustomers(queries[q], CUSTOMER_SEARCH_LIMIT);
+    var got = await searchCustomers(queries[q], CUSTOMER_SEARCH_LIMIT);
     var used = dbCallCount();
 
     assertEquals_(used, 1,
@@ -18396,7 +18401,7 @@ function test_db_customerSearchCostsOneRequest() {
 
   /* ---------- ห้ามมีใครเผลอเรียกซ้ำในวนลูป ---------- */
   dbCallReset_();
-  for (var n = 0; n < 5; n++) searchCustomers(sample || 'ก', CUSTOMER_SEARCH_LIMIT);
+  for (var n = 0; n < 5; n++) await searchCustomers(sample || 'ก', CUSTOMER_SEARCH_LIMIT);
   assertEquals_(dbCallCount(), 5,
     'ค้นห้าครั้งต้องเป็นห้าคำขอพอดี — มากกว่านี้แปลว่ามีการอ่านทั้งตารางแฝงอยู่');
 
@@ -18410,7 +18415,7 @@ function test_db_customerSearchCostsOneRequest() {
  * รู้สึกได้จริง · ถ้าไม่มีข้อนี้ การเผลอเปลี่ยนกลับไปอ่านทีละตารางจะไม่มีอะไรฟ้อง
  * เพราะผลลัพธ์ยังถูกต้องทุกประการ
  */
-function test_db_warmingReadsTablesInOneRound() {
+async function test_db_warmingReadsTablesInOneRound() {
   beginTest_('อุ่นหลายตารางพร้อมกันต้องรอรอบเดียว');
 
   var tables = [SHEET.REPORT_MASTER, SHEET.REQUEST_TYPE, SHEET.ATTACHMENT_TOPIC,
@@ -18419,7 +18424,7 @@ function test_db_warmingReadsTablesInOneRound() {
   clearRowCache_();
   clearMasterCache_();
   dbCallReset_();
-  var warmed = warmSnapshots_(tables);
+  var warmed = await warmSnapshots_(tables);
 
   assertEquals_(warmed, tables.length, 'ต้องอุ่นครบทุกตารางที่บอกไว้');
   assertEquals_(dbCallCount(), tables.length,
@@ -18429,16 +18434,16 @@ function test_db_warmingReadsTablesInOneRound() {
 
   /* ---------- อ่านต่อจากนั้นต้องไม่เสียคำขอเพิ่มเลย ---------- */
   dbCallReset_();
-  listReportMaster();
-  listRequestTypes();
-  listAttachmentTopics();
-  listStepTemplates();
-  listNotifyChannels();
+  await listReportMaster();
+  await listRequestTypes();
+  await listAttachmentTopics();
+  await listStepTemplates();
+  await listNotifyChannels();
   assertEquals_(dbCallCount(), 0, 'ของที่อุ่นไว้แล้วต้องอ่านได้จากแคชโดยไม่ยิงเพิ่ม');
 
   /* ---------- อุ่นซ้ำต้องไม่เสียอะไรเพิ่ม ---------- */
   dbCallReset_();
-  assertEquals_(warmSnapshots_(tables), 0, 'อุ่นซ้ำต้องไม่ดึงอะไรมาอีก');
+  assertEquals_(await warmSnapshots_(tables), 0, 'อุ่นซ้ำต้องไม่ดึงอะไรมาอีก');
   assertEquals_(dbCallCount(), 0, 'และต้องไม่ยิงคำขอเพิ่มแม้แต่คำขอเดียว');
 
   /* ---------- ข้อมูลที่อุ่นมาต้องครบเท่ากับการอ่านทีละตาราง ---------- */
@@ -18446,11 +18451,11 @@ function test_db_warmingReadsTablesInOneRound() {
   for (var t = 0; t < tables.length; t++) {
     clearRowCache_();
     clearMasterCache_();
-    var oneByOne = readAll_(tables[t]).length;
+    var oneByOne = (await readAll_(tables[t])).length;
     clearRowCache_();
     clearMasterCache_();
-    warmSnapshots_(tables);
-    assertEquals_(readAll_(tables[t]).length, oneByOne,
+    await warmSnapshots_(tables);
+    assertEquals_((await readAll_(tables[t])).length, oneByOne,
       'ตาราง ' + tables[t] + ' ที่อุ่นมาพร้อมกัน ต้องได้แถวครบเท่ากับอ่านทีละตาราง');
   }
 
@@ -18469,17 +18474,17 @@ function test_db_warmingReadsTablesInOneRound() {
  * กลับเข้ามาเพราะ "กันไว้ก่อน" ระบบจะช้าลงและกลับไปพึ่งสิ่งที่ย้ายไป Worker ไม่ได้
  * โดยที่ผลลัพธ์ยังถูกต้องทุกประการ จึงไม่มีอะไรฟ้องเลยนอกจากข้อนี้
  */
-function test_db_counterUsesRpcNotLock() {
+async function test_db_counterUsesRpcNotLock() {
   beginTest_('ออกเลขที่ด้วย RPC ไม่ใช่ LockService');
 
   var key = testPrefix_() + 'CNT';
   var mine = { 'Key': { op: 'like', value: key + '*' } };
-  dbDeleteVerified_('Counter', mine, 'ตัวนับค้างจากรอบก่อน');
+  await dbDeleteVerified_('Counter', mine, 'ตัวนับค้างจากรอบก่อน');
 
   try {
     /* ---------- เรียกติดกันต้องได้เลขเรียงกันไม่ซ้ำ ---------- */
     var issued = [];
-    for (var i = 0; i < 5; i++) issued.push(nextRunningNumber(key));
+    for (var i = 0; i < 5; i++) issued.push(await nextRunningNumber(key));
 
     for (var n = 0; n < issued.length; n++) {
       assertEquals_(issued[n], key + '-' + padNumber_(n + 1, 4),
@@ -18492,7 +18497,7 @@ function test_db_counterUsesRpcNotLock() {
 
     /* ---------- ตัวนับในฐานข้อมูลต้องตรงกับเลขสุดท้ายที่ออกไป ---------- */
     clearRowCache_();
-    assertEquals_(Number(getCounter(key)['Last_Number']), issued.length,
+    assertEquals_(Number((await getCounter(key))['Last_Number']), issued.length,
       'ค่าที่เก็บไว้ต้องเท่ากับจำนวนเลขที่ออกไปแล้ว');
 
     /* ---------- และต้องไม่แตะ LockService เลยตลอดเส้นทาง ---------- */
@@ -18505,7 +18510,7 @@ function test_db_counterUsesRpcNotLock() {
       acquireLock_ = function () {
         throw new Error('เส้นทางออกเลขที่ยังเรียก LockService อยู่');
       };
-      var afterTrap = nextRunningNumber(key);
+      var afterTrap = await nextRunningNumber(key);
       assertEquals_(afterTrap, key + '-' + padNumber_(issued.length + 1, 4),
         'ออกเลขได้โดยไม่แตะ LockService เลย');
     } finally {
@@ -18524,7 +18529,7 @@ function test_db_counterUsesRpcNotLock() {
     }
     assertTrue_(sprang, 'กับดักต้องลั่นได้จริงเมื่อมีคนเรียก ไม่งั้นข้อข้างบนไม่ได้พิสูจน์อะไร');
   } finally {
-    dbDeleteVerified_('Counter', mine, 'ตัวนับทดสอบ');
+    await dbDeleteVerified_('Counter', mine, 'ตัวนับทดสอบ');
     clearRowCache_();
   }
 
@@ -18539,10 +18544,10 @@ function test_db_counterUsesRpcNotLock() {
  * ถ้ามีที่ไหนเทียบเวลาด้วยการเทียบข้อความ มันจะไม่แจ้งอะไรเลย แต่โทเคนที่ควร
  * หมดอายุจะยังใช้ได้ต่อไป · เทสต์ที่ทดสอบแต่โทเคนที่ยังดีจะเขียวสนิทตลอด
  */
-function test_db_expiredTokenIsRejected() {
+async function test_db_expiredTokenIsRejected() {
   beginTest_('โทเคนที่หมดอายุแล้วต้องใช้ไม่ได้');
 
-  var user = addLoginTestUser_('EXPIRE', ROLE.ADMIN, 'รหัสผ่านที่ถูกต้องจริง');
+  var user = await addLoginTestUser_('EXPIRE', ROLE.ADMIN, 'รหัสผ่านที่ถูกต้องจริง');
   var hour = 3600 * 1000;
 
   var cases = [
@@ -18561,7 +18566,7 @@ function test_db_expiredTokenIsRejected() {
     for (var i = 0; i < cases.length; i++) {
       var hash = hashSessionToken_(cases[i].token);
       hashes.push(hash);
-      insertSessionToken({
+      await insertSessionToken({
         'Token_Hash':     hash,
         'Email':          user.email,
         'Issued_Date':    new Date(new Date().getTime() - hour),
@@ -18573,7 +18578,7 @@ function test_db_expiredTokenIsRejected() {
     clearRowCache_();
 
     for (var c = 0; c < cases.length; c++) {
-      var got = emailOfToken_(cases[c].token);
+      var got = await emailOfToken_(cases[c].token);
       if (cases[c].ok) {
         assertEquals_(got, user.email, cases[c].name + ' ต้องใช้ได้ตามปกติ');
       } else {
@@ -18587,7 +18592,7 @@ function test_db_expiredTokenIsRejected() {
      * ในระบบกำลังเทียบข้อความอยู่ ซึ่งบังเอิญถูกสำหรับรูปแบบ ISO แต่ผิดทันที
      * ที่รูปแบบเปลี่ยน และไม่มีอะไรบอกว่ามันเปลี่ยนไปแล้ว
      */
-    var stored = getSessionToken(hashes[0]);
+    var stored = await getSessionToken(hashes[0]);
     assertTrue_(stored['Expires_Date'] instanceof Date,
       'เวลาหมดอายุที่อ่านกลับมาต้องเป็นวัตถุ Date เหมือนที่ชีตเคยให้');
     assertTrue_(stored['Expires_Date'].getTime() < new Date().getTime(),
@@ -18595,17 +18600,17 @@ function test_db_expiredTokenIsRejected() {
 
     /* ---------- การเก็บกวาดต้องเก็บเฉพาะโทเคนที่ตายแล้ว ---------- */
     clearRowCache_();
-    pruneSessionTokens_();
+    await pruneSessionTokens_();
     clearRowCache_();
 
-    assertTrue_(!getSessionToken(hashes[0]), 'โทเคนที่หมดอายุต้องถูกเก็บกวาดออกไป');
-    assertTrue_(!getSessionToken(hashes[2]), 'โทเคนที่ถูกปิดใช้งานต้องถูกเก็บกวาดออกไป');
-    assertTrue_(!!getSessionToken(hashes[3]), 'โทเคนที่ยังดีต้องไม่ถูกเก็บกวาดไปด้วย');
-    assertEquals_(emailOfToken_(cases[3].token), user.email,
+    assertTrue_(!await getSessionToken(hashes[0]), 'โทเคนที่หมดอายุต้องถูกเก็บกวาดออกไป');
+    assertTrue_(!await getSessionToken(hashes[2]), 'โทเคนที่ถูกปิดใช้งานต้องถูกเก็บกวาดออกไป');
+    assertTrue_(!!await getSessionToken(hashes[3]), 'โทเคนที่ยังดีต้องไม่ถูกเก็บกวาดไปด้วย');
+    assertEquals_(await emailOfToken_(cases[3].token), user.email,
       'และต้องยังใช้งานได้ตามปกติหลังการเก็บกวาด');
   } finally {
     for (var h = 0; h < hashes.length; h++) {
-      try { db_delete_(SHEET.SESSION_TOKEN, { 'Token_Hash': hashes[h] }); } catch (e) {}
+      try { await db_delete_(SHEET.SESSION_TOKEN, { 'Token_Hash': hashes[h] }); } catch (e) {}
     }
     clearRowCache_();
   }
@@ -18620,16 +18625,16 @@ function test_db_expiredTokenIsRejected() {
  * แล้วการล็อกอินจะเจอแถวแรกเสมอ ซึ่งแปลว่าอีกคนหนึ่งเข้าระบบไม่ได้ตลอดไป
  * โดยไม่มีใครรู้ว่าทำไม · `unique` ของฐานข้อมูลปิดประตูนี้ตั้งแต่ตอนเขียน
  */
-function test_db_duplicateUsernameIsRejected() {
+async function test_db_duplicateUsernameIsRejected() {
   beginTest_('ชื่อผู้ใช้ซ้ำต้องเพิ่มไม่ได้');
 
-  var first = addLoginTestUser_('UNIQ1', ROLE.ADMIN, 'รหัสผ่านที่ถูกต้องจริง');
+  var first = await addLoginTestUser_('UNIQ1', ROLE.ADMIN, 'รหัสผ่านที่ถูกต้องจริง');
   var clash = { email: testPrefix_() + 'UNIQ2@cnr.co.th', username: first.username };
 
   try {
     /* ---------- อีเมลคนละอัน แต่ชื่อผู้ใช้ซ้ำ ต้องถูกปฏิเสธ ---------- */
-    assertThrows_(function () {
-      appendRow_(SHEET.USER_ROLE, {
+    await assertThrows_(async function () {
+      await appendRow_(SHEET.USER_ROLE, {
         'Email':                clash.email,
         'Username':             clash.username,   // ซ้ำกับคนแรก
         'Display_Name':         'ผู้ใช้ที่ชื่อซ้ำ',
@@ -18644,14 +18649,14 @@ function test_db_duplicateUsernameIsRejected() {
     /* ---------- และต้องไม่มีแถวที่สองหลงเหลืออยู่ ---------- */
     // การปฏิเสธที่ยังเขียนลงไปบางส่วน แย่กว่าการไม่ปฏิเสธเลย เพราะเก็บกวาดยากกว่า
     clearRowCache_();
-    assertEquals_(db_count_(SHEET.USER_ROLE, { 'Email': clash.email }), 0,
+    assertEquals_(await db_count_(SHEET.USER_ROLE, { 'Email': clash.email }), 0,
       'แถวที่ถูกปฏิเสธต้องไม่ถูกเขียนลงไปเลยแม้แต่บางส่วน');
-    assertEquals_(db_count_(SHEET.USER_ROLE, { 'Username': first.username }), 1,
+    assertEquals_(await db_count_(SHEET.USER_ROLE, { 'Username': first.username }), 1,
       'และชื่อผู้ใช้นั้นต้องยังมีเจ้าของเพียงคนเดียว');
 
     /* ---------- อีเมลซ้ำก็ต้องถูกปฏิเสธเหมือนกัน เพราะเป็นคีย์หลัก ---------- */
-    assertThrows_(function () {
-      appendRow_(SHEET.USER_ROLE, {
+    await assertThrows_(async function () {
+      await appendRow_(SHEET.USER_ROLE, {
         'Email':    first.email,                      // ซ้ำกับคนแรก
         'Username': testPrefix_() + 'UNIQ3',
         'Role':     ROLE.SERVICE,
@@ -18661,9 +18666,9 @@ function test_db_duplicateUsernameIsRejected() {
 
     /* ---------- ชื่อผู้ใช้ที่ไม่ซ้ำต้องเพิ่มได้ตามปกติ ---------- */
     // ด่านที่ปฏิเสธทุกอย่างก็ไร้ประโยชน์พอ ๆ กับด่านที่ไม่เคยปฏิเสธอะไรเลย
-    var third = addLoginTestUser_('UNIQ4', ROLE.SERVICE, 'รหัสผ่านที่ถูกต้องจริง');
+    var third = await addLoginTestUser_('UNIQ4', ROLE.SERVICE, 'รหัสผ่านที่ถูกต้องจริง');
     clearRowCache_();
-    assertEquals_(db_count_(SHEET.USER_ROLE, { 'Username': third.username }), 1,
+    assertEquals_(await db_count_(SHEET.USER_ROLE, { 'Username': third.username }), 1,
       'ชื่อผู้ใช้ที่ยังไม่มีใครใช้ต้องเพิ่มได้ตามปกติ');
   } finally {
     clearRowCache_();
@@ -18684,7 +18689,7 @@ function test_db_duplicateUsernameIsRejected() {
  * สามครั้งเพื่อพยายามบันทึกว่าล้ม ตอนที่ฝั่งโน้นกำลังมีปัญหาอยู่แล้ว · และบรรทัด
  * ที่ตั้งใจจะบันทึกก็ไม่เคยถูกบันทึกลงไปจริงสักครั้ง จึงเสียทั้งสองทาง
  */
-function test_db_failureDoesNotStormTheDatabase() {
+async function test_db_failureDoesNotStormTheDatabase() {
   beginTest_('ความล้มเหลวต้องไม่ทวีคูณจำนวนคำขอ');
 
   var realSend = httpSend_;
@@ -18697,7 +18702,7 @@ function test_db_failureDoesNotStormTheDatabase() {
     var threw = false;
     var message = '';
     try {
-      db_select_('Request_Type', {});
+      await db_select_('Request_Type', {});
     } catch (e) {
       threw = true;
       message = String(e && e.message);
@@ -18717,7 +18722,7 @@ function test_db_failureDoesNotStormTheDatabase() {
     httpSend_ = function () { throw new Error('ต่อไม่ติด'); };
 
     dbCallReset_();
-    try { db_select_('Request_Type', {}); } catch (e) { /* คาดไว้แล้ว */ }
+    try { await db_select_('Request_Type', {}); } catch (e) { /* คาดไว้แล้ว */ }
     assertEquals_(dbCallCount(), DB_MAX_RETRY + 1,
       'ต่อไม่ติดก็ต้องยิงแค่ตามโควตา ไม่มีคำขอเพิ่มเพื่อบันทึก');
   } finally {
@@ -18732,16 +18737,16 @@ function test_db_failureDoesNotStormTheDatabase() {
    */
   var key = testPrefix_() + 'STORM';
   var mine = { Row_ID: { op: 'like', value: key + '*' } };
-  dbDeleteVerified_(TEST_BULK_TABLE, mine, 'ของค้างจากรอบก่อน');
+  await dbDeleteVerified_(TEST_BULK_TABLE, mine, 'ของค้างจากรอบก่อน');
 
   try {
-    db_insert_(TEST_BULK_TABLE, [{ Row_ID: key + '-1', Row_Name: 'แถวแรก', Sort_Order: 1, Active: true }]);
+    await db_insert_(TEST_BULK_TABLE, [{ Row_ID: key + '-1', Row_Name: 'แถวแรก', Sort_Order: 1, Active: true }]);
 
-    var before = db_count_(SHEET.SYSTEM_LOG, { 'Event': ACTION.DB_FAILED });
+    var before = await db_count_(SHEET.SYSTEM_LOG, { 'Event': ACTION.DB_FAILED });
     dbCallReset_();
 
-    assertThrows_(function () {
-      db_insert_(TEST_BULK_TABLE, [{ Row_ID: key + '-1', Row_Name: 'แถวซ้ำ', Sort_Order: 2, Active: true }]);
+    await assertThrows_(async function () {
+      await db_insert_(TEST_BULK_TABLE, [{ Row_ID: key + '-1', Row_Name: 'แถวซ้ำ', Sort_Order: 2, Active: true }]);
     }, 'คีย์ซ้ำต้องถูกปฏิเสธ');
 
     assertTrue_(dbCallCount() <= 3,
@@ -18749,16 +18754,16 @@ function test_db_failureDoesNotStormTheDatabase() {
       dbCallCount() + ')');
 
     clearRowCache_();
-    assertEquals_(db_count_(SHEET.SYSTEM_LOG, { 'Event': ACTION.DB_FAILED }), before + 1,
+    assertEquals_(await db_count_(SHEET.SYSTEM_LOG, { 'Event': ACTION.DB_FAILED }), before + 1,
       'ตอนฐานข้อมูลยังดี บรรทัด DB_FAILED ต้องถูกบันทึกลง System_Log จริง 1 แถว');
 
-    var logged = queryRows_(SHEET.SYSTEM_LOG, { 'Event': ACTION.DB_FAILED },
-      { order: { column: 'Log_ID', ascending: false }, limit: 1 })[0];
+    var logged = (await queryRows_(SHEET.SYSTEM_LOG, { 'Event': ACTION.DB_FAILED },
+      { order: { column: 'Log_ID', ascending: false }, limit: 1 }))[0];
     assertEquals_(String(logged['Source']), LOG_SOURCE.DATABASE, 'ต้นทางต้องเป็น DATABASE');
     assertTrue_(String(logged['Detail']).indexOf('23505') !== -1,
       'และต้องเก็บรหัสจริงของ Postgres ไว้ให้ผู้ดูแลอ่าน · ได้ ' + logged['Detail']);
   } finally {
-    dbDeleteVerified_(TEST_BULK_TABLE, mine, 'แถวทดสอบ');
+    await dbDeleteVerified_(TEST_BULK_TABLE, mine, 'แถวทดสอบ');
     clearRowCache_();
   }
 
@@ -18776,7 +18781,7 @@ function test_db_failureDoesNotStormTheDatabase() {
  * `Limit Exceeded: URLFetch URL Length.` ไม่บอกว่าคำขอไหน ตารางไหน หรือยาวเท่าไร
  * ทั้งที่ข้อมูลทั้งหมดอยู่ในมือเราตั้งแต่ก่อนยิงแล้ว
  */
-function test_db_longUrlIsRefusedWithReason() {
+async function test_db_longUrlIsRefusedWithReason() {
   beginTest_('คำขอที่ยาวเกินต้องถูกปฏิเสธพร้อมบอกเหตุผล');
 
   /* ---------- ตัวกรองที่ยาวตามจำนวนข้อมูล ต้องถูกปฏิเสธก่อนยิง ---------- */
@@ -18785,7 +18790,7 @@ function test_db_longUrlIsRefusedWithReason() {
 
   var message = '';
   try {
-    db_select_(TEST_BULK_TABLE, { filters: { Row_ID: { op: 'in', value: many } } });
+    await db_select_(TEST_BULK_TABLE, { filters: { Row_ID: { op: 'in', value: many } } });
   } catch (e) {
     message = String(e && e.message);
   }
@@ -18806,7 +18811,7 @@ function test_db_longUrlIsRefusedWithReason() {
   // ด่านที่ปฏิเสธทุกอย่างไร้ประโยชน์พอ ๆ กับด่านที่ไม่เคยปฏิเสธอะไร
   var prefix = testPrefix_() + 'SHORT-';
   var short = { Row_ID: { op: 'like', value: dbLikeLiteral_(prefix) + '*' } };
-  assertEquals_(db_select_(TEST_BULK_TABLE, { filters: short }).length, 0,
+  assertEquals_((await db_select_(TEST_BULK_TABLE, { filters: short })).length, 0,
     'ตัวกรองคำนำหน้าต้องยิงออกไปได้ตามปกติ');
 
   /* ---------- คำนำหน้าต้องสั้นเท่าเดิมไม่ว่าจะมีกี่แถว ---------- */
@@ -18837,7 +18842,7 @@ function test_db_longUrlIsRefusedWithReason() {
  * เป็น Date แล้วส่งผ่าน `toISOString()` เวลา 09:00 จะกลายเป็น 02:00 ทั้งระบบ
  * และไม่มีอะไรผิดพลาดให้เห็น มีแต่เวลานัดที่ผิดไปเจ็ดชั่วโมง
  */
-function test_db_appointmentTimeStaysText() {
+async function test_db_appointmentTimeStaysText() {
   beginTest_('เวลานัดหมายต้องเป็นข้อความเดิมเป๊ะ');
 
   var woId = testWoId_();
@@ -18846,12 +18851,12 @@ function test_db_appointmentTimeStaysText() {
   try {
     for (var i = 0; i < cases.length; i++) {
       var id = woId + '-' + i;
-      insertWorkOrder({ 'WO_ID': id, 'Customer_Code': 'CUST-TEST',
+      await insertWorkOrder({ 'WO_ID': id, 'Customer_Code': 'CUST-TEST',
         'Location': 'จุดทดสอบเวลานัด', 'Overall_Status': WO_STATUS.PENDING_APPROVE,
         'Start_Date': cases[i], 'End_Date': cases[i] });
 
       clearRowCache_();
-      var back = getWorkOrder(id);
+      var back = await getWorkOrder(id);
       assertEquals_(back['Start_Date'], cases[i],
         'กำหนดเข้างานต้องได้สตริงเดิมเป๊ะ ไม่ใช่เวลาที่ถูกแปลงไปมา');
       assertEquals_(back['End_Date'], cases[i], 'กำหนดออกงานก็ต้องเหมือนกัน');
@@ -18865,7 +18870,7 @@ function test_db_appointmentTimeStaysText() {
     assertEquals_(picked['Start_Date'], '2026-10-15T09:00', 'ค่าจากฟอร์มต้องผ่านมาเป็นข้อความเดิม');
     assertEquals_(picked['End_Date'], '2026-10-15T17:30', 'และช่องออกงานก็เหมือนกัน');
   } finally {
-    dbDeleteVerified_(SHEET.WORK_ORDER,
+    await dbDeleteVerified_(SHEET.WORK_ORDER,
       { 'WO_ID': { op: 'like', value: dbLikeLiteral_(woId) + '*' } }, 'ใบงานทดสอบ', cases.length);
     clearRowCache_();
   }
@@ -18883,7 +18888,7 @@ function test_db_appointmentTimeStaysText() {
  * ทดสอบด้วยวันที่ 1 และวันสิ้นเดือน เพราะการเลื่อนหนึ่งวันจะข้ามเดือนพอดีทั้งสองทาง
  * ซึ่งเป็นกรณีที่เห็นความผิดชัดที่สุด
  */
-function test_db_dateOnlyDoesNotShift() {
+async function test_db_dateOnlyDoesNotShift() {
   beginTest_('วันที่ล้วนต้องไม่เลื่อนไปหนึ่งวัน');
 
   var woId = testWoId_();
@@ -18892,12 +18897,12 @@ function test_db_dateOnlyDoesNotShift() {
   try {
     for (var i = 0; i < days.length; i++) {
       var id = woId + '-D' + i;
-      insertWorkOrder({ 'WO_ID': id, 'Customer_Code': 'CUST-TEST',
+      await insertWorkOrder({ 'WO_ID': id, 'Customer_Code': 'CUST-TEST',
         'Location': 'จุดทดสอบวันที่', 'Overall_Status': WO_STATUS.PENDING_APPROVE,
         'Start_Contact_Date': days[i] });
 
       clearRowCache_();
-      var back = String(getWorkOrder(id)['Start_Contact_Date'] || '');
+      var back = String((await getWorkOrder(id))['Start_Contact_Date'] || '');
       assertEquals_(back.substring(0, 10), days[i],
         'วันที่เริ่มติดต่อต้องเป็นวันเดิม ไม่เลื่อนไปหนึ่งวัน · เขียน ' + days[i] + ' อ่านได้ ' + back);
     }
@@ -18909,7 +18914,7 @@ function test_db_dateOnlyDoesNotShift() {
     assertTrue_(!(picked['Start_Contact_Date'] instanceof Date),
       'และต้องไม่ใช่วัตถุ Date เพราะการแปลงกลับคือจุดที่วันเลื่อน');
   } finally {
-    dbDeleteVerified_(SHEET.WORK_ORDER,
+    await dbDeleteVerified_(SHEET.WORK_ORDER,
       { 'WO_ID': { op: 'like', value: dbLikeLiteral_(woId) + '*' } }, 'ใบงานทดสอบ', days.length);
     clearRowCache_();
   }
@@ -18927,7 +18932,7 @@ function test_db_dateOnlyDoesNotShift() {
  * การล้างข้อมูลของชุดทดสอบทั้งหมดพึ่งพฤติกรรมนี้ ถ้ามันไม่ทำงาน แถวทดสอบจะสะสม
  * ในตารางจริงทุกรอบที่รันเทสต์ โดยไม่มีอะไรฟ้อง
  */
-function test_db_deletingWorkOrderCascades() {
+async function test_db_deletingWorkOrderCascades() {
   beginTest_('ลบใบงานแล้วงานแผนกและขั้นตอนต้องหายตาม');
 
   var woId = testWoId_();
@@ -18936,27 +18941,27 @@ function test_db_deletingWorkOrderCascades() {
   var mineTask = { 'WO_ID': woId };
   var mineStep = { 'Task_ID': taskId };
 
-  insertWorkOrder({ 'WO_ID': woId, 'Customer_Code': 'CUST-TEST',
+  await insertWorkOrder({ 'WO_ID': woId, 'Customer_Code': 'CUST-TEST',
     'Location': 'จุดทดสอบ cascade', 'Overall_Status': WO_STATUS.PENDING_APPROVE });
-  insertTask({ 'Task_ID': taskId, 'WO_ID': woId, 'Department': DEPT.SERVICE,
+  await insertTask({ 'Task_ID': taskId, 'WO_ID': woId, 'Department': DEPT.SERVICE,
     'Status': TASK_STATUS.PENDING_ACCEPT });
-  insertStep({ 'Step_ID': taskId + '-S1', 'Task_ID': taskId, 'Step_No': 1,
+  await insertStep({ 'Step_ID': taskId + '-S1', 'Task_ID': taskId, 'Step_No': 1,
     'Step_Name': 'ขั้นตอนทดสอบ', 'Status': STEP_STATUS.PENDING });
 
   clearRowCache_();
-  assertEquals_(db_count_(SHEET.WORK_ORDER, mineWo), 1, 'ต้องมีใบงานทดสอบอยู่จริงก่อนลบ');
-  assertEquals_(db_count_(SHEET.DEPARTMENT_TASK, mineTask), 1, 'และมีงานของแผนกอยู่จริง');
-  assertEquals_(db_count_(SHEET.TASK_STEP, mineStep), 1, 'และมีขั้นตอนอยู่จริง');
+  assertEquals_(await db_count_(SHEET.WORK_ORDER, mineWo), 1, 'ต้องมีใบงานทดสอบอยู่จริงก่อนลบ');
+  assertEquals_(await db_count_(SHEET.DEPARTMENT_TASK, mineTask), 1, 'และมีงานของแผนกอยู่จริง');
+  assertEquals_(await db_count_(SHEET.TASK_STEP, mineStep), 1, 'และมีขั้นตอนอยู่จริง');
 
   /* ---------- ลบใบงานคำสั่งเดียว ---------- */
-  var removed = db_delete_(SHEET.WORK_ORDER, mineWo).length;
+  var removed = (await db_delete_(SHEET.WORK_ORDER, mineWo)).length;
   dbInvalidate_(SHEET.WORK_ORDER);
   clearRowCache_();
 
   assertEquals_(removed, 1, 'ลบใบงานได้หนึ่งแถว');
-  assertEquals_(db_count_(SHEET.DEPARTMENT_TASK, mineTask), 0,
+  assertEquals_(await db_count_(SHEET.DEPARTMENT_TASK, mineTask), 0,
     'งานของแผนกต้องหายตามไปด้วย — ถ้ายังอยู่ แปลว่า foreign key ไม่ได้ตั้ง cascade ไว้จริง');
-  assertEquals_(db_count_(SHEET.TASK_STEP, mineStep), 0,
+  assertEquals_(await db_count_(SHEET.TASK_STEP, mineStep), 0,
     'และขั้นตอนต้องหายตามไปอีกทอดหนึ่ง ซึ่งพิสูจน์ว่า cascade เดินต่อได้มากกว่าหนึ่งชั้น');
 
   return endTest_();
@@ -18973,14 +18978,14 @@ function test_db_deletingWorkOrderCascades() {
  * ตัวด่านใหม่ต้องถูกพิสูจน์ด้วยของปลอม ไม่ใช่แค่เขียนไว้แล้วเชื่อว่าทำงาน —
  * ด่านที่ไม่เคยเห็นสิ่งที่มันควรจับ คือด่านที่ยังไม่รู้ว่าตัวเองจับได้หรือเปล่า
  */
-function test_db_cleanupCannotFailSilently() {
+async function test_db_cleanupCannotFailSilently() {
   beginTest_('การล้างข้อมูลต้องแดงเมื่อลบได้ไม่ครบ');
 
   var prefix = testPrefix_() + 'SILENT-';
   var mine = { Row_ID: { op: 'like', value: prefix + '*' } };
 
-  dbDeleteVerified_(TEST_BULK_TABLE, mine, 'ของค้างจากรอบก่อน');
-  db_insert_(TEST_BULK_TABLE, [
+  await dbDeleteVerified_(TEST_BULK_TABLE, mine, 'ของค้างจากรอบก่อน');
+  await db_insert_(TEST_BULK_TABLE, [
     { Row_ID: prefix + '1', Row_Name: 'แถวที่หนึ่ง', Sort_Order: 1, Active: true },
     { Row_ID: prefix + '2', Row_Name: 'แถวที่สอง',  Sort_Order: 2, Active: true }
   ]);
@@ -18997,7 +19002,7 @@ function test_db_cleanupCannotFailSilently() {
        * ตัวเลขที่เอามาเทียบคือจำนวนแถวที่เทสต์เพิ่งเขียนลงไปเอง (กฎข้อ 29)
        * ไม่ใช่จำนวนที่นับด้วยตัวกรองเดียวกันกับที่ใช้ลบ ซึ่งจะตาบอดเหมือนกันทั้งคู่เมื่อตัวกรองเสีย
        */
-      dbDeleteVerified_(TEST_BULK_TABLE, mine, 'แถวทดสอบ', 2);
+      await dbDeleteVerified_(TEST_BULK_TABLE, mine, 'แถวทดสอบ', 2);
     } catch (e) {
       threw = true;
       message = String(e && e.message);
@@ -19014,12 +19019,12 @@ function test_db_cleanupCannotFailSilently() {
 
   /* ---------- เมื่อไม่มีของปลอมขวาง ต้องลบได้ครบตามปกติ ---------- */
   // ด่านที่แดงตลอดเวลาก็ไร้ประโยชน์พอ ๆ กับด่านที่ไม่เคยแดง
-  assertEquals_(dbDeleteVerified_(TEST_BULK_TABLE, mine, 'แถวทดสอบ', 2), 2,
+  assertEquals_(await dbDeleteVerified_(TEST_BULK_TABLE, mine, 'แถวทดสอบ', 2), 2,
     'ของจริงต้องลบได้ครบสองแถว');
-  assertEquals_(db_count_(TEST_BULK_TABLE, mine), 0, 'และต้องไม่เหลืออะไรไว้เลย');
+  assertEquals_(await db_count_(TEST_BULK_TABLE, mine), 0, 'และต้องไม่เหลืออะไรไว้เลย');
 
   /* ---------- ไม่มีอะไรให้ลบ ต้องไม่ถือว่าผิด ---------- */
-  assertEquals_(dbDeleteVerified_(TEST_BULK_TABLE, mine, 'แถวทดสอบ'), 0,
+  assertEquals_(await dbDeleteVerified_(TEST_BULK_TABLE, mine, 'แถวทดสอบ'), 0,
     'ตารางที่สะอาดอยู่แล้วต้องคืนศูนย์ ไม่ใช่โยนข้อผิดพลาด');
 
   return endTest_();
@@ -19028,15 +19033,15 @@ function test_db_cleanupCannotFailSilently() {
 /**
  * ล้างร่องรอยทั้งหมดของกลุ่มนี้ แล้วพิสูจน์ว่าไม่เหลืออะไรจริง ๆ
  */
-function test_db_cleanupLeftovers() {
+async function test_db_cleanupLeftovers() {
   beginTest_('ล้างข้อมูลทดสอบในตารางจริงให้หมด');
 
-  dbTestCleanup_();
+  await dbTestCleanup_();
 
-  assertEquals_(db_count_('Request_Type',
+  assertEquals_(await db_count_('Request_Type',
     { Request_ID: { op: 'like', value: DB_TEST_PREFIX + '*' } }), 0,
     'ตาราง request_type ต้องไม่เหลือแถวทดสอบ');
-  assertEquals_(db_count_('Counter',
+  assertEquals_(await db_count_('Counter',
     { 'Key': { op: 'like', value: DB_TEST_PREFIX + '*' } }), 0,
     'ตาราง counter ต้องไม่เหลือแถวทดสอบ');
 
@@ -19063,12 +19068,12 @@ function test_db_cleanupLeftovers() {
  * @return {number} จำนวนแถวที่ลบได้จริง
  * @throws {Error} เมื่อลบได้ไม่เท่ากับที่ควรลบ
  */
-function dbDeleteVerified_(tableKey, filters, what, knownRows) {
+async function dbDeleteVerified_(tableKey, filters, what, knownRows) {
   var deleted = -1;
   var trouble = '';
 
   try {
-    deleted = db_delete_(tableKey, filters).length;
+    deleted = (await db_delete_(tableKey, filters)).length;
   } catch (e) {
     trouble = ' · ' + (e && e.message);
   }
@@ -19107,7 +19112,7 @@ function dbDeleteVerified_(tableKey, filters, what, knownRows) {
  * @return {Object} {ตารางที่ล้าง: จำนวนที่ลบไป}
  * @throws {Error} เมื่อมีตารางใดล้างไม่ครบ
  */
-function dbTestCleanup_() {
+async function dbTestCleanup_() {
   var targets = [
     { tableKey: 'Request_Type', column: 'Request_ID' },
     { tableKey: 'Counter',      column: 'Key' },
@@ -19121,7 +19126,7 @@ function dbTestCleanup_() {
     var filters = {};
     filters[targets[i].column] = { op: 'like', value: DB_TEST_PREFIX + '*' };
     try {
-      report[targets[i].tableKey] = dbDeleteVerified_(targets[i].tableKey, filters, 'แถวทดสอบ');
+      report[targets[i].tableKey] = await dbDeleteVerified_(targets[i].tableKey, filters, 'แถวทดสอบ');
     } catch (e) {
       // เก็บไว้ให้ครบทุกตารางก่อนค่อยโยน จะได้เห็นภาพรวมในครั้งเดียว
       trouble.push(e && e.message);
@@ -19141,9 +19146,9 @@ function dbTestCleanup_() {
  * @param {function()} fn ฟังก์ชันที่ควรล้มเหลว
  * @param {string} label คำอธิบายข้อทดสอบ
  */
-function dbExpectUserMessage_(fn, label) {
+async function dbExpectUserMessage_(fn, label) {
   try {
-    fn();
+    await fn();
     fail_(label + ' — คาดว่าจะล้มเหลว แต่ทำรายการผ่าน');
     return;
   } catch (e) {
@@ -19406,7 +19411,7 @@ function test_db_customerHealth() {
  * สแกนจากเนื้อของฟังก์ชันจริง ไม่ใช่จากรายชื่อที่เขียนไว้ เพราะรายชื่อที่คนดูแลเอง
  * จะล้าสมัยทันทีที่มีคนเพิ่มโค้ดโดยไม่ได้อ่านข้อนี้
  */
-function test_db_customerIsReadOnly() {
+async function test_db_customerIsReadOnly() {
   beginTest_('ห้ามมีโค้ดที่เขียนลงตาราง Customer');
 
   var scope = (typeof globalThis !== 'undefined') ? globalThis : this;
@@ -19422,9 +19427,9 @@ function test_db_customerIsReadOnly() {
 
   /* ---------- ตัวสแกนต้องจับของปลอมได้ ---------- */
   var fake = {
-    keeper: function () { return db_select_('Customer', {}); },
-    writer: function () { return db_upsert_('Customer', { 'รหัสลูกค้า': 'AR-1' }); },
-    deleter: function () { return db_delete_('Customer', { 'รหัสลูกค้า': 'AR-1' }); },
+    keeper: async function () { return await db_select_('Customer', {}); },
+    writer: async function () { return await db_upsert_('Customer', { 'รหัสลูกค้า': 'AR-1' }); },
+    deleter: async function () { return await db_delete_('Customer', { 'รหัสลูกค้า': 'AR-1' }); },
     commented: function () { /* db_insert_('Customer', {}) */ return 1; }
   };
   assertEquals_(customerWritersIn_(fake).sort().join(', '), 'deleter, writer',
@@ -19723,7 +19728,7 @@ var DB_CALL_BUDGET = Object.freeze({
  * การย้ายมาฐานข้อมูลแล้วยังอ่านทีละแถวในวนลูป จะได้ระบบที่ช้ากว่าเดิม
  * เพราะชีตอ่านทั้งตารางครั้งเดียว แต่โค้ดที่เขียนแบบไม่ระวังจะยิงทีละแถว
  */
-function test_db_callBudgetPerPage() {
+async function test_db_callBudgetPerPage() {
   beginTest_('เปิดหน้าหนึ่งครั้ง ต้องยิงคำขอไม่เกินเพดาน');
 
   var users = serviceTestUsers_();
@@ -19745,7 +19750,7 @@ function test_db_callBudgetPerPage() {
     clearRowCache_();
     clearMasterCache_();
     dbCallReset_();
-    var cold = withTestUser_(page.user, function () { return pageBootstrap_(page.name, {}); });
+    var cold = await withTestUser_(page.user, async function () { return await pageBootstrap_(page.name, {}); });
     var coldCalls = dbCallCount();
 
     assertEquals_(cold.error, '', 'หน้า ' + page.name + ' ต้องเปิดได้ตามปกติ ไม่งั้นการวัดไม่มีความหมาย');
@@ -19760,7 +19765,7 @@ function test_db_callBudgetPerPage() {
      */
     ROW_CACHE_ = {};
     dbCallReset_();
-    withTestUser_(page.user, function () { return pageBootstrap_(page.name, {}); });
+    await withTestUser_(page.user, async function () { return await pageBootstrap_(page.name, {}); });
     var warmCalls = dbCallCount();
 
     assertTrue_(warmCalls <= DB_CALL_BUDGET.warm[page.name],
@@ -19774,11 +19779,11 @@ function test_db_callBudgetPerPage() {
   clearRowCache_();
   clearMasterCache_();
   dbCallReset_();
-  listReportMaster();
-  listRequestTypes();
-  listAttachmentTopics();
-  listStepTemplates();
-  listNotifyChannels();
+  await listReportMaster();
+  await listRequestTypes();
+  await listAttachmentTopics();
+  await listStepTemplates();
+  await listNotifyChannels();
   var fiveCalls = dbCallCount();
 
   assertTrue_(fiveCalls <= DB_CALL_BUDGET.fiveMasters,
@@ -19787,15 +19792,15 @@ function test_db_callBudgetPerPage() {
 
   /* ---------- อ่านซ้ำในการรันเดียวกัน ต้องไม่เสียคำขอเพิ่มเลย ---------- */
   dbCallReset_();
-  listReportMaster();
-  listRequestTypes();
-  listAttachmentTopics();
+  await listReportMaster();
+  await listRequestTypes();
+  await listAttachmentTopics();
   assertEquals_(dbCallCount(), 0,
     'อ่านตารางเดิมซ้ำในการรันเดียวกัน ต้องได้จากแคชระดับการรัน ไม่ยิงเพิ่มเลย');
 
   /* ---------- กับดักตัวจริง: อ่านทีละแถวในวนลูป ---------- */
   dbCallReset_();
-  for (var i = 0; i < 20; i++) getReport('SV1');
+  for (var i = 0; i < 20; i++) await getReport('SV1');
   assertEquals_(dbCallCount(), 0,
     'เรียก getReport ยี่สิบครั้งต้องยิงศูนย์คำขอ — ถ้าเป็นยี่สิบ แปลว่ากำลังอ่านทีละแถว');
 
@@ -19817,7 +19822,7 @@ function test_db_callBudgetPerPage() {
  * ล่วงหน้า · ขอบที่ต้องพิสูจน์คือ "เพดานเท่ากับจำนวนที่มีพอดี" ซึ่งเป็นจุดเดียว
  * ที่สองวิธีให้คำตอบต่างกัน
  */
-function test_db_truncationWarningIsExactAtTheEdge() {
+async function test_db_truncationWarningIsExactAtTheEdge() {
   beginTest_('คำเตือน "รายการไม่ครบ" ต้องแม่นที่ขอบพอดี');
 
   /*
@@ -19826,29 +19831,29 @@ function test_db_truncationWarningIsExactAtTheEdge() {
    */
   var suffixes = ['EDGE1', 'EDGE2', 'EDGE3'];
   for (var t = 0; t < suffixes.length; t++) {
-    testAttachTopic_(suffixes[t], 'หัวข้อวัดขอบ ' + (t + 1));
+    await testAttachTopic_(suffixes[t], 'หัวข้อวัดขอบ ' + (t + 1));
   }
   clearRowCache_(SHEET.ATTACHMENT_TOPIC);
 
   var mine = { 'Topic_ID': { op: 'like', value: dbLikeLiteral_(testPrefix_() + 'TOPIC-EDGE') + '*' } };
-  var seeded = queryRowsCounted_(SHEET.ATTACHMENT_TOPIC, mine, { limit: 50 });
+  var seeded = await queryRowsCounted_(SHEET.ATTACHMENT_TOPIC, mine, { limit: 50 });
   assertEquals_(seeded.rows.length, 3, 'ต้องปลูกได้ครบสามแถวก่อน ไม่งั้นการเทียบที่ขอบไม่มีความหมาย');
   assertEquals_(seeded.truncated, false, 'เพดานสูงกว่าจำนวนที่มีมาก ต้องไม่ถูกฟ้อง');
 
   /* ---------- เพดานเท่ากับจำนวนที่มีพอดี — ไม่มีอะไรหาย จึงห้ามเตือน ---------- */
-  var exact = queryRowsCounted_(SHEET.ATTACHMENT_TOPIC, mine, { limit: 3 });
+  var exact = await queryRowsCounted_(SHEET.ATTACHMENT_TOPIC, mine, { limit: 3 });
   assertEquals_(exact.rows.length, 3, 'ต้องได้ครบสามแถวที่ขอ');
   assertEquals_(exact.truncated, false,
     'ได้ครบพอดีตามเพดาน ต้องไม่ถูกฟ้องว่าไม่ครบ · การนับแถวแล้วเทียบกับเพดานให้คำตอบผิดตรงนี้');
 
   /* ---------- เพดานน้อยกว่าที่มีจริง — ของหายจริง จึงต้องเตือน ---------- */
-  var cut = queryRowsCounted_(SHEET.ATTACHMENT_TOPIC, mine, { limit: 2 });
+  var cut = await queryRowsCounted_(SHEET.ATTACHMENT_TOPIC, mine, { limit: 2 });
   assertEquals_(cut.rows.length, 2, 'ต้องคืนแค่เท่าเพดาน ไม่ใช่คืนแถวที่ขอเกินมาด้วย');
   assertEquals_(cut.truncated, true, 'ของหายจริงต้องถูกฟ้อง');
 
   /* ---------- ทางเดิมต้องคืนของเหมือนเดิมทุกประการ ---------- */
   // ผู้เรียกเดิมหลายสิบแห่งเรียก queryRows_ อยู่ ถ้ารูปของคำตอบเปลี่ยน จะพังเงียบ ๆ
-  var plain = queryRows_(SHEET.ATTACHMENT_TOPIC, mine, { limit: 2 });
+  var plain = await queryRows_(SHEET.ATTACHMENT_TOPIC, mine, { limit: 2 });
   assertTrue_(plain instanceof Array, 'queryRows_ ต้องยังคืนเป็นรายการแถวเหมือนเดิม');
   assertEquals_(plain.length, 2, 'และได้จำนวนเท่าเดิม');
 
@@ -19874,7 +19879,7 @@ var PAGING_TEST_ROWS = 1050;
  * กลางคันจึงทิ้งตัวเลือกปลอมนับพันไว้ให้ผู้ใช้เห็น ซึ่งเป็นราคาที่สูงเกินกว่าที่เทสต์
  * ข้อหนึ่งควรทำให้ระบบต้องจ่าย
  */
-function test_db_readsEveryRowNotJustFirstPage() {
+async function test_db_readsEveryRowNotJustFirstPage() {
   beginTest_('อ่านทั้งตารางต้องได้ครบ แม้เกินหนึ่งหน้า');
 
   var prefix = testPrefix_() + 'PAGE-';
@@ -19887,19 +19892,19 @@ function test_db_readsEveryRowNotJustFirstPage() {
   }
 
   var mine = { Row_ID: { op: 'like', value: prefix + '*' } };
-  dbDeleteVerified_(TEST_BULK_TABLE, mine, 'ของค้างจากรอบที่ล้มกลางคัน');
+  await dbDeleteVerified_(TEST_BULK_TABLE, mine, 'ของค้างจากรอบที่ล้มกลางคัน');
 
   try {
-    db_insert_(TEST_BULK_TABLE, rows);
+    await db_insert_(TEST_BULK_TABLE, rows);
 
     /* ---------- เพดานหนึ่งคำขอมีอยู่จริง ---------- */
     // ถ้าข้อนี้ได้ 1,050 แปลว่าฝั่งโน้นเปลี่ยนเพดานไปแล้ว ซึ่งต้องรู้ก่อนไปเชื่อข้อถัดไป
-    var onePage = db_select_(TEST_BULK_TABLE, { filters: mine, order: 'Row_ID' });
+    var onePage = await db_select_(TEST_BULK_TABLE, { filters: mine, order: 'Row_ID' });
     assertEquals_(onePage.length, DB_PAGE_ROWS,
       'คำขอเดียวต้องได้แค่ ' + DB_PAGE_ROWS + ' แถว — นี่คือเพดานที่ทำให้ข้อมูลขาดหายเงียบ ๆ');
 
     /* ---------- การอ่านแบบแบ่งหน้าต้องได้ครบ ---------- */
-    var everything = db_selectAll_(TEST_BULK_TABLE, { filters: mine });
+    var everything = await db_selectAll_(TEST_BULK_TABLE, { filters: mine });
     assertEquals_(everything.length, PAGING_TEST_ROWS,
       'อ่านแบบแบ่งหน้าต้องได้ครบทุกแถว ไม่ใช่แค่หน้าแรก');
 
@@ -19926,7 +19931,7 @@ function test_db_readsEveryRowNotJustFirstPage() {
      * การพิสูจน์ที่ dbSnapshot_ จึงครอบคลุมเส้นทางที่ผู้เรียกจริงใช้ทั้งเส้น
      * โดยไม่ต้องเขียนขยะลงตารางที่ระบบอ่าน
      */
-    var snapshot = dbSnapshot_(TEST_BULK_TABLE);
+    var snapshot = await dbSnapshot_(TEST_BULK_TABLE);
     var mineInSnapshot = 0;
     for (var v = 1; v < snapshot.values.length; v++) {
       if (String(snapshot.values[v][0]).indexOf(prefix) === 0) mineInSnapshot++;
@@ -19935,11 +19940,11 @@ function test_db_readsEveryRowNotJustFirstPage() {
       'ภาพของตารางที่ชั้น Repo ใช้ ก็ต้องมีครบทุกแถวเหมือนกัน');
   } finally {
     // ล้างด้วยตัวกรองคำนำหน้า ไม่ใช่ไล่ลบทีละคีย์ เพราะที่อยู่ของคำขอจะยาวเกินไป
-    dbDeleteVerified_(TEST_BULK_TABLE, mine, 'แถวทดสอบการแบ่งหน้า', PAGING_TEST_ROWS);
+    await dbDeleteVerified_(TEST_BULK_TABLE, mine, 'แถวทดสอบการแบ่งหน้า', PAGING_TEST_ROWS);
     clearRowCache_();
   }
 
-  assertEquals_(db_count_(TEST_BULK_TABLE, mine), 0, 'ต้องไม่เหลือแถวทดสอบไว้เลย');
+  assertEquals_(await db_count_(TEST_BULK_TABLE, mine), 0, 'ต้องไม่เหลือแถวทดสอบไว้เลย');
 
   return endTest_();
 }

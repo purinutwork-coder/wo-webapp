@@ -329,7 +329,7 @@ async function fetchExternal_(url, options) {
  * @return {number}
  */
 async function fetchStatusCode_(url) {
-  return await fetchExternal_(url, { method: 'get' }).code;
+  return (await fetchExternal_(url, { method: 'get' })).code;
 }
 
 /**
@@ -498,7 +498,7 @@ async function notifyEvent_(event, wo, extra) {
      * อ่านจำนวน Task จริงตรงนี้ ไม่รับมาจากผู้เรียก เพราะผู้เรียกแต่ละที่รู้ไม่เท่ากัน
      * และข้อที่ต้องตัดสินคือ "ทั้งใบมีกี่ Task" ซึ่งมีแหล่งเดียวคือตาราง Department_Task
      */
-    if (isWoLevelEvent_(event) && !shouldNotifyWoLevel_(await listTasksByWo(woId).length)) {
+    if (isWoLevelEvent_(event) && !shouldNotifyWoLevel_((await listTasksByWo(woId)).length)) {
       summary.skipped++;
       return summary;
     }
@@ -882,7 +882,7 @@ async function checkTelegram() {
   // ห้องที่ขาดแปลว่าเหตุการณ์นั้นจะเงียบตลอดไป ซึ่งมองจากหน้าจอไม่เห็นเลย
   var missing = [];
   for (var t = 0; t < known.length; t++) {
-    if (!await notifyChannelsFor_([known[t]]).length) missing.push(known[t]);
+    if (!(await notifyChannelsFor_([known[t]])).length) missing.push(known[t]);
   }
   if (missing.length) {
     lines.push('!! ยังไม่มีห้องที่ใช้งานได้สำหรับ ' + missing.join(', ') +

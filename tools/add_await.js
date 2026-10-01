@@ -26,7 +26,7 @@ var fs = require('fs');
 var path = require('path');
 
 var SRC = path.join(__dirname, '..', 'src');
-var SKIP_FILES = ['99_Test.js'];          // ชุดทดสอบเรียกของพวกนี้ แต่ยังรันแบบ sync ได้
+var SKIP_FILES = [];
 var ROOT = 'httpSend_';
 
 function sourceFiles() {
@@ -65,6 +65,17 @@ files.forEach(function (f) {
 });
 
 var needAsync = new Set([ROOT]);
+
+/*
+ * **ฟังก์ชันที่มี `await` อยู่แล้ว ต้องเป็น async** ไม่ว่ากราฟการเรียกจะเห็นหรือไม่
+ *
+ * จุดที่เรียกแบบ dynamic (`registry[name].apply(...)` · `suites[i].fn()`) กราฟมองไม่เห็น
+ * จึงต้องเติม await ด้วยมือ · ถ้าเครื่องมือไม่รู้จักกฎนี้ ฟังก์ชันที่ถูกแก้ด้วยมือ
+ * จะมี await อยู่ในฟังก์ชันที่ไม่ใช่ async ซึ่งเป็น SyntaxError ที่ไม่มีใครตั้งใจสร้าง
+ */
+Object.keys(bodyOf).forEach(function (name) {
+  if (/\bawait\s/.test(bodyOf[name])) needAsync.add(name);
+});
 for (var round = 0; round < 60; round++) {
   var before = needAsync.size;
   Object.keys(bodyOf).forEach(function (name) {
@@ -194,12 +205,59 @@ files.forEach(function (f) {
     }
   });
 
-  if (!edits.length) return;
+  if (!edits.length) { fixMemberAccess(full); return; }
   edits.sort(function (a, b) { return b.at - a.at; });
   edits.forEach(function (e) { text = text.slice(0, e.at) + e.insert + text.slice(e.at); });
 
-  if (process.argv.indexOf('--write') !== -1) fs.writeFileSync(full, text, 'utf8');
+  if (process.argv.indexOf('--write') !== -1) {
+    fs.writeFileSync(full, text, 'utf8');
+    fixMemberAccess(full);
+  }
 });
+
+/*
+ * ซ่อม `await fn(...).prop` ให้เป็น `(await fn(...)).prop`
+ *
+ * **บั๊กเชิงระบบของการเติม await แบบแทรกข้างหน้า** · `await fn().rows` ไม่ได้แปลว่า
+ * "รอผลแล้วอ่าน rows" แต่แปลว่า "อ่าน rows จาก Promise แล้วรอค่านั้น" ซึ่งได้
+ * `undefined` ทุกครั้ง · และมัน **ไม่โยน** จึงไหลต่อไปจนตายที่ `rows.length`
+ * ในฟังก์ชันอื่นที่อยู่ห่างออกไปหลายชั้น ซึ่งชี้ไปผิดที่สิ้นเชิง
+ *
+ * เจอจริงตอนเติม await รอบแรก — `queryRows_` คืน undefined ทั้งที่โค้ดอ่านดูถูกต้อง
+ */
+function fixMemberAccess(file) {
+  if (process.argv.indexOf('--write') === -1) return;
+  var text = fs.readFileSync(file, 'utf8');
+  var code = codeOnly(text);
+  var out = [];
+  var re = /\bawait\s+([a-zA-Z_0-9$]+)\s*\(/g;
+  var m;
+
+  while ((m = re.exec(code))) {
+    var openAt = m.index + m[0].length - 1;
+    var depth = 0, i = openAt, closeAt = -1;
+    for (; i < code.length; i++) {
+      var ch = code.charAt(i);
+      if (ch === '(') depth++;
+      else if (ch === ')') { depth--; if (depth === 0) { closeAt = i; break; } }
+    }
+    if (closeAt === -1) continue;
+
+    var after = code.slice(closeAt + 1).match(/^\s*([.\[])/);
+    if (!after) continue;
+
+    out.push({ open: m.index, close: closeAt });
+  }
+
+  if (!out.length) return;
+  out.sort(function (a, b) { return b.open - a.open; });
+  out.forEach(function (e) {
+    text = text.slice(0, e.close + 1) + ')' + text.slice(e.close + 1);
+    text = text.slice(0, e.open) + '(' + text.slice(e.open);
+  });
+  fs.writeFileSync(file, text, 'utf8');
+  stats.wrapped = (stats.wrapped || 0) + out.length;
+}
 
 /* ---------- 3) รายงาน ---------- */
 
@@ -207,6 +265,7 @@ console.log('ฟังก์ชันที่อยู่บนเส้นท�
 console.log('ทำให้เป็น async: ' + stats.madeAsync);
 console.log('ทำ callback ที่ผู้เรียกรอผลได้ ให้เป็น async: ' + stats.asyncCallbacks);
 console.log('เติม await ให้การเรียก: ' + stats.awaited);
+console.log('ครอบวงเล็บให้ (await f()).prop: ' + (stats.wrapped || 0));
 console.log('');
 console.log('ข้ามเพราะอยู่ใน callback ธรรมดา: ' + stats.skipped.length + ' จุด');
 console.log('  (forEach/map/filter ไม่รอ Promise · ต้องเปลี่ยนเป็น for ด้วยมือ)');

@@ -85,9 +85,9 @@ async function listSessionTokensOf_(email) {
  * @return {number} จำนวนแถวที่ลบ
  */
 async function deleteDeadSessionTokens_(now) {
-  var removed = await db_delete_(SHEET.SESSION_TOKEN,
-    { 'Expires_Date': { op: 'lte', value: now } }).length;
-  removed += await db_delete_(SHEET.SESSION_TOKEN, { 'Active': false }).length;
+  var removed = (await db_delete_(SHEET.SESSION_TOKEN,
+    { 'Expires_Date': { op: 'lte', value: now } })).length;
+  removed += (await db_delete_(SHEET.SESSION_TOKEN, { 'Active': false })).length;
   dbInvalidate_(SHEET.SESSION_TOKEN);
   return removed;
 }
