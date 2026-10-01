@@ -50,14 +50,23 @@ function buildContext(mode) {
   var counters = { http: 0, subrequests: 0 };
   var g = gas.makeGasGlobals({ timeZone: 'Asia/Bangkok' });
 
-  var ctx = {
-    console: console, Date: Date, JSON: JSON, Math: Math, RegExp: RegExp,
-    String: String, Number: Number, Boolean: Boolean, Array: Array, Object: Object,
-    Error: Error, TypeError: TypeError, RangeError: RangeError, Function: Function,
-    Promise: Promise, Set: Set, Map: Map, Intl: Intl,
-    isNaN: isNaN, parseInt: parseInt, parseFloat: parseFloat,
-    encodeURIComponent: encodeURIComponent, decodeURIComponent: decodeURIComponent
-  };
+  /*
+   * **ห้ามยัดของพื้นฐานของ Node เข้าไปใน context** (`Array` `Object` `JSON` ...)
+   *
+   * `vm.createContext` สร้าง realm ใหม่ที่มีของพื้นฐานครบอยู่แล้ว · การยัดของจาก
+   * realm ของ Node ทับเข้าไป ทำให้ `[1,2] instanceof Array` เป็น **false**
+   * เพราะ array literal ข้างใน context สร้างจาก intrinsic ของ context นั้น
+   * แต่ชื่อ `Array` ชี้ไปที่ของ Node ซึ่งเป็นคนละตัว
+   *
+   * เจอจริงตอนสร้างตัวรันนี้ · `dbColumnMap_` ใช้ `entry instanceof Array` เพื่อ
+   * แยกคอลัมน์แบบคู่ `['รหัสลูกค้า','customer_code']` ออกจากแบบชื่อเดียว ·
+   * ตัวรันทำให้มันเป็น false ตาราง Customer จึงแมปตัวเองไปหาตัวเอง แล้วสามชุดแดง
+   * **ถ้าเชื่อตัวรันแล้วไปแก้ 01_Db.gs จะพังโค้ดที่ทำงานถูกอยู่แล้ว**
+   *
+   * บทเรียนเดียวกับกฎข้อ 27 แต่กลับด้าน — คราวนี้ของจำลอง **ใจร้ายกว่า** ของจริง
+   * แล้วฟ้องบั๊กที่ไม่มีอยู่ · ซึ่งเสียเวลาเท่ากันและทำให้คนเลิกเชื่อรายงาน
+   */
+  var ctx = { console: console };
   Object.assign(ctx, g.globals);
 
   if (mode === 'fetch') {
