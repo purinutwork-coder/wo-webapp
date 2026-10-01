@@ -11,6 +11,11 @@
 */
 'use strict';
 var crypto = require('crypto');
+var fs = require('fs');
+var path = require('path');
+
+/** ไฟล์หน้าเว็บอยู่ที่เดียวกับโค้ด เหมือนบน Apps Script ที่ทุกไฟล์อยู่โปรเจกต์เดียว */
+var SRC_DIR = path.join(__dirname, '..', '..', 'src');
 
 /** รายการที่ใช้นับว่าตัวรันถูกเรียกอะไรไปบ้าง — ตัวเลขนี้พยากรณ์เวลาบนของจริงได้ */
 function newCounters() {
@@ -62,6 +67,34 @@ function computeDigest(_algorithm, value) {
  * @param {Object} options  timeZone · activeUserEmail · scriptProperties
  * @return {Object} { globals, counters, state }
  */
+/**
+ * อ่านไฟล์หน้าเว็บจาก src/ — ชื่อที่ Apps Script ใช้ไม่มีนามสกุล
+ *
+ * ของจริงโยนเมื่อไม่มีไฟล์ชื่อนั้น · ของจำลองต้องโยนด้วย ไม่ใช่คืนข้อความว่าง
+ * เพราะชื่อหน้าที่พิมพ์ผิดต้องดังตั้งแต่ในเครื่อง ไม่ใช่ไปเงียบบนของจริง
+ */
+function readPage(name) {
+  var file = path.join(SRC_DIR, String(name).replace(/\.html$/, '') + '.html');
+  if (!fs.existsSync(file)) {
+    throw new Error('No HTML file named ' + name + ' was found.');
+  }
+  return fs.readFileSync(file, 'utf8');
+}
+
+/** ของที่ createHtmlOutput* คืน — มีเท่าที่โค้ดเรียกใช้จริง */
+function htmlOutput(content) {
+  var out = {
+    getContent: function () { return content; },
+    setContent: function (text) { content = String(text); return out; },
+    setTitle: function () { return out; },
+    setXFrameOptionsMode: function () { return out; },
+    addMetaTag: function () { return out; },
+    setSandboxMode: function () { return out; },
+    append: function (text) { content += String(text); return out; }
+  };
+  return out;
+}
+
 function makeGasGlobals(options) {
   var opt = options || {};
   var timeZone = opt.timeZone || 'Asia/Bangkok';
@@ -172,6 +205,42 @@ function makeGasGlobals(options) {
           releaseLock: function () { return undefined; },
           hasLock: function () { return true; }
         };
+      }
+    },
+
+    /*
+     * HtmlService — ส่วนใหญ่ถูกใช้เพื่อ **อ่านไฟล์หน้าเว็บมาเป็นข้อความ** (62 จุด)
+     * ไม่ใช่เพื่อประกอบหรือเสิร์ฟหน้า · SPEC 22.10 ตัดสินไว้แล้วว่าจะแทนทั้ง 59 จุด
+     * ด้วยตัวแทนตัวเดียวชื่อ `pageSource(ชื่อหน้า)` ตอนย้าย
+     *
+     * ของจำลองจึงอ่านจากไฟล์จริงใน src/ ไม่ใช่คืนข้อความว่าง · ถ้าคืนว่าง
+     * เทสต์ที่คอมไพล์หน้าเว็บด้วย `new Function` (กฎข้อ 33) จะผ่านทุกข้อโดยไม่ได้
+     * แปลอะไรเลย ซึ่งเป็นของจำลองที่ใจดีกว่าของจริงอย่างเงียบที่สุด
+     */
+    HtmlService: {
+      XFrameOptionsMode: { ALLOWALL: 'ALLOWALL', DEFAULT: 'DEFAULT' },
+      createHtmlOutputFromFile: function (name) { return htmlOutput(readPage(name)); },
+      createHtmlOutput: function (html) { return htmlOutput(String(html === undefined ? '' : html)); },
+      createTemplateFromFile: function (name) {
+        var source = readPage(name);
+        return {
+          evaluate: function () { return htmlOutput(source); }
+        };
+      }
+    },
+
+    ContentService: {
+      MimeType: { JSON: 'application/json', TEXT: 'text/plain', JAVASCRIPT: 'text/javascript' },
+      createTextOutput: function (text) {
+        var body = String(text === undefined ? '' : text);
+        var mime = 'text/plain';
+        var out = {
+          setMimeType: function (m) { mime = m; return out; },
+          getContent: function () { return body; },
+          setContent: function (t) { body = String(t); return out; },
+          getMimeType: function () { return mime; }
+        };
+        return out;
       }
     },
 

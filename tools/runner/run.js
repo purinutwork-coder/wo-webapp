@@ -91,17 +91,73 @@ function buildContext(mode) {
 
   var pg = supabase.makePostgrest({
     schema: schema,
+
+    /*
+     * RPC ทั้งสี่ตัวที่ระบบเรียกจริง
+     *
+     * **`next_running_number` จำลองตรงตาม SQL จริง** เพราะมันเป็นตรรกะสั้นและเป็น
+     * หัวใจของการออกเลขที่ไม่ซ้ำ · ถ้าของจำลองคืนเลขเดิมทุกครั้ง ทุกใบงานจะชน
+     * unique constraint แล้วเทสต์ 67 ชุดจะหยุดกลางคันด้วยข้อความ
+     * "เชื่อมต่อฐานข้อมูลไม่สำเร็จ" ซึ่งชี้ไปผิดทางสิ้นเชิง — เกิดจริงตอนสร้างตัวรันนี้
+     *
+     * **อีกสามตัวเป็นการประมาณ ไม่ใช่การจำลอง** · ของจริงเป็น SQL ยาวที่มีตรรกะ
+     * เรื่องเขตเวลาไทย การนับตามสถานะ และการกรองตามเดือน · เขียนใหม่เป็น JS
+     * = มีสูตรสองฝั่งที่วันหนึ่งจะไม่ตรงกัน ซึ่ง SPEC 31 ห้ามไว้ตรง ๆ
+     * → **ตัวเลขจาก RPC สามตัวนี้ในตัวรัน ห้ามถือเป็นหลักฐานว่า SQL ถูก**
+     *   SQL พิสูจน์ได้กับฐานข้อมูลจริงเท่านั้น · ที่นี่ให้แค่ "รูปที่ถูกต้อง"
+     *   เพื่อให้ชั้นที่อยู่เหนือขึ้นไปเดินต่อได้
+     */
     rpc: {
-      department_task_counts: function () {
-        return [{ department: 'SERVICE', pending_accept: 0, in_progress: 0, returned: 0, completed: 0 }];
+      next_running_number: function (args, tables) {
+        var key = String((args && args.p_key) || '');
+        if (!tables.counter) tables.counter = [];
+        var row = tables.counter.filter(function (r) { return String(r.key) === key; })[0];
+        if (row) {
+          row.last_number = Number(row.last_number || 0) + 1;
+          row.updated_date = new Date().toISOString();
+        } else {
+          row = { key: key, last_number: 1, updated_date: new Date().toISOString() };
+          tables.counter.push(row);
+        }
+        return row.last_number;        // ของจริงคืน integer เดี่ยว ไม่ใช่แถว
       },
-      dashboard_summary: function () {
-        return [{ total: 0, pending_approve: 0, in_progress: 0, completed: 0, overdue: 0 }];
+
+      department_task_counts: function (_args, tables) {
+        var out = {};
+        ['SERVICE', 'PROJECT', 'LAB'].forEach(function (dept) {
+          var mine = (tables.department_task || []).filter(function (r) { return String(r.department) === dept; });
+          out[dept] = {
+            pending: mine.filter(function (r) { return r.status === 'PENDING_ACCEPT'; }).length,
+            active:  mine.filter(function (r) { return r.status === 'IN_PROGRESS'; }).length,
+            today:   0,
+            done:    mine.filter(function (r) { return r.status === 'COMPLETED'; }).length
+          };
+        });
+        return out;
       },
-      next_running_number: function (args) { return [{ last_number: 1, key: args && args.p_key }]; },
-      db_objects: function () { return [{ versions: {}, indexes: [], constraints: [], functions: [] }]; }
+
+      dashboard_summary: function (_args, tables) {
+        var wo = tables.work_order || [];
+        function countStatus(v) { return wo.filter(function (r) { return r.overall_status === v; }).length; }
+        return {
+          total: wo.length,
+          pending_approve_sp: wo.filter(function (r) { return r.overall_status === 'PENDING_APPROVE' && r.route === 'SP'; }).length,
+          pending_approve_lab: wo.filter(function (r) { return r.overall_status === 'PENDING_APPROVE' && r.route === 'LAB'; }).length,
+          returned: countStatus('RETURNED'),
+          in_progress: countStatus('IN_PROGRESS'),
+          completed: countStatus('COMPLETED'),
+          overdue: 0,
+          unpaid: 0,
+          month: { created: 0, completed: 0 }
+        };
+      },
+
+      db_objects: function () {
+        return { versions: {}, indexes: [], constraints: [], functions: [] };
+      }
     }
   });
+
   world.when(/\/rest\/v1/, { kind: 'postgrest' });
 
   /*
