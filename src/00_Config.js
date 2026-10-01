@@ -1957,7 +1957,7 @@ async function checkPermissions() {
 
   for (var i = 0; i < checks.length; i++) {
     try {
-      lines.push('  ผ่าน    ' + checks[i].name + ' — ' + checks[i].run());
+      lines.push('  ผ่าน    ' + checks[i].name + ' — ' + await checks[i].run());
     } catch (e) {
       failed++;
       lines.push('  ไม่ผ่าน ' + checks[i].name + ' — ' + userFacingMessage_(e));

@@ -91,6 +91,38 @@ for (var round = 0; round < 60; round++) {
 needAsync.delete(ROOT);
 var asyncNames = Array.from(needAsync).concat([ROOT]);
 
+/* ---------- 1b) เมธอดบน object ที่เป็น async — กราฟชื่อฟังก์ชันมองไม่เห็น ---------- */
+
+/*
+ * `{ taskOf: function () { ... await ... } }` ไม่มีชื่อระดับบนสุดให้ไล่กราฟ
+ * การเรียก `wo.taskOf(DEPT.SERVICE)` จึงไม่ถูกเติม await แล้ว **Promise กลายเป็น
+ * อาร์กิวเมนต์ของฟังก์ชันถัดไป** · อาการที่ได้คือ `ไม่พบงานของแผนก [object Promise]`
+ * ซึ่งอ่านเหมือนข้อมูลหาย ไม่เหมือนปัญหาของ async เลยสักนิด
+ *
+ * หาเมธอดที่มี await อยู่ข้างในแล้วเติม await ให้ทุกจุดที่เรียก `.ชื่อ(`
+ * ถ้าชื่อนั้นถูกใช้กับของที่ไม่ async ด้วย จะได้ await บนค่าธรรมดา ซึ่งไม่เปลี่ยนผล
+ */
+var asyncMethods = new Set();
+files.forEach(function (f) {
+  var text = fs.readFileSync(path.join(SRC, f), 'utf8');
+  var re = /([a-zA-Z_0-9$]+)\s*:\s*(?:async\s+)?function\s*\(/g;
+  var m;
+  while ((m = re.exec(text))) {
+    var open = text.indexOf('{', m.index + m[0].length - 1);
+    if (open === -1) continue;
+    var depth = 0, j = open;
+    for (; j < text.length; j++) {
+      if (text.charAt(j) === '{') depth++;
+      else if (text.charAt(j) === '}') { depth--; if (depth === 0) break; }
+    }
+    if (/\bawait\s/.test(text.slice(open, j))) asyncMethods.add(m[1]);
+  }
+});
+
+var methodPattern = asyncMethods.size
+  ? new RegExp('(?<!await\\s)\\.(' + Array.from(asyncMethods).join('|') + ')\\s*\\(', 'g')
+  : null;
+
 /* ---------- 2) เขียนทับทีละไฟล์ ---------- */
 
 var callPattern = new RegExp(
@@ -205,6 +237,23 @@ files.forEach(function (f) {
     }
   });
 
+  // เติม await ให้การเรียกเมธอดที่เป็น async · ทำหลังสุดเพื่อให้ตำแหน่งยังตรง
+  if (methodPattern) {
+    var mm;
+    methodPattern.lastIndex = 0;
+    while ((mm = methodPattern.exec(code))) {
+      var dotAt = mm.index;
+      var head = code.slice(Math.max(0, dotAt - 60), dotAt);
+      // ข้ามถ้ามี await อยู่แล้วตรงหัวนิพจน์ หรือเป็นตัวประกาศเมธอดเอง
+      if (/await\s+[a-zA-Z_0-9$.\[\]()]*$/.test(head)) continue;
+      var startOfExpr = head.search(/[a-zA-Z_0-9$]+(?:\.[a-zA-Z_0-9$]+|\[[^\]]*\])*$/);
+      if (startOfExpr === -1) continue;
+      var abs = Math.max(0, dotAt - 60) + startOfExpr;
+      edits.push({ at: abs, insert: 'await ' });
+      stats.methodAwaited = (stats.methodAwaited || 0) + 1;
+    }
+  }
+
   if (!edits.length) { fixMemberAccess(full); return; }
   edits.sort(function (a, b) { return b.at - a.at; });
   edits.forEach(function (e) { text = text.slice(0, e.at) + e.insert + text.slice(e.at); });
@@ -259,13 +308,66 @@ function fixMemberAccess(file) {
   stats.wrapped = (stats.wrapped || 0) + out.length;
 }
 
+/*
+ * รอบซ่อมสุดท้าย — ฟังก์ชันไหนมี `await` ของตัวเอง ต้องเป็น `async`
+ *
+ * รอบก่อนหน้าเติม await เข้าไปในที่ที่ตัวเองไม่ได้เป็นคนทำให้ async เช่นรอบเมธอด
+ * ที่เติม `await obj.m()` ลงใน callback ของ `withAnonymousUser_` · ผลคือ
+ * SyntaxError ที่ `node --check` จับได้ แต่คนที่ไม่รันก็ไม่รู้
+ *
+ * ตัวซ่อมนี้จึงเป็นตาข่ายรับท้าย — ไล่หาทุกฟังก์ชันที่มี await ในระดับของตัวเอง
+ * (ไม่นับที่อยู่ในฟังก์ชันซ้อนลึกลงไป) แล้วเติม async ให้
+ */
+function markAsyncWhereAwaitExists(file) {
+  if (process.argv.indexOf('--write') === -1) return 0;
+  var text = fs.readFileSync(file, 'utf8');
+  var code = codeOnly(text);
+  var re = /(async\s+)?\bfunction\s*([a-zA-Z_0-9$]*)\s*\(/g;
+  var m, adds = [];
+
+  while ((m = re.exec(code))) {
+    if (m[1]) continue;                       // เป็น async อยู่แล้ว
+    var open = code.indexOf('{', re.lastIndex);
+    if (open === -1) continue;
+    var depth = 0, i = open, close = -1;
+    for (; i < code.length; i++) {
+      var ch = code.charAt(i);
+      if (ch === '{') depth++;
+      else if (ch === '}') { depth--; if (depth === 0) { close = i; break; } }
+    }
+    if (close === -1) continue;
+
+    // ตัดฟังก์ชันซ้อนออกก่อน เพื่อให้เหลือเฉพาะ await ที่เป็นของฟังก์ชันนี้เอง
+    var body = code.slice(open, close);
+    var own = body.replace(/\bfunction\s*[a-zA-Z_0-9$]*\s*\([^)]*\)\s*\{[\s\S]*?\n\s*\}/g, '');
+    if (!/\bawait\s/.test(own)) continue;
+
+    adds.push(m.index);
+  }
+
+  if (!adds.length) return 0;
+  adds.sort(function (a, b) { return b - a; });
+  adds.forEach(function (at) { text = text.slice(0, at) + 'async ' + text.slice(at); });
+  fs.writeFileSync(file, text, 'utf8');
+  return adds.length;
+}
+
+if (process.argv.indexOf('--write') !== -1) {
+  var repaired = 0;
+  files.forEach(function (f) { repaired += markAsyncWhereAwaitExists(path.join(SRC, f)); });
+  stats.repairedAsync = repaired;
+}
+
 /* ---------- 3) รายงาน ---------- */
 
 console.log('ฟังก์ชันที่อยู่บนเส้นทางไป ' + ROOT + ': ' + asyncNames.length);
 console.log('ทำให้เป็น async: ' + stats.madeAsync);
 console.log('ทำ callback ที่ผู้เรียกรอผลได้ ให้เป็น async: ' + stats.asyncCallbacks);
 console.log('เติม await ให้การเรียก: ' + stats.awaited);
+console.log('เติม await ให้การเรียกเมธอด async: ' + (stats.methodAwaited || 0) +
+  '  (ชื่อเมธอดที่เป็น async: ' + asyncMethods.size + ')');
 console.log('ครอบวงเล็บให้ (await f()).prop: ' + (stats.wrapped || 0));
+console.log('เติม async ให้ฟังก์ชันที่มี await ของตัวเอง: ' + (stats.repairedAsync || 0));
 console.log('');
 console.log('ข้ามเพราะอยู่ใน callback ธรรมดา: ' + stats.skipped.length + ' จุด');
 console.log('  (forEach/map/filter ไม่รอ Promise · ต้องเปลี่ยนเป็น for ด้วยมือ)');

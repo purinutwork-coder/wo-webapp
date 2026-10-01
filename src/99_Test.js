@@ -3933,7 +3933,7 @@ async function test_web_deptWorkView() {
   var svList = await withTestUser_(users.service, async function () { return await api_listMyTasks(); });
   assertEquals_(svList.ok, true, 'แผนกเปิดรายการงานของตัวเองได้');
 
-  var sv = findTaskView_(svList.data.rows, wo.taskOf(DEPT.SERVICE));
+  var sv = findTaskView_(svList.data.rows, await wo.taskOf(DEPT.SERVICE));
   assertTrue_(!!sv, 'เห็นงานของแผนกตัวเองในรายการ');
 
   /* ---------- จำนวนขั้นตอนมาจากข้อมูลจริง ไม่ใช่เลขตายตัว (กฎข้อ 9) ---------- */
@@ -3944,7 +3944,7 @@ async function test_web_deptWorkView() {
   assertEquals_(sv.steps[0].type, STEP_TYPE.STEP, 'ฝั่ง Service เป็นขั้นตอนงาน');
 
   var pjList = await withTestUser_(users.project, async function () { return await api_listMyTasks(); });
-  var pj = findTaskView_(pjList.data.rows, wo.taskOf(DEPT.PROJECT));
+  var pj = findTaskView_(pjList.data.rows, await wo.taskOf(DEPT.PROJECT));
   /*
    * ฝั่ง Project เริ่มด้วยศูนย์งวดเสมอ แผนกเพิ่มเองระหว่างทำงาน (SPEC 20.2)
    * เจตนาเดิมของข้อนี้ — "จำนวนขั้นไม่ได้ถูกกำหนดตายตัวในโค้ด" — ยังพิสูจน์ได้เหมือนเดิม
@@ -4006,8 +4006,8 @@ async function test_web_deptWorkBlockedStates() {
   /* ---------- ถูกตีกลับ ---------- */
   var wo = await approvedTestWo_(users, ASSIGNMENT.SERVICE_PROJECT,
     { 'Location': 'จุดที่จะถูกตีกลับ' });
-  var svTask = wo.taskOf(DEPT.SERVICE);
-  var pjTask = wo.taskOf(DEPT.PROJECT);
+  var svTask = await wo.taskOf(DEPT.SERVICE);
+  var pjTask = await wo.taskOf(DEPT.PROJECT);
 
   await withTestUser_(users.service, async function () { return await api_acceptTask(svTask); });
   await withTestUser_(users.project, async function () { return await api_acceptTask(pjTask); });
@@ -4070,7 +4070,7 @@ async function test_web_deptWorkPaymentNotice() {
     'Location': 'จุดที่ต้องชำระก่อน',
     'Payment_Required': true
   });
-  var taskId = wo.taskOf(DEPT.SERVICE);
+  var taskId = await wo.taskOf(DEPT.SERVICE);
 
   var row = findTaskView_(
     (await withTestUser_(users.service, async function () { return await api_listMyTasks(); })).data.rows, taskId);
@@ -4336,7 +4336,7 @@ async function test_web_bootstrapContract() {
     assertTrue_(needs.length > 0,
       'หน้า ' + item.file + ' ต้องประกาศ PAGE_NEEDS ว่าตัวเองใช้คีย์อะไร');
 
-    var boot = await withTestUser_(item.who, (function (it) {
+    var boot = await withTestUser_(item.who, (async function (it) {
       return async function () { return await pageBootstrap_(it.page, it.params); };
     })(item));
 
@@ -5231,7 +5231,7 @@ async function test_task_singleDepartmentFlow() {
 
   var users = serviceTestUsers_();
   var wo = await approvedTestWo_(users, ASSIGNMENT.SERVICE, { 'Location': 'จุดงานแผนกเดียว' });
-  var taskId = wo.taskOf(DEPT.SERVICE);
+  var taskId = await wo.taskOf(DEPT.SERVICE);
 
   assertEquals_((await getTask(taskId))['Status'], TASK_STATUS.PENDING_ACCEPT, 'อนุมัติแล้วงานของแผนกรอให้กดรับ');
   assertEquals_((await getWorkOrder(wo.woId))['Overall_Status'], WO_STATUS.APPROVED,
@@ -5303,8 +5303,8 @@ async function test_task_jointCompletion() {
   var wo = await approvedTestWo_(users, ASSIGNMENT.SERVICE_PROJECT,
     { 'Location': 'จุดงานร่วมสองแผนก' });
 
-  var svTask = wo.taskOf(DEPT.SERVICE);
-  var pjTask = wo.taskOf(DEPT.PROJECT);
+  var svTask = await wo.taskOf(DEPT.SERVICE);
+  var pjTask = await wo.taskOf(DEPT.PROJECT);
   assertEquals_(wo.tasks.length, 2, 'งานร่วมต้องเกิดงานของแผนก 2 ตัว');
   assertTrue_(svTask !== '' && pjTask !== '', 'มีงานของทั้งแผนก Service และ Project');
   // เจตนาเดิมคือ "จำนวนงวดไม่ใช่เลขตายตัวในโค้ด" ซึ่งยังต้องคุ้มครอง
@@ -5351,8 +5351,8 @@ async function test_task_jointCancelOne() {
   var wo = await approvedTestWo_(users, ASSIGNMENT.SERVICE_PROJECT,
     { 'Location': 'จุดที่ยกเลิกบางแผนก' });
 
-  var svTask = wo.taskOf(DEPT.SERVICE);
-  var pjTask = wo.taskOf(DEPT.PROJECT);
+  var svTask = await wo.taskOf(DEPT.SERVICE);
+  var pjTask = await wo.taskOf(DEPT.PROJECT);
 
   await acceptTask(svTask, users.service);
   await acceptTask(pjTask, users.project);
@@ -5390,8 +5390,8 @@ async function test_task_cancelAllDepartments() {
   var wo = await approvedTestWo_(users, ASSIGNMENT.SERVICE_PROJECT,
     { 'Location': 'จุดที่ยกเลิกทุกแผนก' });
 
-  var svTask = wo.taskOf(DEPT.SERVICE);
-  var pjTask = wo.taskOf(DEPT.PROJECT);
+  var svTask = await wo.taskOf(DEPT.SERVICE);
+  var pjTask = await wo.taskOf(DEPT.PROJECT);
 
   // ยกเลิกได้ตั้งแต่ยังไม่กดรับงาน (SPEC 5 — TASK_CANCEL จาก PENDING_ACCEPT ได้)
   await cancelTask(svTask, 'ลูกค้ายกเลิกงานทั้งหมด', users.service);
@@ -5421,8 +5421,8 @@ async function test_task_returnKeepsWork() {
   var wo = await approvedTestWo_(users, ASSIGNMENT.SERVICE_PROJECT,
     { 'Location': 'จุดที่ถูกตีกลับกลางคัน' });
 
-  var svTask = wo.taskOf(DEPT.SERVICE);
-  var pjTask = wo.taskOf(DEPT.PROJECT);
+  var svTask = await wo.taskOf(DEPT.SERVICE);
+  var pjTask = await wo.taskOf(DEPT.PROJECT);
 
   await acceptTask(svTask, users.service);
   await acceptTask(pjTask, users.project);
@@ -5542,8 +5542,8 @@ async function test_task_ownership() {
   var wo = await approvedTestWo_(users, ASSIGNMENT.SERVICE_PROJECT,
     { 'Location': 'จุดทดสอบความเป็นเจ้าของงาน' });
 
-  var svTask = wo.taskOf(DEPT.SERVICE);
-  var pjTask = wo.taskOf(DEPT.PROJECT);
+  var svTask = await wo.taskOf(DEPT.SERVICE);
+  var pjTask = await wo.taskOf(DEPT.PROJECT);
 
   await acceptTask(svTask, users.service);
   await acceptTask(pjTask, users.project);
@@ -5581,7 +5581,7 @@ async function test_task_paymentGate() {
     'Location': 'จุดที่ต้องชำระก่อนเริ่มงาน',
     'Payment_Required': true
   });
-  var taskId = wo.taskOf(DEPT.SERVICE);
+  var taskId = await wo.taskOf(DEPT.SERVICE);
 
   assertEquals_((await getWorkOrder(wo.woId))['Payment_Status'], PAYMENT.UNPAID, 'ใบงานเริ่มต้นที่ยังไม่ชำระ');
 
@@ -6102,7 +6102,7 @@ async function test_permission_anonymousIsRejected() {
 
   var users = serviceTestUsers_();
   var wo = await approvedTestWo_(users, ASSIGNMENT.SERVICE, { 'Location': 'จุดทดสอบผู้ใช้นิรนาม' });
-  var taskId = wo.taskOf(DEPT.SERVICE);
+  var taskId = await wo.taskOf(DEPT.SERVICE);
   var form = testWoForm_({ 'Location': 'จุดที่ผู้ใช้นิรนามพยายามสร้าง' });
 
   var before = await countAllRows_();
@@ -6127,9 +6127,9 @@ async function test_permission_anonymousIsRejected() {
     { name: 'บันทึกรับชำระเงิน', run: async function () { return await api_recordPayment(wo.woId, 'หมายเหตุ'); } }
   ];
 
-  await withAnonymousUser_(function () {
+  await withAnonymousUser_(async function () {
     for (var i = 0; i < calls.length; i++) {
-      var result = calls[i].run();
+      var result = await calls[i].run();
       assertEquals_(result.ok, false, 'ผู้ใช้ที่ระบุตัวตนไม่ได้ ต้อง' + calls[i].name + 'ไม่ได้');
       assertEquals_(result.message, NEED_LOGIN_MESSAGE,
         'ข้อความที่ได้ตอน' + calls[i].name + ' ต้องบอกให้เข้าสู่ระบบก่อน');
@@ -6649,7 +6649,7 @@ async function test_permission_menuDoesNotWeakenApi() {
 
   var users = serviceTestUsers_();
   var wo = await approvedTestWo_(users, ASSIGNMENT.SERVICE, { 'Location': 'จุดทดสอบเมนู' });
-  var taskId = wo.taskOf(DEPT.SERVICE);
+  var taskId = await wo.taskOf(DEPT.SERVICE);
   var form = testWoForm_({ 'Location': 'จุดที่คนไม่มีสิทธิ์พยายามสร้าง' });
 
   var rowsBefore = await countAllRows_();
@@ -6783,8 +6783,8 @@ async function test_permission_taskApi() {
   var wo = await approvedTestWo_(users, ASSIGNMENT.SERVICE_PROJECT,
     { 'Location': 'จุดทดสอบสิทธิ์งานแผนก' });
 
-  var svTask = wo.taskOf(DEPT.SERVICE);
-  var pjTask = wo.taskOf(DEPT.PROJECT);
+  var svTask = await wo.taskOf(DEPT.SERVICE);
+  var pjTask = await wo.taskOf(DEPT.PROJECT);
 
   /* ---------- api_acceptTask ---------- */
   var byAdmin = await withTestUser_(users.admin, async function () { return await api_acceptTask(svTask); });
@@ -8684,7 +8684,7 @@ async function test_auth_loginSucceedsAndFails() {
   ];
 
   for (var f = 0; f < failures.length; f++) {
-    var result = failures[f].run();
+    var result = await failures[f].run();
     assertEquals_(result.ok, false, failures[f].name + ' ต้องเข้าไม่ได้');
     assertEquals_(result.message, LOGIN_FAILED_MESSAGE,
       failures[f].name + ' ต้องได้ข้อความเดียวกับกรณีอื่นเป๊ะ ห้ามบอกว่าผิดตรงไหน');
@@ -10408,7 +10408,7 @@ async function completedTestWo_(users, assignmentType) {
   var depts = departmentsOfAssignment(assignmentType);
 
   for (var d = 0; d < depts.length; d++) {
-    var taskId = wo.taskOf(depts[d]);
+    var taskId = await wo.taskOf(depts[d]);
     var actor = serviceUserOfDept_(users, depts[d]);
     await callApiAs_(actor, 'กดรับงาน ' + depts[d], async function () { return await api_acceptTask(taskId); });
     await finishEveryStep_(taskId, actor);
@@ -10502,7 +10502,7 @@ async function test_service_reopenByDepartment() {
 
   var users = serviceTestUsers_();
   var wo = await completedTestWo_(users, ASSIGNMENT.SERVICE);
-  var taskId = wo.taskOf(DEPT.SERVICE);
+  var taskId = await wo.taskOf(DEPT.SERVICE);
 
   /* ---------- สิ่งที่ต้องไม่หายหลังเปิดซ้ำ จำไว้ก่อน ---------- */
   var stepsBefore = await listStepsByTask(taskId);
@@ -10599,7 +10599,7 @@ async function test_service_reopenRejectsCancelled() {
 
   var users = serviceTestUsers_();
   var wo = await approvedTestWo_(users, ASSIGNMENT.SERVICE, { 'Location': 'จุดยกเลิก' + testRunId_() });
-  var taskId = wo.taskOf(DEPT.SERVICE);
+  var taskId = await wo.taskOf(DEPT.SERVICE);
 
   await callApiAs_(users.service, 'ยกเลิกงานของแผนก', async function () {
     return await api_cancelTask(taskId, 'ลูกค้ายกเลิกงานทั้งหมด');
@@ -10629,8 +10629,8 @@ async function test_service_reopenJointKeepsOtherDepartment() {
 
   var users = serviceTestUsers_();
   var wo = await completedTestWo_(users, ASSIGNMENT.SERVICE_PROJECT);
-  var svTask = wo.taskOf(DEPT.SERVICE);
-  var pjTask = wo.taskOf(DEPT.PROJECT);
+  var svTask = await wo.taskOf(DEPT.SERVICE);
+  var pjTask = await wo.taskOf(DEPT.PROJECT);
 
   await callApiAs_(users.service, 'เปิดงานของ Service ขึ้นมาทำต่อ', async function () {
     return await api_reopenWorkOrder(wo.woId, 'ลูกค้าแจ้งว่าปั๊มยังเสียงดัง', '', {});
@@ -10660,7 +10660,7 @@ async function test_service_closedDateTracksClosing() {
 
   var users = serviceTestUsers_();
   var wo = await completedTestWo_(users, ASSIGNMENT.SERVICE);
-  var taskId = wo.taskOf(DEPT.SERVICE);
+  var taskId = await wo.taskOf(DEPT.SERVICE);
 
   /* ---------- ปิดงานแล้วต้องมีวันที่ปิด ---------- */
   var closed = await getWorkOrder(wo.woId);
@@ -10895,7 +10895,7 @@ async function test_task_visitSchedule() {
 
   var users = serviceTestUsers_();
   var wo = await approvedTestWo_(users, ASSIGNMENT.SERVICE, { 'Location': 'จุดนัดเข้างาน' });
-  var taskId = wo.taskOf(DEPT.SERVICE);
+  var taskId = await wo.taskOf(DEPT.SERVICE);
 
   /* ---------- ยังไม่กดรับงาน กำหนดวันไม่ได้ ---------- */
   /*
@@ -10975,7 +10975,7 @@ async function test_task_visitSchedule() {
 
   /* ---------- งานที่ยังไม่ได้นัดวัน ต้องไม่หายไปจากสายตา ---------- */
   var other = await approvedTestWo_(users, ASSIGNMENT.SERVICE, { 'Location': 'จุดที่ยังไม่นัด' });
-  var otherTask = other.taskOf(DEPT.SERVICE);
+  var otherTask = await other.taskOf(DEPT.SERVICE);
   await callApiAs_(users.service, 'กดรับงานใบที่ยังไม่นัด', async function () { return await api_acceptTask(otherTask); });
 
   var stillHidden = [];
@@ -11652,8 +11652,8 @@ async function test_menu_taskViewsAndCounts() {
   var working = await approvedTestWo_(users, ASSIGNMENT.SERVICE, { 'Location': 'จุดกำลังทำ' });
   var stopped = await approvedTestWo_(users, ASSIGNMENT.SERVICE, { 'Location': 'จุดที่ยกเลิก' });
 
-  var workingTask = working.taskOf(DEPT.SERVICE);
-  var stoppedTask = stopped.taskOf(DEPT.SERVICE);
+  var workingTask = await working.taskOf(DEPT.SERVICE);
+  var stoppedTask = await stopped.taskOf(DEPT.SERVICE);
 
   await callApiAs_(users.service, 'รับงานใบที่กำลังทำ', async function () { return await api_acceptTask(workingTask); });
   await callApiAs_(users.service, 'รับงานใบที่จะยกเลิก', async function () { return await api_acceptTask(stoppedTask); });
@@ -11669,7 +11669,7 @@ async function test_menu_taskViewsAndCounts() {
     if (view) byView[view].push(rows[i].taskId);
   }
 
-  assertTrue_(byView.pending.indexOf(waiting.taskOf(DEPT.SERVICE)) !== -1,
+  assertTrue_(byView.pending.indexOf(await waiting.taskOf(DEPT.SERVICE)) !== -1,
     'งานที่ยังไม่ได้กดรับ อยู่ในมุมมอง "รอกดรับงาน"');
   assertTrue_(byView.active.indexOf(workingTask) !== -1,
     'งานที่รับแล้วอยู่ในมุมมอง "กำลังดำเนินการ"');
@@ -11724,7 +11724,7 @@ async function test_menu_deniedGetsNoData() {
 
   var users = serviceTestUsers_();
   var wo = await approvedTestWo_(users, ASSIGNMENT.PROJECT, { 'Location': 'จุดของแผนกโครงการ' });
-  var pjTask = wo.taskOf(DEPT.PROJECT);
+  var pjTask = await wo.taskOf(DEPT.PROJECT);
   await callApiAs_(users.project, 'แผนกโครงการรับงานของตัวเอง', async function () {
     return await api_acceptTask(pjTask);
   });
@@ -17339,8 +17339,8 @@ async function test_report_jointChecksEachDepartment() {
   var users = serviceTestUsers_();
   var reports = await addTestReports_();
   var wo = await approvedTestWo_(users, ASSIGNMENT.SERVICE_PROJECT, { 'Location': 'จุดงานร่วมเอกสาร' });
-  var svTask = wo.taskOf(DEPT.SERVICE);
-  var pjTask = wo.taskOf(DEPT.PROJECT);
+  var svTask = await wo.taskOf(DEPT.SERVICE);
+  var pjTask = await wo.taskOf(DEPT.PROJECT);
 
   await callApiAs_(users.service, 'Service รับงาน', async function () { return await api_acceptTask(svTask); });
   await callApiAs_(users.project, 'Project รับงาน', async function () { return await api_acceptTask(pjTask); });
