@@ -57,6 +57,23 @@ function buildContext(mode) {
    */
   var g = gas.makeGasGlobals({
     timeZone: 'Asia/Bangkok',
+
+    /*
+     * ผู้กระทำกับเจ้าของสคริปต์ต้องเป็นคนเดียวกันและไม่ว่าง
+     *
+     * `assertDataAccessAllowed_()` ผ่านได้สองทาง — กำลังให้บริการคำขอที่เข้ามาทาง
+     * `api_call`/`doGet` หรือ **เป็นการรันจากตัวแก้ไขโดยเจ้าของ** ซึ่ง `isEditorRun_()`
+     * ตรวจด้วยการเทียบ `getActiveUser()` กับ `getEffectiveUser()`
+     *
+     * ตัวรันในเครื่องคือกรณีที่สองพอดี — เป็นช่องทางเดียวกับที่ผู้พัฒนากดรันเทสต์
+     * ในตัวแก้ไข Apps Script · การตั้งค่านี้จึงเป็นการบอกความจริง ไม่ใช่การปลดด่าน
+     *
+     * ถ้าปล่อยว่างไว้ เทสต์ 7 ชุดที่แตะข้อมูลจะหยุดกลางคันด้วย "กรุณาเข้าสู่ระบบ"
+     * ซึ่งเป็นอาการของสภาพแวดล้อม ไม่ใช่ของโค้ด และอ่านแล้วชวนให้ไล่หาผิดทาง
+     */
+    activeUserEmail: 'owner@runner.local',
+    effectiveUserEmail: 'owner@runner.local',
+
     scriptProperties: {
       SUPABASE_URL: 'https://mock-no-network.supabase.co',
       SUPABASE_SERVICE_KEY: 'service-role-ของจำลอง',
