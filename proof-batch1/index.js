@@ -184,11 +184,27 @@ let hitCount = 0;
  * ซึ่งโยนภาระให้คนอ่านเดา · **ตัวตรวจที่แยกไม่ออกต้องประกาศว่าแยกไม่ออก ไม่ใช่พิมพ์ตัวเลข**
  * (CLAUDE.md ข้อ 32 · ตระกูลเดียวกับ "200 พร้อม 0 แถว")
  */
-const ISOLATE_ID = crypto.randomUUID();
+let ISOLATE_ID = null;
+
+/**
+ * คืนรหัสประจำ isolate ตัวนี้ สร้างครั้งแรกที่มีคนถาม
+ *
+ * **ห้ามสร้างตอนโหลดโมดูล** · Workers ห้ามสุ่มค่า ตั้งเวลา และยิง I/O ที่ระดับบนสุด
+ * ของไฟล์ แล้วปฏิเสธตั้งแต่ตอน deploy ด้วย `Disallowed operation called within
+ * global scope` (รหัส 10021) · เป็นข้อห้ามที่ Apps Script ไม่มี จึงเป็นของที่
+ * มองไม่เห็นจนกว่าจะลอง deploy จริง — เจอจริงตอน deploy ครั้งแรก 01-10-2026
+ *
+ * สร้างตอนถูกเรียกครั้งแรกให้ผลเท่ากันทุกอย่างสำหรับงานนี้ เพราะค่าที่ต้องการคือ
+ * ค่าที่คงที่ตลอดอายุของ isolate หนึ่งตัว ไม่ใช่ค่าที่เกิดในวินาทีที่โมดูลถูกโหลด
+ */
+function isolateId() {
+  if (ISOLATE_ID === null) ISOLATE_ID = crypto.randomUUID();
+  return ISOLATE_ID;
+}
 
 function routeCounted() {
   hitCount++;
-  return new Response(JSON.stringify({ ครั้งที่: hitCount, isolate: ISOLATE_ID }),
+  return new Response(JSON.stringify({ ครั้งที่: hitCount, isolate: isolateId() }),
     { status: 500 });
 }
 
@@ -455,7 +471,7 @@ export default {
         case '/self/big':     return routeBig(url);
         case '/self/counted': return routeCounted();
         case '/self/hits':
-          return new Response(JSON.stringify({ hits: hitCount, isolate: ISOLATE_ID }));
+          return new Response(JSON.stringify({ hits: hitCount, isolate: isolateId() }));
         default: return new Response('ไม่มีทางนี้\n', { status: 404 });
       }
     }
