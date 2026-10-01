@@ -374,11 +374,59 @@ async function measureSubrequests(origin, url) {
 }
 
 /** ข้อ 5 — ยิงหนึ่งครั้ง ปลายทางเห็นกี่ครั้ง */
+/**
+ * อ่านตัวนับจาก /self/hits โดยไม่ยอมโยนออกไปไม่ว่ากรณีใด
+ *
+ * เดิมเขียนเป็น `await (await fetch(...)).json()` เปล่า ๆ · พอของที่ตอบกลับมา
+ * ไม่ใช่ JSON มันโยนทะลุ handler ออกไปเป็น **error 1101** ซึ่งคือหน้าขาวที่
+ * ไม่บอกอะไรเลยสักอย่าง · เจอจริงบนของจริง 01-10-2026 ทั้งที่ workerd ในเครื่องผ่าน
+ *
+ * **เครื่องวัดที่ล้มแทนที่จะรายงาน คือเครื่องวัดที่ซ่อนผลการวัด** และรอบที่ล้ม
+ * ก็คือรอบที่มีอะไรน่าสนใจที่สุดเสมอ · ตัวนี้จึงคืนสิ่งที่เจอทุกกรณี
+ */
+async function readHits(origin, label) {
+  try {
+    const res = await fetch(origin + '/self/hits', { headers: { 'x-proof-depth': '1' } });
+    const text = await res.text();
+    try {
+      const asJson = JSON.parse(text);
+      return { อ่านได้: true, status: res.status, hits: asJson.hits, isolate: asJson.isolate };
+    } catch (e) {
+      return {
+        อ่านได้: false, เมื่อ: label, status: res.status,
+        เพราะ: 'ตอบกลับมาแต่ไม่ใช่ JSON',
+        contentType: res.headers.get('content-type') || '(ไม่มี)',
+        bodyยาว: text.length,
+        bodyต้น: text.slice(0, 300)
+      };
+    }
+  } catch (e) {
+    return {
+      อ่านได้: false, เมื่อ: label,
+      เพราะ: 'fetch โยนออกมา — ยิงใส่ตัวเองไม่สำเร็จ',
+      ชื่อ: e && e.name, ข้อความ: e && e.message,
+      สาเหตุซ้อน: e && e.cause ? String(e.cause && e.cause.message || e.cause) : null
+    };
+  }
+}
+
 async function measureRetry(origin) {
-  const before = await (await fetch(origin + '/self/hits', { headers: { 'x-proof-depth': '1' } })).json();
+  const before = await readHits(origin, 'ก่อนยิง');
   const one = await observe('ยิงไปที่ทางที่ตอบ 500 หนึ่งครั้ง',
     () => fetch(origin + '/self/counted', { headers: { 'x-proof-depth': '1' } }));
-  const after = await (await fetch(origin + '/self/hits', { headers: { 'x-proof-depth': '1' } })).json();
+  const after = await readHits(origin, 'หลังยิง');
+
+  // อ่านตัวนับไม่ได้สักข้าง = ไม่มีอะไรให้ลบกัน ต้องบอกว่าทำไม ไม่ใช่ล้มเงียบ
+  if (!before.อ่านได้ || !after.อ่านได้) {
+    return {
+      ผล: 'วัดไม่ได้ในรอบนี้',
+      เพราะ: 'อ่านตัวนับจากทางที่ยิงใส่ตัวเองไม่สำเร็จ',
+      ห้ามสรุปว่า: 'Worker ไม่ลองใหม่',
+      ก่อนยิง: before,
+      ผลของการยิง: one,
+      หลังยิง: after
+    };
+  }
 
   // ทั้งสามคำขอต้องตกที่ isolate เดียวกัน ไม่งั้นส่วนต่างของตัวนับไม่มีความหมาย
   const bodyของรอบที่ยิง = String(one.bodyต้น || '');
