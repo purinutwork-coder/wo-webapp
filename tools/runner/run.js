@@ -163,6 +163,31 @@ function toFetchInit(options) {
  * ถ้าไม่แยก ตัวเลขแดงของโหมด fetch จะเป็นก้อนเดียวที่อ่านไม่ได้ความ · ของที่
  * เราอยากรู้คือข้อที่สองต่างหาก เพราะข้อแรกเป็นงานไล่เติม `await` ซึ่งรู้ราคาแล้ว
  */
+/**
+ * แกะผลรายชุดออกจาก Logger — เป็นทางเดียวที่เทียบ A/B ได้ละเอียดกว่าระดับกลุ่ม
+ *
+ * harness พิมพ์สองรูป
+ *   `--- <ชื่อชุด>: ผ่าน N / ไม่ผ่าน M ---`
+ *   `!! <ชื่อชุด> หยุดกลางคัน: <เหตุผล>`
+ * ชุดที่หยุดกลางคันไม่มีบรรทัดแรก จึงต้องเก็บทั้งสองรูป ไม่งั้นชุดที่หายไป
+ * จะถูกนับเป็นศูนย์แทนที่จะถูกนับเป็น "ไม่ได้ตอบ" (CLAUDE.md ข้อ 32)
+ */
+function suitesFromLog(lines) {
+  var out = {};
+  lines.forEach(function (line) {
+    var done = /^---\s*(.+?):\s*ผ่าน (\d+) \/ ไม่ผ่าน (\d+)\s*---/.exec(line);
+    if (done) {
+      out[done[1]] = { pass: Number(done[2]), fail: Number(done[3]), crashed: false };
+      return;
+    }
+    var dead = /^!!\s*(\S+)\s+หยุดกลางคัน:\s*(.*)$/.exec(line);
+    if (dead) {
+      out[dead[1]] = { pass: 0, fail: 0, crashed: true, reason: dead[2].slice(0, 160) };
+    }
+  });
+  return out;
+}
+
 function classify(error) {
   var text = String((error && error.message) || error);
   if (/\[object Promise\]|Promise \{|is not a function.*then|\.then is not/.test(text)) return 'async';
@@ -195,13 +220,14 @@ function runOne(mode, name) {
     return {
       mode: mode, name: name, ok: true, result: out,
       ms: Date.now() - startedAt, http: built.counters.http,
-      gasCalls: built.gas.counters
+      gasCalls: built.gas.counters, suites: suitesFromLog(built.gas.state.logLines)
     };
   } catch (e) {
     return {
       mode: mode, name: name, ok: false, kind: classify(e),
       reason: String((e && e.message) || e).slice(0, 300),
-      ms: Date.now() - startedAt, http: built.counters.http
+      ms: Date.now() - startedAt, http: built.counters.http,
+      suites: suitesFromLog(built.gas.state.logLines)
     };
   }
 }
@@ -244,19 +270,66 @@ function main() {
     if (!r.ok) console.log('        ' + r.reason);
   });
 
-  if (mode === 'both') {
-    var a = rows.filter(function (r) { return r.mode === 'urlfetchapp'; });
-    var b = rows.filter(function (r) { return r.mode === 'fetch'; });
-    var onlyB = b.filter(function (r, i) { return !r.ok && a[i] && a[i].ok; });
-    console.log('\n── เทียบสองโหมด ──');
-    console.log('  urlfetchapp ผ่าน ' + a.filter(function (r) { return r.ok; }).length + '/' + a.length);
-    console.log('  fetch       ผ่าน ' + b.filter(function (r) { return r.ok; }).length + '/' + b.length);
-    console.log('  ข้อที่เขียววันนี้แต่แดงเมื่อย้าย: ' + onlyB.length +
-      ' (async ' + onlyB.filter(function (r) { return r.kind === 'async'; }).length +
-      ' · พฤติกรรมต่างจริง ' + onlyB.filter(function (r) { return r.kind !== 'async'; }).length + ')');
-    console.log('  → ข้อที่แดงเพราะ async คืองานไล่เติม await ซึ่งรู้ราคาแล้ว');
-    console.log('  → ข้อที่แดงเพราะพฤติกรรมต่างจริง คือสิ่งที่ SPEC 22.10 เตือนไว้');
+  if (mode === 'both') reportDiff(rows);
+}
+
+/**
+ * เทียบสองโหมดรายชุด ไม่ใช่ระดับกลุ่ม
+ *
+ * **ห้ามเทียบแต่ยอดรวม** · กลุ่มที่หายไปสามข้อกับกลุ่มที่เพิ่มมาสามข้อหักกลบกัน
+ * เป็นศูนย์แล้วซ่อนทั้งสองฝั่ง (CLAUDE.md) · ต้องไล่ทีละชุดเสมอ
+ */
+function reportDiff(rows) {
+  var A = {}, B = {};
+  rows.forEach(function (r) {
+    var into = (r.mode === 'urlfetchapp') ? A : B;
+    Object.keys(r.suites || {}).forEach(function (k) { into[k] = r.suites[k]; });
+  });
+
+  var names = Object.keys(A).concat(Object.keys(B))
+    .filter(function (v, i, arr) { return arr.indexOf(v) === i; }).sort();
+
+  var worse = [], gone = [], same = 0;
+  names.forEach(function (n) {
+    var a = A[n], b = B[n];
+    if (!b) { gone.push(n); return; }
+    if (!a) return;
+    if (a.crashed === b.crashed && a.pass === b.pass && a.fail === b.fail) { same++; return; }
+    worse.push({ name: n, a: a, b: b });
+  });
+
+  function total(map, field) {
+    return Object.keys(map).reduce(function (sum, k) { return sum + (map[k][field] || 0); }, 0);
   }
+  function crashedCount(map) {
+    return Object.keys(map).filter(function (k) { return map[k].crashed; }).length;
+  }
+
+  console.log('\n── เทียบสองโหมดรายชุด ──');
+  console.log('  ชุดที่เห็นทั้งสองโหมด ' + names.length + ' ชุด · เหมือนเดิม ' + same + ' ชุด');
+  console.log('');
+  console.log('              urlfetchapp    fetch');
+  console.log('  ผ่าน           ' + String(total(A, 'pass')).padStart(6) + '      ' + String(total(B, 'pass')).padStart(6));
+  console.log('  ไม่ผ่าน        ' + String(total(A, 'fail')).padStart(6) + '      ' + String(total(B, 'fail')).padStart(6));
+  console.log('  ชุดหยุดกลางคัน ' + String(crashedCount(A)).padStart(6) + '      ' + String(crashedCount(B)).padStart(6));
+
+  if (worse.length) {
+    console.log('\n  ชุดที่เปลี่ยนไปเมื่อย้ายไป fetch (' + worse.length + ' ชุด):');
+    worse.slice(0, 25).forEach(function (w) {
+      var before = w.a.crashed ? 'หยุด' : (w.a.pass + '/' + (w.a.pass + w.a.fail));
+      var after = w.b.crashed ? 'หยุด' : (w.b.pass + '/' + (w.b.pass + w.b.fail));
+      console.log('    ' + w.name);
+      console.log('        ' + before + '  →  ' + after + (w.b.reason ? ('  · ' + w.b.reason.slice(0, 110)) : ''));
+    });
+    if (worse.length > 25) console.log('    ... อีก ' + (worse.length - 25) + ' ชุด');
+  }
+
+  if (gone.length) {
+    console.log('\n  !! ชุดที่หายไปเลยในโหมด fetch (' + gone.length + ') — ไม่ได้ตอบ ไม่ใช่ผ่าน:');
+    gone.slice(0, 15).forEach(function (n) { console.log('    ' + n); });
+  }
+
+  console.log('\n  → ตัวเลขทั้งหมดนี้มาจากตัวรันในเครื่อง เทียบกับของจริงตรง ๆ ไม่ได้');
 }
 
 if (require.main === module) main();
