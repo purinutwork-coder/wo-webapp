@@ -92,7 +92,7 @@ function makeWorld() {
  * `UrlFetchApp` **โยน** เมื่อเครือข่ายล้มเหลวและเมื่อหมดเวลารอ
  * ซึ่งเป็นจุดที่ต่างจาก `fetch` มากที่สุด และเป็นที่มาของกฎข้อ 24 ทั้งข้อ
  */
-function makeUrlFetchApp(world, counters) {
+function makeUrlFetchApp(world, counters, pg) {
   return {
     fetch: function (url, options) {
       counters.http++;
@@ -102,7 +102,11 @@ function makeUrlFetchApp(world, counters) {
         throw new Error(URLFETCH_URL_MESSAGE);
       }
 
-      var outcome = world.resolve({ url: url, method: opt.method, headers: opt.headers });
+      var outcome = world.resolve({ url: url, method: opt.method, headers: opt.headers, body: opt.payload });
+      if (outcome.kind === 'postgrest') {
+        outcome = Object.assign({ kind: 'ok' },
+          pg.handle({ url: url, method: opt.method, headers: opt.headers, body: opt.payload }));
+      }
 
       if (outcome.kind === 'dnsFail') throw new Error('DNS error: ' + String(url));
       if (outcome.kind === 'certFail') throw new Error('SSL error: ' + String(url));
@@ -139,7 +143,7 @@ function makeUrlFetchApp(world, counters) {
  *
  * **สิ่งเดียวที่โยนคือการยกเลิกที่เราสั่งเอง** กับการชนเพดานคำขอย่อย
  */
-function makeFetch(world, counters) {
+function makeFetch(world, counters, pg) {
   function synthetic(status, text) {
     return {
       status: status, ok: false,
@@ -162,7 +166,11 @@ function makeFetch(world, counters) {
       throw opt.signal.reason || new Error('aborted');
     }
 
-    var outcome = world.resolve({ url: url, method: opt.method, headers: opt.headers });
+    var outcome = world.resolve({ url: url, method: opt.method, headers: opt.headers, body: opt.body });
+    if (outcome.kind === 'postgrest') {
+      outcome = Object.assign({ kind: 'ok' },
+        pg.handle({ url: url, method: opt.method, headers: opt.headers, body: opt.body }));
+    }
 
     if (outcome.kind === 'dnsFail') return synthetic(530, 'error code: 1016');
     if (outcome.kind === 'certFail') return synthetic(526, 'error code: 526\n');

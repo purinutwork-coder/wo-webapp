@@ -30,6 +30,7 @@ var path = require('path');
 var vm = require('vm');
 var gas = require('./gas');
 var http = require('./http');
+var supabase = require('./supabase');
 
 var SRC = path.join(__dirname, '..', '..', 'src');
 var RUNNER_NAME = 'ตัวรันในเครื่อง (tools/runner)';
@@ -48,7 +49,43 @@ function sourceFiles() {
 function buildContext(mode) {
   var world = http.makeWorld();
   var counters = { http: 0, subrequests: 0 };
-  var g = gas.makeGasGlobals({ timeZone: 'Asia/Bangkok' });
+
+  /*
+   * ตั้งค่าเชื่อมต่อให้ครบตั้งแต่ต้น · ถ้าไม่ตั้ง กลุ่ม DB จะ **ข้ามชุดที่ต้องต่อ
+   * Supabase ทั้งหมด** แล้วรายงานตัวเลขที่อ่านดีแต่ไม่ได้พิสูจน์ชั้นเชื่อมต่อเลย
+   * ที่อยู่ไม่ใช่ของจริง เพราะทุกคำขอถูกดักด้วยของจำลองก่อนออกเครือข่าย
+   */
+  var g = gas.makeGasGlobals({
+    timeZone: 'Asia/Bangkok',
+    scriptProperties: {
+      SUPABASE_URL: 'https://mock-no-network.supabase.co',
+      SUPABASE_SERVICE_KEY: 'service-role-ของจำลอง',
+      SUPABASE_ANON_KEY: 'anon-ของจำลอง'
+    }
+  });
+
+  /*
+   * PostgREST จำลองรับทุกคำขอที่ไปหา /rest/v1 เป็นกฎพื้นหลัง
+   * เทสต์ที่อยากได้สถานการณ์พิเศษวาง world.when(...) ทับได้ เพราะกฎหลังชนะกฎก่อน
+   * RPC คืนรูปที่ถูกต้องขั้นต่ำ ไม่ใช่ตรรกะเต็มของ SQL — ประกาศไว้ตรง ๆ ว่าแค่ไหน
+   */
+  var schema = supabase.parseSchema(
+    fs.readFileSync(path.join(__dirname, '..', '..', 'SQL', 'supabase_schema.sql'), 'utf8'));
+
+  var pg = supabase.makePostgrest({
+    schema: schema,
+    rpc: {
+      department_task_counts: function () {
+        return [{ department: 'SERVICE', pending_accept: 0, in_progress: 0, returned: 0, completed: 0 }];
+      },
+      dashboard_summary: function () {
+        return [{ total: 0, pending_approve: 0, in_progress: 0, completed: 0, overdue: 0 }];
+      },
+      next_running_number: function (args) { return [{ last_number: 1, key: args && args.p_key }]; },
+      db_objects: function () { return [{ versions: {}, indexes: [], constraints: [], functions: [] }]; }
+    }
+  });
+  world.when(/\/rest\/v1/, { kind: 'postgrest' });
 
   /*
    * **ห้ามยัดของพื้นฐานของ Node เข้าไปใน context** (`Array` `Object` `JSON` ...)
@@ -70,12 +107,12 @@ function buildContext(mode) {
   Object.assign(ctx, g.globals);
 
   if (mode === 'fetch') {
-    ctx.fetch = http.makeFetch(world, counters);
+    ctx.fetch = http.makeFetch(world, counters, pg);
     ctx.AbortController = AbortController;
     ctx.DOMException = DOMException;
     ctx.crypto = { randomUUID: require('crypto').randomUUID, subtle: require('crypto').webcrypto.subtle };
   } else {
-    ctx.UrlFetchApp = http.makeUrlFetchApp(world, counters);
+    ctx.UrlFetchApp = http.makeUrlFetchApp(world, counters, pg);
   }
 
   vm.createContext(ctx);
@@ -106,7 +143,7 @@ function buildContext(mode) {
     };
   }
 
-  return { ctx: ctx, world: world, counters: counters, gas: g, loaded: loaded };
+  return { ctx: ctx, world: world, counters: counters, gas: g, loaded: loaded, pg: pg };
 }
 
 function toFetchInit(options) {
