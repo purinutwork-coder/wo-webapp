@@ -105,6 +105,12 @@ function buildContext(mode) {
   world.when(/\/rest\/v1/, { kind: 'postgrest' });
 
   /*
+   * เส้นฐานที่ระบบใช้ตรวจว่ายิงออกนอกได้หรือยัง (`DB_BASELINE_URL` · `checkPermissions`)
+   * ของจริงตอบ 204 ไม่มีเนื้อ · ต้องมีกฎให้ ไม่งั้นของจำลองปฏิเสธถูกต้องแต่ผิดที่
+   */
+  world.when(/gstatic\.com\/generate_204/, http.ok(204, ''));
+
+  /*
    * **ห้ามยัดของพื้นฐานของ Node เข้าไปใน context** (`Array` `Object` `JSON` ...)
    *
    * `vm.createContext` สร้าง realm ใหม่ที่มีของพื้นฐานครบอยู่แล้ว · การยัดของจาก
@@ -250,6 +256,27 @@ function runOne(mode, name) {
 }
 
 function main() {
+  /*
+   * โหมด fetch ทำให้ `httpSend_` เป็น async · ของที่โยนข้างในจึงกลายเป็น
+   * unhandled rejection ที่ **ฆ่าทั้งรอบหลังสรุปพิมพ์เสร็จแล้ว** แทนที่จะถูกนับ
+   * เป็นความล้มเหลวของชุดนั้น · เก็บไว้แล้วรายงานท้ายรอบ ดีกว่าปล่อยให้ Node ตาย
+   * — ตัวรันที่ตายกลางทางคือตัวรันที่ซ่อนผลของกลุ่มที่ยังไม่ได้รัน
+   */
+  var escaped = [];
+  process.on('unhandledRejection', function (reason) {
+    escaped.push(String((reason && reason.message) || reason).slice(0, 160));
+  });
+  process.on('exit', function () {
+    if (!escaped.length) return;
+    var seen = {};
+    escaped.forEach(function (m) { seen[m] = (seen[m] || 0) + 1; });
+    console.log('\n  !! มี ' + escaped.length + ' ข้อผิดพลาดที่หลุดออกมาแบบ async ' +
+      '(เฉพาะโหมด fetch) — ไม่ได้ถูกนับในตารางข้างบน');
+    Object.keys(seen).slice(0, 8).forEach(function (m) {
+      console.log('     ' + seen[m] + '×  ' + m);
+    });
+  });
+
   var args = process.argv.slice(2);
   var mode = 'urlfetchapp';
   var names = [];
@@ -261,7 +288,7 @@ function main() {
 
   var built = buildContext('urlfetchapp');
 
-  if (args.indexOf('--list') !== -1 || !names.length) {
+  if (args.indexOf('--list') !== -1 || (!names.length && args.indexOf('--all') === -1)) {
     var tests = Object.keys(built.ctx).filter(function (k) { return /^test_/.test(k); }).sort();
     console.log('ตัวรัน: ' + RUNNER_NAME);
     console.log('โหลดไฟล์จาก src/ ตามลำดับชื่อ ' + built.loaded.length + ' ไฟล์');
@@ -273,6 +300,18 @@ function main() {
     return;
   }
 
+  /*
+   * --all รันทุกกลุ่ม · **แต่ละกลุ่มต้องได้โลกใหม่ของตัวเอง** ซึ่ง runOne ทำให้อยู่แล้ว
+   * เพราะมันสร้าง context ใหม่ทุกครั้ง · ถ้าใช้โลกเดียวกันทั้งหมด ข้อมูลของกลุ่มก่อน
+   * จะค้างไปให้กลุ่มหลัง แล้วเราจะวัด "เทสต์ที่พึ่งสถานะที่สะสมอยู่" โดยไม่รู้ตัว
+   * ซึ่งเป็นเกณฑ์ที่ CLAUDE.md ห้ามไว้ตรง ๆ (รันซ้ำสองรอบต้องผ่านทั้งสองรอบ)
+   */
+  if (args.indexOf('--all') !== -1) {
+    names = Object.keys(built.ctx)
+      .filter(function (k) { return /^test_group_/.test(k); }).sort();
+    console.log('รันทุกกลุ่ม ' + names.length + ' กลุ่ม\n');
+  }
+
   var modes = (mode === 'both') ? ['urlfetchapp', 'fetch'] : [mode];
   var rows = [];
   modes.forEach(function (m) {
@@ -280,6 +319,9 @@ function main() {
   });
 
   console.log('ตัวรัน: ' + RUNNER_NAME + '  ·  ตัวเลขจากตัวรันนี้เทียบกับของจริงตรง ๆ ไม่ได้\n');
+
+  if (args.indexOf('--all') !== -1) { reportAllGroups(rows, modes); return; }
+
   rows.forEach(function (r) {
     var tag = r.ok ? 'ผ่าน ' : (r.kind === 'async' ? 'แดง[async]' : 'แดง ');
     console.log('[' + r.mode + '] ' + tag + ' ' + r.name +
@@ -288,6 +330,64 @@ function main() {
   });
 
   if (mode === 'both') reportDiff(rows);
+}
+
+/**
+ * สรุปทุกกลุ่ม — **รายกลุ่มเสมอ ห้ามพิมพ์แต่ยอดรวม**
+ *
+ * กลุ่มที่หายไปสามข้อกับกลุ่มที่เพิ่มมาสามข้อ หักกลบกันเป็นศูนย์แล้วซ่อนทั้งสองฝั่ง
+ * (CLAUDE.md) · ยอดรวมจึงเป็นบรรทัดสุดท้าย ไม่ใช่บรรทัดเดียว
+ */
+function reportAllGroups(rows, modes) {
+  function sum(r, field) {
+    var m = r.suites || {};
+    return Object.keys(m).reduce(function (a, k) { return a + (m[k][field] || 0); }, 0);
+  }
+  function crashed(r) {
+    var m = r.suites || {};
+    return Object.keys(m).filter(function (k) { return m[k].crashed; }).length;
+  }
+
+  var groups = rows.map(function (r) { return r.name; })
+    .filter(function (v, i, a) { return a.indexOf(v) === i; });
+
+  var head = '  กลุ่ม'.padEnd(36);
+  modes.forEach(function (m) { head += (m === 'fetch' ? 'fetch' : 'urlfetch').padStart(16); });
+  console.log(head);
+  console.log('  ' + '─'.repeat(34 + modes.length * 16));
+
+  var totals = {};
+  modes.forEach(function (m) { totals[m] = { pass: 0, fail: 0, crashed: 0 }; });
+
+  groups.forEach(function (g) {
+    var line = '  ' + g.replace(/^test_group_/, '').slice(0, 32).padEnd(34);
+    modes.forEach(function (m) {
+      var r = rows.filter(function (x) { return x.name === g && x.mode === m; })[0];
+      if (!r) { line += '—'.padStart(16); return; }
+      var p = sum(r, 'pass'), f = sum(r, 'fail'), c = crashed(r);
+      totals[m].pass += p; totals[m].fail += f; totals[m].crashed += c;
+      line += (p + '/' + (p + f) + (c ? ('+' + c + 'หยุด') : '')).padStart(16);
+    });
+    console.log(line);
+  });
+
+  console.log('  ' + '─'.repeat(34 + modes.length * 16));
+  var foot = '  รวมทุกกลุ่ม'.padEnd(34);
+  modes.forEach(function (m) {
+    var t = totals[m];
+    foot += (t.pass + '/' + (t.pass + t.fail) + (t.crashed ? ('+' + t.crashed + 'หยุด') : '')).padStart(16);
+  });
+  console.log(foot);
+
+  if (modes.length === 2) {
+    var a = totals.urlfetchapp, b = totals.fetch;
+    console.log('\n── ราคาของการย้ายไป fetch ──');
+    console.log('  ข้อที่ผ่านหายไป       ' + (a.pass - b.pass));
+    console.log('  ชุดที่หยุดกลางคันเพิ่ม  ' + (b.crashed - a.crashed));
+    console.log('\n  → ส่วนใหญ่มาจาก httpSend_ ที่กลายเป็น async ซึ่งลาก 405 จาก 693 ฟังก์ชันตามไป');
+    console.log('  → ชุดที่พิสูจน์ชั้น DB ไม่ได้แดง แต่หายเงียบ ซึ่งยอดรวมกลบได้พอดี');
+  }
+  console.log('\n  ตัวเลขทั้งหมดมาจาก ' + RUNNER_NAME + ' เทียบกับของจริงตรง ๆ ไม่ได้');
 }
 
 /**
