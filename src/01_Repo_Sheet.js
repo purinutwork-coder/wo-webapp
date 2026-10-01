@@ -182,8 +182,8 @@ function rowToObject_(header, raw) {
  * @param {string[]} fields ชื่อคอลัมน์ที่ต้องการ
  * @return {Object[]} แถวที่มีเฉพาะคอลัมน์ที่ขอ พร้อมฟิลด์ _row
  */
-function readFields_(sheetName, fields) {
-  var snapshot = readSnapshot_(sheetName);
+async function readFields_(sheetName, fields) {
+  var snapshot = await readSnapshot_(sheetName);
   if (!snapshot) return [];
 
   var index = [];
@@ -214,8 +214,8 @@ function readFields_(sheetName, fields) {
  * @param {string} sheetName ชื่อแท็บจาก SHEET
  * @return {Object[]} ทุกแถวที่มีข้อมูล (แถวว่างล้วนถูกข้าม)
  */
-function readAll_(sheetName) {
-  var snapshot = readSnapshot_(sheetName);
+async function readAll_(sheetName) {
+  var snapshot = await readSnapshot_(sheetName);
   if (!snapshot) return [];
 
   var header = snapshot.header;
@@ -248,7 +248,7 @@ function readAll_(sheetName) {
  * @param {string} sheetName ชื่อแท็บจาก SHEET
  * @return {Object|null} {header, values} หรือ null เมื่อแท็บยังว่าง
  */
-function readSnapshot_(sheetName) {
+async function readSnapshot_(sheetName) {
   /*
    * ด่านต้องอยู่ก่อนแคชด้วย ไม่ใช่อยู่แค่ที่ getSheet_()
    *
@@ -275,7 +275,7 @@ function readSnapshot_(sheetName) {
    * readAll_, readAllActive_, findBy_, findOne_ และผู้เรียกทุกคนเหนือขึ้นไป
    * เห็นภาพเดียวกันเสมอ ไม่มีใครต้องรู้ว่าข้อมูลมาจากไหน
    */
-  var snapshot = dbSnapshot_(sheetName);
+  var snapshot = await dbSnapshot_(sheetName);
   return cacheSnapshot_(sheetName, snapshot);
 }
 
@@ -309,7 +309,7 @@ function cacheSnapshot_(sheetName, snapshot) {
  * @param {string[]} sheetNames ชื่อแท็บที่กำลังจะถูกอ่าน
  * @return {number} จำนวนแท็บที่ดึงมาจริงในรอบนี้
  */
-function warmSnapshots_(sheetNames) {
+async function warmSnapshots_(sheetNames) {
   assertDataAccessAllowed_();
 
   var wanted = [];
@@ -325,7 +325,7 @@ function warmSnapshots_(sheetNames) {
   // ตารางเดียวไม่ได้อะไรจากการยิงขนาน ปล่อยให้เดินทางปกติจะอ่านง่ายกว่า
   if (wanted.length < 2) return 0;
 
-  var snapshots = dbSnapshots_(wanted);
+  var snapshots = await dbSnapshots_(wanted);
   for (var w = 0; w < wanted.length; w++) cacheSnapshot_(wanted[w], snapshots[wanted[w]]);
   return wanted.length;
 }
@@ -533,8 +533,8 @@ var DELETABLE_SHEETS = Object.freeze(['Task_Step']);
  * @return {boolean} true = ลบแล้ว · false = ไม่พบแถวนั้น
  * @throws {Error} เมื่อแท็บนั้นไม่อยู่ในรายการที่ลบได้
  */
-function deleteRowByKey_(sheetName, keyField, keyValue) {
-  var done = deleteRowByKeyInner_(sheetName, keyField, keyValue);
+async function deleteRowByKey_(sheetName, keyField, keyValue) {
+  var done = await deleteRowByKeyInner_(sheetName, keyField, keyValue);
   noteRepoWrite_(sheetName);
   return done;
 }
@@ -546,13 +546,13 @@ function deleteRowByKey_(sheetName, keyField, keyValue) {
  * @param {*} keyValue ค่าที่ค้น
  * @return {boolean}
  */
-function deleteRowByKeyInner_(sheetName, keyField, keyValue) {
+async function deleteRowByKeyInner_(sheetName, keyField, keyValue) {
   if (DELETABLE_SHEETS.indexOf(sheetName) === -1) {
     throw new Error('แท็บ ' + sheetName + ' ห้ามลบแถว ให้ปิดใช้งานแทน (กฎข้อ 8)');
   }
   assertWritable_(sheetName);
 
-  var target = findOne_(sheetName, keyField, keyValue);
+  var target = await findOne_(sheetName, keyField, keyValue);
   if (!target) return false;
 
   /*
@@ -561,7 +561,7 @@ function deleteRowByKeyInner_(sheetName, keyField, keyValue) {
    */
   var filters = {};
   filters[keyField] = keyValue;
-  var removed = db_delete_(sheetName, filters).length;
+  var removed = await db_delete_(sheetName, filters).length;
   dbInvalidate_(sheetName);
   return removed > 0;
 }
@@ -603,8 +603,8 @@ function readRowDirect_(sheetName, rowNumber, numCols) {
  * @param {string} sheetName ชื่อแท็บจาก SHEET
  * @return {Object[]} แท็บที่ไม่มีคอลัมน์สถานะใช้งาน จะคืนทุกแถว
  */
-function readAllActive_(sheetName) {
-  return activeRowsOf_(sheetName, readAll_(sheetName));
+async function readAllActive_(sheetName) {
+  return activeRowsOf_(sheetName, await readAll_(sheetName));
 }
 
 /**
@@ -685,8 +685,8 @@ function isBlankRow_(raw) {
  * @param {Object} [opts] {order, limit} · order ต้องระบุเมื่อผู้เรียกสนใจลำดับ
  * @return {Object[]}
  */
-function queryRows_(sheetName, filters, opts) {
-  return queryRowsCounted_(sheetName, filters, opts).rows;
+async function queryRows_(sheetName, filters, opts) {
+  return await queryRowsCounted_(sheetName, filters, opts).rows;
 }
 
 /**
@@ -707,12 +707,12 @@ function queryRows_(sheetName, filters, opts) {
  * @param {Object} [opts] {order, limit}
  * @return {Object} {rows, truncated, limit}
  */
-function queryRowsCounted_(sheetName, filters, opts) {
+async function queryRowsCounted_(sheetName, filters, opts) {
   assertDataAccessAllowed_();
   opts = opts || {};
   var limit = Number(opts.limit) > 0 ? Number(opts.limit) : DB_ROWS_PER_ENTITY;
 
-  var rows = db_select_(sheetName, {
+  var rows = await db_select_(sheetName, {
     filters: filters,
     // ไม่ระบุลำดับ = ปล่อยให้ฐานข้อมูลเลือกเอง ซึ่งเปลี่ยนได้ทุกเมื่อโดยไม่มีอะไรเตือน
     order: opts.order || dbColumnMap_(sheetName).systemNames[0],
@@ -720,7 +720,7 @@ function queryRowsCounted_(sheetName, filters, opts) {
   });
 
   if (rows.length > limit) {
-    logReadTruncated_(sheetName, limit);
+    await logReadTruncated_(sheetName, limit);
     return { rows: rows.slice(0, limit), truncated: true, limit: limit };
   }
   return { rows: rows, truncated: false, limit: limit };
@@ -790,9 +790,9 @@ function filterSnapshotRows_(rows, filters) {
  * @param {string} sheetName ชื่อแท็บ
  * @param {number} limit เพดานที่ใช้
  */
-function logReadTruncated_(sheetName, limit) {
+async function logReadTruncated_(sheetName, limit) {
   try {
-    logSystemEvent_(ACTION.DB_TRUNCATED,
+    await logSystemEvent_(ACTION.DB_TRUNCATED,
       'อ่านตาราง ' + sheetName + ' แล้วได้เกินเพดาน ' + limit +
       ' แถว จึงตัดส่วนเกินทิ้ง — ข้อมูลที่หน้าจอเห็นไม่ครบ');
   } catch (e) {
@@ -808,7 +808,7 @@ function logReadTruncated_(sheetName, limit) {
  * @param {*} value ค่าที่ต้องการ
  * @return {Object[]}
  */
-function findBy_(sheetName, field, value) {
+async function findBy_(sheetName, field, value) {
   /*
    * ตารางใหญ่ที่ย้ายแล้ว ต้องให้ฐานข้อมูลเป็นคนกรอง ไม่ใช่ลากทั้งตารางมาคัดเอง (กฎข้อ 28)
    * ส่วนตารางเล็กที่คนเพิ่มด้วยมือ อ่านจากภาพที่แคชไว้เหมือนเดิม ซึ่งถูกกว่าการยิงคำขอใหม่ทุกครั้ง
@@ -816,10 +816,10 @@ function findBy_(sheetName, field, value) {
   if (isLargeDbSheet_(sheetName)) {
     var one = {};
     one[field] = value;
-    return queryRows_(sheetName, one, {});
+    return await queryRows_(sheetName, one, {});
   }
 
-  var rows = readAll_(sheetName);
+  var rows = await readAll_(sheetName);
   var found = [];
   for (var i = 0; i < rows.length; i++) {
     if (valuesEqual_(rows[i][field], value)) found.push(rows[i]);
@@ -891,7 +891,7 @@ function sortRowsBy_(rows, order) {
  * @param {Object} [opts] {order, rowsPerValue} · rowsPerValue = เพดานแถวต่อหนึ่งค่า
  * @return {Object[]}
  */
-function queryRowsIn_(sheetName, field, values, opts) {
+async function queryRowsIn_(sheetName, field, values, opts) {
   opts = opts || {};
   var perValue = Number(opts.rowsPerValue) > 0 ? Number(opts.rowsPerValue) : 1;
 
@@ -914,7 +914,7 @@ function queryRowsIn_(sheetName, field, values, opts) {
     var chunk = unique.slice(start, start + DB_IN_CHUNK);
     var filters = {};
     filters[field] = { op: 'in', value: chunk };
-    out = out.concat(queryRows_(sheetName, filters, {
+    out = out.concat(await queryRows_(sheetName, filters, {
       order: opts.order,
       limit: chunk.length * perValue
     }));
@@ -949,8 +949,8 @@ function groupRowsBy_(rows, field) {
  * @param {*} value ค่าที่ต้องการ
  * @return {Object|null}
  */
-function findOne_(sheetName, field, value) {
-  var rows = findBy_(sheetName, field, value);
+async function findOne_(sheetName, field, value) {
+  var rows = await findBy_(sheetName, field, value);
   return rows.length ? rows[0] : null;
 }
 
@@ -1045,8 +1045,8 @@ function toRowArray_(header, obj) {
  * @param {Object} obj ข้อมูลที่จะเขียน โดย key คือชื่อหัวคอลัมน์
  * @return {Object} ข้อมูลที่เขียนจริง พร้อมฟิลด์ _row
  */
-function appendRow_(sheetName, obj) {
-  var written = appendRows_(sheetName, [obj]);
+async function appendRow_(sheetName, obj) {
+  var written = await appendRows_(sheetName, [obj]);
   return written[0];
 }
 
@@ -1056,8 +1056,8 @@ function appendRow_(sheetName, obj) {
  * @param {Object[]} objs รายการข้อมูลที่จะเขียน
  * @return {Object[]} ข้อมูลที่เขียนจริง พร้อมฟิลด์ _row
  */
-function appendRows_(sheetName, objs) {
-  var written = appendRowsInner_(sheetName, objs);
+async function appendRows_(sheetName, objs) {
+  var written = await appendRowsInner_(sheetName, objs);
   noteRepoWrite_(sheetName);
   return written;
 }
@@ -1068,7 +1068,7 @@ function appendRows_(sheetName, objs) {
  * @param {Object[]} objs ข้อมูลที่จะเขียน
  * @return {Object[]}
  */
-function appendRowsInner_(sheetName, objs) {
+async function appendRowsInner_(sheetName, objs) {
   assertWritable_(sheetName);
   if (!objs || !objs.length) return [];
 
@@ -1089,7 +1089,7 @@ function appendRowsInner_(sheetName, objs) {
     fillIfMissing_(header, objs[k], [COL.CREATED_DATE, COL.UPDATED_DATE], now);
     fillIfMissing_(header, objs[k], [COL.CREATED_BY, COL.UPDATED_BY], user);
   }
-  return dbAppendRows_(sheetName, objs);
+  return await dbAppendRows_(sheetName, objs);
 }
 
 /**
@@ -1108,8 +1108,8 @@ function appendRowsInner_(sheetName, objs) {
  * @return {Object} ข้อมูลแถวหลังแก้ไข พร้อมฟิลด์ _row
  * @throws {Error} เมื่อไม่พบแถว หรือข้อมูลถูกแก้ไปแล้ว
  */
-function updateRow_(sheetName, keyField, keyValue, patchObj, expectedUpdatedDate) {
-  var row = updateRowInner_(sheetName, keyField, keyValue, patchObj, expectedUpdatedDate);
+async function updateRow_(sheetName, keyField, keyValue, patchObj, expectedUpdatedDate) {
+  var row = await updateRowInner_(sheetName, keyField, keyValue, patchObj, expectedUpdatedDate);
   noteRepoWrite_(sheetName);
   return row;
 }
@@ -1123,11 +1123,11 @@ function updateRow_(sheetName, keyField, keyValue, patchObj, expectedUpdatedDate
  * @param {Date|string} [expectedUpdatedDate] ค่าที่ผู้ใช้เห็นตอนเปิดหน้า
  * @return {Object}
  */
-function updateRowInner_(sheetName, keyField, keyValue, patchObj, expectedUpdatedDate) {
+async function updateRowInner_(sheetName, keyField, keyValue, patchObj, expectedUpdatedDate) {
   assertWritable_(sheetName);
 
   // ค้นหาแถวนอกล็อก — ไม่ล็อกคร่อมการอ่านทั้งตาราง
-  var target = findOne_(sheetName, keyField, keyValue);
+  var target = await findOne_(sheetName, keyField, keyValue);
   if (!target) {
     throw new Error('ไม่พบข้อมูล ' + keyField + ' = ' + keyValue + ' ในแท็บ "' + sheetName + '"');
   }
@@ -1163,7 +1163,7 @@ function updateRowInner_(sheetName, keyField, keyValue, patchObj, expectedUpdate
     stamped[COL.UPDATED_BY] = currentUserEmail_();
   }
 
-  return dbUpdateRow_(sheetName, keyField, keyValue, stamped);
+  return await dbUpdateRow_(sheetName, keyField, keyValue, stamped);
 }
 
 /**
@@ -1231,7 +1231,7 @@ function toDate_(value) {
  * @return {Object} ข้อมูลแถวหลังแก้ไข
  * @throws {Error} เมื่อแท็บนั้นไม่มีคอลัมน์สถานะใช้งาน
  */
-function deactivateRow_(sheetName, keyValue) {
+async function deactivateRow_(sheetName, keyValue) {
   var activeField = SHEET_ACTIVE_FIELD[sheetName];
   if (!activeField) {
     throw new Error('แท็บ "' + sheetName + '" ไม่มีคอลัมน์สถานะใช้งาน จึงทำ Soft Delete ไม่ได้ ' +
@@ -1239,7 +1239,7 @@ function deactivateRow_(sheetName, keyValue) {
   }
   var patch = {};
   patch[activeField] = false;
-  return updateRow_(sheetName, keyFieldOf_(sheetName), keyValue, patch);
+  return await updateRow_(sheetName, keyFieldOf_(sheetName), keyValue, patch);
 }
 
 /**

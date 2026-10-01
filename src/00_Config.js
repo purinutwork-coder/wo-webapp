@@ -1911,7 +1911,7 @@ function auditDbName_() {
  *
  * @return {string} ผลการตรวจแบบอ่านได้ทันที
  */
-function checkPermissions() {
+async function checkPermissions() {
   var lines = ['สิทธิ์ที่ระบบประกาศไว้ ' + requiredOAuthScopes_().length + ' รายการ'];
   var failed = 0;
 
@@ -1941,8 +1941,8 @@ function checkPermissions() {
      * เพราะงานแจ้งเตือน Telegram จะใช้มัน และถ้ารอไปเจอตอนนั้น จะต้องกดอนุญาตใหม่
      * พร้อมทำให้ใช้งานได้ใหม่อีกรอบ ด้วยอาการเงียบ ๆ แบบเดียวกันนี้เป๊ะ
      */
-    { name: 'ยิงคำขอออกนอกระบบ (script.external_request)', run: function () {
-        return 'ปลายทางตอบกลับรหัส ' + fetchStatusCode_('https://www.gstatic.com/generate_204');
+    { name: 'ยิงคำขอออกนอกระบบ (script.external_request)', run: async function () {
+        return 'ปลายทางตอบกลับรหัส ' + await fetchStatusCode_('https://www.gstatic.com/generate_204');
       } },
     /*
      * สิทธิ์จัดการทริกเกอร์ ใช้โดยงานสำรองข้อมูลรายสัปดาห์เท่านั้น (SPEC 22.6)

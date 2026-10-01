@@ -32,8 +32,8 @@ function clearMasterCache() {
  * @param {boolean} [activeOnly=true] คัดเฉพาะแถวที่ Active ยังเป็นจริง
  * @return {Object[]}
  */
-function listReportMaster(activeOnly) {
-  return activeOnly === false ? readAll_(SHEET.REPORT_MASTER) : readAllActive_(SHEET.REPORT_MASTER);
+async function listReportMaster(activeOnly) {
+  return activeOnly === false ? await readAll_(SHEET.REPORT_MASTER) : await readAllActive_(SHEET.REPORT_MASTER);
 }
 
 /**
@@ -41,8 +41,8 @@ function listReportMaster(activeOnly) {
  * @param {string} reportCode รหัส Report เช่น SV1, PE1
  * @return {Object|null}
  */
-function getReport(reportCode) {
-  return findOne_(SHEET.REPORT_MASTER, 'Report_Code', reportCode);
+async function getReport(reportCode) {
+  return await findOne_(SHEET.REPORT_MASTER, 'Report_Code', reportCode);
 }
 
 /**
@@ -50,8 +50,8 @@ function getReport(reportCode) {
  * @param {boolean} [activeOnly=true] คัดเฉพาะแถวที่ Active ยังเป็นจริง
  * @return {Object[]}
  */
-function listAttachmentTopics(activeOnly) {
-  return activeOnly === false ? readAll_(SHEET.ATTACHMENT_TOPIC) : readAllActive_(SHEET.ATTACHMENT_TOPIC);
+async function listAttachmentTopics(activeOnly) {
+  return activeOnly === false ? await readAll_(SHEET.ATTACHMENT_TOPIC) : await readAllActive_(SHEET.ATTACHMENT_TOPIC);
 }
 
 /**
@@ -59,8 +59,8 @@ function listAttachmentTopics(activeOnly) {
  * @param {string} topicId รหัสหัวข้อ
  * @return {Object|null}
  */
-function getAttachmentTopic(topicId) {
-  return findOne_(SHEET.ATTACHMENT_TOPIC, 'Topic_ID', topicId);
+async function getAttachmentTopic(topicId) {
+  return await findOne_(SHEET.ATTACHMENT_TOPIC, 'Topic_ID', topicId);
 }
 
 /**
@@ -68,10 +68,10 @@ function getAttachmentTopic(topicId) {
  * @param {boolean} [activeOnly=true] คัดเฉพาะแถวที่ Active ยังเป็นจริง
  * @return {Object[]}
  */
-function listStepTemplates(activeOnly) {
+async function listStepTemplates(activeOnly) {
   return activeOnly === false
-    ? readAll_(SHEET.TASK_STEP_TEMPLATE)
-    : readAllActive_(SHEET.TASK_STEP_TEMPLATE);
+    ? await readAll_(SHEET.TASK_STEP_TEMPLATE)
+    : await readAllActive_(SHEET.TASK_STEP_TEMPLATE);
 }
 
 /**
@@ -79,8 +79,8 @@ function listStepTemplates(activeOnly) {
  * @param {boolean} [activeOnly=true] คัดเฉพาะแถวที่ Active ยังเป็นจริง
  * @return {Object[]}
  */
-function listRequestTypes(activeOnly) {
-  return activeOnly === false ? readAll_(SHEET.REQUEST_TYPE) : readAllActive_(SHEET.REQUEST_TYPE);
+async function listRequestTypes(activeOnly) {
+  return activeOnly === false ? await readAll_(SHEET.REQUEST_TYPE) : await readAllActive_(SHEET.REQUEST_TYPE);
 }
 
 /**
@@ -88,8 +88,8 @@ function listRequestTypes(activeOnly) {
  * @param {boolean} [activeOnly=true] คัดเฉพาะแถวที่ Active ยังเป็นจริง
  * @return {Object[]}
  */
-function listNotifyChannels(activeOnly) {
-  return activeOnly === false ? readAll_(SHEET.NOTIFY_CHANNEL) : readAllActive_(SHEET.NOTIFY_CHANNEL);
+async function listNotifyChannels(activeOnly) {
+  return activeOnly === false ? await readAll_(SHEET.NOTIFY_CHANNEL) : await readAllActive_(SHEET.NOTIFY_CHANNEL);
 }
 
 /**
@@ -103,8 +103,8 @@ function listNotifyChannels(activeOnly) {
  * @param {Object} patch คอลัมน์ที่ต้องการเปลี่ยน
  * @return {Object} แถวหลังแก้ไข
  */
-function updateNotifyChannel_(channelId, patch) {
-  var row = updateRow_(SHEET.NOTIFY_CHANNEL, SHEET_KEY_FIELD[SHEET.NOTIFY_CHANNEL],
+async function updateNotifyChannel_(channelId, patch) {
+  var row = await updateRow_(SHEET.NOTIFY_CHANNEL, SHEET_KEY_FIELD[SHEET.NOTIFY_CHANNEL],
     channelId, patch);
   clearMasterCache();   // รายการห้องที่แคชไว้ใช้ไม่ได้แล้ว
   return row;
@@ -115,8 +115,8 @@ function updateNotifyChannel_(channelId, patch) {
  * @param {boolean} [activeOnly=true] คัดเฉพาะแถวที่ Active ยังเป็นจริง
  * @return {Object[]}
  */
-function listUserRoles(activeOnly) {
-  return activeOnly === false ? readAll_(SHEET.USER_ROLE) : readAllActive_(SHEET.USER_ROLE);
+async function listUserRoles(activeOnly) {
+  return activeOnly === false ? await readAll_(SHEET.USER_ROLE) : await readAllActive_(SHEET.USER_ROLE);
 }
 
 /**
@@ -124,16 +124,16 @@ function listUserRoles(activeOnly) {
  * @param {string} email อีเมลผู้ใช้
  * @return {Object|null}
  */
-function getUserRole(email) {
-  return findOne_(SHEET.USER_ROLE, 'Email', email);
+async function getUserRole(email) {
+  return await findOne_(SHEET.USER_ROLE, 'Email', email);
 }
 
 /**
  * รายชื่อลูกค้าจากชีตที่ผู้ใช้อัปโหลดเอง — ระบบอ่านอย่างเดียว ห้ามเขียนทับ (SPEC 11)
  * @return {Object[]}
  */
-function listCustomers() {
-  return readAll_(SHEET.CUSTOMER);
+async function listCustomers() {
+  return await readAll_(SHEET.CUSTOMER);
 }
 
 /**
@@ -157,7 +157,7 @@ function listCustomers() {
  * @param {number} [limit=CUSTOMER_SEARCH_LIMIT] จำนวนผลลัพธ์สูงสุด
  * @return {Object[]} แถวลูกค้าที่คีย์เป็นชื่อหัวคอลัมน์เดิม
  */
-function findCustomers_(query, limit) {
+async function findCustomers_(query, limit) {
   /*
    * ด่านต้องอยู่ที่นี่ด้วย ไม่ใช่เฉพาะใน readSnapshot_
    * เพราะเส้นทางนี้ไม่ได้ผ่าน readSnapshot_ อีกต่อไปเมื่อตารางย้ายไปฐานข้อมูลแล้ว
@@ -172,7 +172,7 @@ function findCustomers_(query, limit) {
     ? { op: 'ilike', value: dbContainsPattern_(keyword) }
     : { op: 'neq',   value: '' };
 
-  return db_select_(SHEET.CUSTOMER, {
+  return await db_select_(SHEET.CUSTOMER, {
     filters: filters,
     order: CUSTOMER_FIELD.CODE,
     limit: max
@@ -184,8 +184,8 @@ function findCustomers_(query, limit) {
  * @param {string} key คีย์ของตัวนับ
  * @return {Object|null}
  */
-function getCounter(key) {
-  return findOne_(SHEET.COUNTER, 'Key', key);
+async function getCounter(key) {
+  return await findOne_(SHEET.COUNTER, 'Key', key);
 }
 
 /**
@@ -205,10 +205,10 @@ function getCounter(key) {
  * @param {string} key คีย์ของตัวนับ เช่น WO-2609
  * @return {number} เลขถัดไปที่ออกให้คีย์นี้
  */
-function nextCounterValue_(key) {
+async function nextCounterValue_(key) {
   assertDataAccessAllowed_();
 
-  var next = Number(db_rpc_('next_running_number', { p_key: String(key) }));
+  var next = Number(await db_rpc_('next_running_number', { p_key: String(key) }));
   dbInvalidate_(SHEET.COUNTER);   // ค่าที่อ่านไว้ก่อนหน้าไม่ใช่ปัจจุบันอีกแล้ว
   return next;
 }
@@ -224,10 +224,10 @@ function nextCounterValue_(key) {
  * @param {number} lastNumber เลขล่าสุดที่ออกไปแล้ว
  * @return {Object}
  */
-function saveCounter(key, lastNumber) {
-  var existing = getCounter(key);
+async function saveCounter(key, lastNumber) {
+  var existing = await getCounter(key);
   if (existing) {
-    return updateRow_(SHEET.COUNTER, 'Key', key, { 'Last_Number': lastNumber });
+    return await updateRow_(SHEET.COUNTER, 'Key', key, { 'Last_Number': lastNumber });
   }
-  return appendRow_(SHEET.COUNTER, { 'Key': key, 'Last_Number': lastNumber });
+  return await appendRow_(SHEET.COUNTER, { 'Key': key, 'Last_Number': lastNumber });
 }

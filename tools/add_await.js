@@ -98,6 +98,12 @@ function innermostNestedFunction(region, at) {
   var m, found = null;
   while ((m = re.exec(region))) {
     if (m.index >= at) break;
+    /*
+     * ข้ามตัวประกาศของฟังก์ชันหลักเอง · region เริ่มที่หัวฟังก์ชันพอดี คำว่า
+     * `function` ตัวแรกจึงเป็นของมันเอง ไม่ใช่ฟังก์ชันซ้อน · ถ้าไม่ข้าม
+     * จะได้ `async async function` เพราะถูกเติมสองรอบจากสองเส้นทาง
+     */
+    if (m.index <= 6) continue;
     var open = region.indexOf('{', re.lastIndex);
     if (open === -1) continue;
     var depth = 0, i = open, close = -1;

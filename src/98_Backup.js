@@ -82,7 +82,7 @@ var BACKUP_TIME_BUDGET_MS = 270000;
  *
  * @return {string} ข้อความสั้น ๆ บอกว่าให้ไปอ่านผลที่ไหน
  */
-function backupAllTables() {
+async function backupAllTables() {
   assertDataAccessAllowed_();
 
   var started = new Date();
@@ -121,7 +121,7 @@ function backupAllTables() {
       break;
     }
 
-    var one = backupOneTable_(folderId, tableKeys[i], started);
+    var one = await backupOneTable_(folderId, tableKeys[i], started);
     lines.push('  ' + benchPad_(tableKeys[i], 20) + benchPad_(String(one.counted), 16) +
       benchPad_(String(one.written), 14) + benchPad_(String(one.size), 13) + one.note);
 
@@ -154,7 +154,7 @@ function backupAllTables() {
   }
 
   backupPruneOld_(lines, container);
-  backupRecordResult_(lines, stamp, done, tableKeys.length, failed, seconds);
+  await backupRecordResult_(lines, stamp, done, tableKeys.length, failed, seconds);
 
   Logger.log(lines.join(NEW_LINE_));
   return failed.length ? ('สำรองไม่ครบ — ดู Execution log')
@@ -194,14 +194,14 @@ function backupTableKeys_() {
  * @param {Date} at เวลาที่เริ่มสำรองทั้งชุด
  * @return {Object} {ok, counted, written, size, note}
  */
-function backupOneTable_(folderId, tableKey, at) {
+async function backupOneTable_(folderId, tableKey, at) {
   var counted = -1;
   var rows;
   var readFrom = new Date().getTime();
 
   try {
-    counted = db_count_(tableKey);
-    rows = db_selectAll_(tableKey, { raw: true });
+    counted = await db_count_(tableKey);
+    rows = await db_selectAll_(tableKey, { raw: true });
   } catch (e) {
     /*
      * ต้องใช้ข้อความของข้อผิดพลาดจริง ไม่ใช่ `db_lastFailure_()` เสมอไป
@@ -347,11 +347,11 @@ function backupPruneOld_(lines, containerId) {
  * @param {string[]} failed ตารางที่ล้มเหลว
  * @param {number} seconds เวลาที่ใช้
  */
-function backupRecordResult_(lines, stamp, done, total, failed, seconds) {
+async function backupRecordResult_(lines, stamp, done, total, failed, seconds) {
   var detail = 'ชุด ' + stamp + ' · สำเร็จ ' + done + '/' + total + ' ตาราง · ' +
     seconds + ' วินาที' + (failed.length ? (' · ล้มเหลว: ' + failed.join(', ')) : '');
 
-  logSystemEvent_(failed.length ? ACTION.BACKUP_FAILED : ACTION.BACKUP_OK, detail);
+  await logSystemEvent_(failed.length ? ACTION.BACKUP_FAILED : ACTION.BACKUP_OK, detail);
   lines.push('  บันทึกลง System_Log แล้ว: ' + (failed.length ? 'BACKUP_FAILED' : 'BACKUP_OK'));
 }
 
@@ -385,7 +385,7 @@ function backupSizeText_(bytes) {
  * @param {Object} [options] {write: true} เท่านั้นที่ทำให้เขียนจริง
  * @return {string} ข้อความสั้น ๆ บอกว่าให้ไปอ่านผลที่ไหน
  */
-function restoreTableFromBackup(tableName, fileId, options) {
+async function restoreTableFromBackup(tableName, fileId, options) {
   assertDataAccessAllowed_();
 
   var write = !!(options && options.write === true);
@@ -400,7 +400,7 @@ function restoreTableFromBackup(tableName, fileId, options) {
    * และความผิดพลาดที่คืนค่ากลับมาเป็นข้อความธรรมดา จะถูกมองข้ามโดยทุกคนที่เรียกมัน
    * รวมทั้งตัวเราเองในวันที่กำลังรีบกู้ข้อมูล
    */
-  var plan = restorePlan_(tableName, fileId);
+  var plan = await restorePlan_(tableName, fileId);
 
   restoreDescribePlan_(lines, plan);
 
@@ -427,11 +427,11 @@ function restoreTableFromBackup(tableName, fileId, options) {
   /* ---------- เขียนจริง ---------- */
   var written = 0;
   try {
-    written = restoreWriteRows_(tableName, plan.rows);
+    written = await restoreWriteRows_(tableName, plan.rows);
   } catch (e) {
     lines.push('  !! เขียนไม่สำเร็จ: ' + (e && e.message));
     lines.push('     สาเหตุจริง: ' + db_lastFailure_().detail);
-    logSystemEvent_(ACTION.BACKUP_FAILED, 'กู้คืน ' + tableName + ' ไม่สำเร็จ');
+    await logSystemEvent_(ACTION.BACKUP_FAILED, 'กู้คืน ' + tableName + ' ไม่สำเร็จ');
     Logger.log(lines.join(NEW_LINE_));
     return 'กู้ไม่สำเร็จ — ดู Execution log';
   }
@@ -446,7 +446,7 @@ function restoreTableFromBackup(tableName, fileId, options) {
   lines.push('  เขียนกลับเข้าฐานข้อมูล ' + written + ' แถว');
   lines.push('  แถวที่มีในฐานข้อมูลแต่ไม่มีในไฟล์ ยังอยู่ครบตามเดิม ไม่ได้ถูกลบ');
 
-  logSystemEvent_(ACTION.BACKUP_RESTORED,
+  await logSystemEvent_(ACTION.BACKUP_RESTORED,
     'กู้คืน ' + tableName + ' จากไฟล์สำรอง ' + plan.backedUpAt + ' · ' + written + ' แถว');
 
   Logger.log(lines.join(NEW_LINE_));
@@ -461,7 +461,7 @@ function restoreTableFromBackup(tableName, fileId, options) {
  * @return {Object} {rows, backedUpAt, adding, updating, onlyInDb, schemaChanged, missingParents}
  * @throws {Error} เมื่อไฟล์อ่านไม่ได้ หรือไม่ใช่ไฟล์ของตารางนี้
  */
-function restorePlan_(tableName, fileId) {
+async function restorePlan_(tableName, fileId) {
   // ถามตัวแปลงชื่อคอลัมน์ ไม่ใช่ถาม DB_COLUMNS ตรง ๆ เพราะตารางของชุดทดสอบ
   // อยู่คนละรายการ และการกู้คืนต้องถูกพิสูจน์ด้วยตารางของชุดทดสอบเป็นหลัก
   dbColumnMap_(tableName);
@@ -489,7 +489,7 @@ function restorePlan_(tableName, fileId) {
       ' แถว — ไฟล์ไม่ครบ ห้ามใช้กู้');
   }
 
-  return restoreCompare_(tableName, body, rows);
+  return await restoreCompare_(tableName, body, rows);
 }
 
 /**
@@ -499,12 +499,12 @@ function restorePlan_(tableName, fileId) {
  * @param {Object[]} rows แถวในไฟล์
  * @return {Object} แผนการกู้
  */
-function restoreCompare_(tableName, body, rows) {
+async function restoreCompare_(tableName, body, rows) {
   var map = dbColumnMap_(tableName);
   var keyColumn = map.dbNames[0];
 
   var inDb = {};
-  var current = db_selectAll_(tableName, { raw: true });
+  var current = await db_selectAll_(tableName, { raw: true });
   for (var i = 0; i < current.length; i++) inDb[String(current[i][keyColumn])] = true;
 
   var inFile = {};
@@ -530,7 +530,7 @@ function restoreCompare_(tableName, body, rows) {
     onlyInDb: onlyInDb,
     schemaChanged: String(body.schemaVersion || '') !== backupSchemaVersion_(tableName),
     fileSchema: String(body.schemaVersion || '(ไม่ระบุ)'),
-    missingParents: restoreMissingParents_(tableName, rows)
+    missingParents: await restoreMissingParents_(tableName, rows)
   };
 }
 
@@ -581,14 +581,14 @@ function restoreSomeKeys_(keys) {
  * @param {Object[]} rows แถวในไฟล์
  * @return {string[]} ชื่อตารางแม่ที่ยังขาดแถวที่ถูกอ้างถึง
  */
-function restoreMissingParents_(tableName, rows) {
+async function restoreMissingParents_(tableName, rows) {
   var links = BACKUP_PARENT_LINKS[tableName];
   if (!links || !rows.length) return [];
 
   var out = [];
   for (var i = 0; i < links.length; i++) {
     var parentKeys = {};
-    var parentRows = db_selectAll_(links[i].parent, { raw: true });
+    var parentRows = await db_selectAll_(links[i].parent, { raw: true });
     var parentKey = dbColumnMap_(links[i].parent).dbNames[0];
     for (var p = 0; p < parentRows.length; p++) parentKeys[String(parentRows[p][parentKey])] = true;
 
@@ -627,10 +627,10 @@ function restoreTablesNeededFirst_(tableName, missingParents) {
  * @param {Object[]} rows แถวดิบจากไฟล์
  * @return {number} จำนวนแถวที่ฐานข้อมูลรับไว้
  */
-function restoreWriteRows_(tableName, rows) {
+async function restoreWriteRows_(tableName, rows) {
   var written = 0;
   for (var at = 0; at < rows.length; at += BACKUP_RESTORE_CHUNK) {
-    written += db_upsertRaw_(tableName, rows.slice(at, at + BACKUP_RESTORE_CHUNK));
+    written += await db_upsertRaw_(tableName, rows.slice(at, at + BACKUP_RESTORE_CHUNK));
   }
   return written;
 }

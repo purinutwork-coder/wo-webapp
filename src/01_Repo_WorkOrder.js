@@ -14,16 +14,16 @@
  * @param {string} woId เลขที่ใบงาน
  * @return {Object|null} แถวใบงานพร้อมฟิลด์ _row หรือ null เมื่อไม่พบ
  */
-function getWorkOrder(woId) {
-  return findOne_(SHEET.WORK_ORDER, 'WO_ID', woId);
+async function getWorkOrder(woId) {
+  return await findOne_(SHEET.WORK_ORDER, 'WO_ID', woId);
 }
 
 /**
  * อ่านใบงานทั้งหมด
  * @return {Object[]}
  */
-function listWorkOrders() {
-  return readAll_(SHEET.WORK_ORDER);
+async function listWorkOrders() {
+  return await readAll_(SHEET.WORK_ORDER);
 }
 
 /**
@@ -35,8 +35,8 @@ function listWorkOrders() {
  * @param {string[]} woIds เลขที่ใบงาน
  * @return {Object[]}
  */
-function findWorkOrdersIn(woIds) {
-  return queryRowsIn_(SHEET.WORK_ORDER, 'WO_ID', woIds || [], {
+async function findWorkOrdersIn(woIds) {
+  return await queryRowsIn_(SHEET.WORK_ORDER, 'WO_ID', woIds || [], {
     order: { column: 'WO_ID', ascending: true },
     rowsPerValue: 1
   });
@@ -48,8 +48,8 @@ function findWorkOrdersIn(woIds) {
  * @param {*} value ค่าที่ต้องการ
  * @return {Object[]}
  */
-function findWorkOrdersBy(field, value) {
-  return findBy_(SHEET.WORK_ORDER, field, value);
+async function findWorkOrdersBy(field, value) {
+  return await findBy_(SHEET.WORK_ORDER, field, value);
 }
 
 /**
@@ -57,8 +57,8 @@ function findWorkOrdersBy(field, value) {
  * @param {Object} workOrder ข้อมูลใบงาน โดย key คือชื่อคอลัมน์ตาม SPEC 13
  * @return {Object} ข้อมูลที่เขียนจริง พร้อมฟิลด์ _row
  */
-function insertWorkOrder(workOrder) {
-  return appendRow_(SHEET.WORK_ORDER, workOrder);
+async function insertWorkOrder(workOrder) {
+  return await appendRow_(SHEET.WORK_ORDER, workOrder);
 }
 
 /**
@@ -68,6 +68,6 @@ function insertWorkOrder(workOrder) {
  * @param {Date|string} [expectedUpdatedDate] ค่า Updated_Date ที่ผู้ใช้เห็นตอนเปิดหน้า (SPEC C-3)
  * @return {Object} ข้อมูลแถวหลังแก้ไข
  */
-function updateWorkOrder(woId, patch, expectedUpdatedDate) {
-  return updateRow_(SHEET.WORK_ORDER, 'WO_ID', woId, patch, expectedUpdatedDate);
+async function updateWorkOrder(woId, patch, expectedUpdatedDate) {
+  return await updateRow_(SHEET.WORK_ORDER, 'WO_ID', woId, patch, expectedUpdatedDate);
 }

@@ -140,7 +140,7 @@ function dbDoorOfFailure_(failure) {
  * @return {Object} {status, headers, body} — headers เป็นตัวพิมพ์เล็กทั้งหมด
  * @throws {Error} เมื่อคำขอไปไม่ถึงปลายทางเลย
  */
-function httpSend_(request) {
+async function httpSend_(request) {
   assertUrlFits_(request);
   var response = UrlFetchApp.fetch(request.url, httpOptions_(request));
   return httpResult_(response);
@@ -502,7 +502,7 @@ function fromDbRows_(tableKey, rows) {
  * @return {Object} {status, headers, text, json}
  * @throws {Error} ข้อความไทยกลาง ๆ เสมอ — ของจริงถูกเขียนลง System_Log แล้ว
  */
-function db_fetch_(method, path, body, opts) {
+async function db_fetch_(method, path, body, opts) {
   opts = opts || {};
 
   var url = dbBaseUrl_() + '/rest/v1' + (path.charAt(0) === '/' ? path : '/' + path);
@@ -542,7 +542,7 @@ function db_fetch_(method, path, body, opts) {
 
     var result = null;
     try {
-      result = httpSend_(request);
+      result = await httpSend_(request);
     } catch (e) {
       // ต่อไม่ติดหรือหมดเวลา — เป็นกรณีที่ลองใหม่แล้วมีโอกาสสำเร็จจริง
       lastError = e;
@@ -557,10 +557,10 @@ function db_fetch_(method, path, body, opts) {
       continue;
     }
 
-    dbFail_(context, result.status, result.body, null);
+    await dbFail_(context, result.status, result.body, null);
   }
 
-  dbFail_(context, 0, '', lastError);
+  await dbFail_(context, 0, '', lastError);
 }
 
 /**
@@ -585,7 +585,7 @@ function dbResult_(result) {
  * @param {Error} [error] ข้อผิดพลาดตอนต่อไม่ติด
  * @throws {Error} เสมอ
  */
-function dbFail_(context, status, text, error) {
+async function dbFail_(context, status, text, error) {
   var parts = ['คำสั่ง: ' + dbScrub_(context)];
   parts.push(status ? ('รหัสตอบกลับ: ' + status) : 'ต่อไม่ติดหรือหมดเวลา');
 
@@ -660,7 +660,7 @@ function dbFail_(context, status, text, error) {
 
   DB_FAILING_ = true;
   try {
-    logSystemEvent_(ACTION.DB_FAILED, detail);
+    await logSystemEvent_(ACTION.DB_FAILED, detail);
   } catch (e) {
     // เขียนบันทึกไม่สำเร็จไม่ควรกลบสาเหตุจริงที่กำลังจะโยนออกไป
     Logger.log('บันทึก DB_FAILED ลง System_Log ไม่สำเร็จ · ' + detail);
@@ -896,8 +896,8 @@ function dbContainsPattern_(text) {
  *   หรือเป็นรายการของสองแบบนั้น
  * @return {Object[]} แถวที่มีคีย์ชื่อเดิมของระบบ
  */
-function db_select_(tableKey, opts) {
-  var result = db_fetch_('GET', dbSelectPath_(tableKey, opts), null,
+async function db_select_(tableKey, opts) {
+  var result = await db_fetch_('GET', dbSelectPath_(tableKey, opts), null,
     { context: 'อ่านตาราง ' + tableKey });
   var rows = result.json || [];
 
@@ -932,12 +932,12 @@ function db_select_(tableKey, opts) {
  * @param {Object} opts เหมือน db_select_ · ต้องมี limit และ offset เสมอ
  * @return {Object} {rows, total} — total เป็น -1 เมื่ออ่านจาก header ไม่ได้
  */
-function db_selectPage_(tableKey, opts) {
+async function db_selectPage_(tableKey, opts) {
   if (!opts || opts.limit === undefined) {
     throw new Error('db_selectPage_ ต้องระบุ limit เสมอ — การอ่านที่ไม่มีเพดานคือสิ่งที่กฎข้อ 28 ห้ามไว้');
   }
 
-  var result = db_fetch_('GET', dbSelectPath_(tableKey, opts), null, {
+  var result = await db_fetch_('GET', dbSelectPath_(tableKey, opts), null, {
     prefer: 'count=exact',
     context: 'อ่านตาราง ' + tableKey + ' ทีละหน้า'
   });
@@ -961,10 +961,10 @@ function db_selectPage_(tableKey, opts) {
  * @param {Object[]} rawRows แถวที่คีย์เป็นชื่อคอลัมน์ของฐานข้อมูล
  * @return {number} จำนวนแถวที่ฐานข้อมูลรับไว้
  */
-function db_upsertRaw_(tableKey, rawRows) {
+async function db_upsertRaw_(tableKey, rawRows) {
   var map = dbColumnMap_(tableKey);
 
-  var result = db_fetch_('POST', '/' + map.table, rawRows, {
+  var result = await db_fetch_('POST', '/' + map.table, rawRows, {
     prefer: 'resolution=merge-duplicates,return=representation',
     context: 'กู้คืนแถวลงตาราง ' + tableKey
   });
@@ -1050,13 +1050,13 @@ var DB_MAX_PAGES = 50;
  * @return {Object[]} ทุกแถวของตาราง
  * @throws {Error} เมื่ออ่านไม่ครบภายในเพดานจำนวนหน้า
  */
-function db_selectAll_(tableKey, opts) {
+async function db_selectAll_(tableKey, opts) {
   opts = opts || {};
   var keyColumn = dbColumnMap_(tableKey).systemNames[0];
   var out = [];
 
   for (var page = 0; page < DB_MAX_PAGES; page++) {
-    var got = db_select_(tableKey, {
+    var got = await db_select_(tableKey, {
       filters: opts.filters,
       select: opts.select,
       order: opts.order || keyColumn,
@@ -1089,11 +1089,11 @@ function db_selectAll_(tableKey, opts) {
  * @param {Object} [filters] ตัวกรอง
  * @return {number} จำนวนแถว (-1 เมื่ออ่านจาก header ไม่ได้)
  */
-function db_count_(tableKey, filters) {
+async function db_count_(tableKey, filters) {
   var map = dbColumnMap_(tableKey);
   var query = ['select=*', 'limit=0'].concat(dbFilterParts_(map, filters));
 
-  var result = db_fetch_('GET', '/' + map.table + '?' + query.join('&'), null, {
+  var result = await db_fetch_('GET', '/' + map.table + '?' + query.join('&'), null, {
     prefer: 'count=exact',
     context: 'นับแถวตาราง ' + tableKey
   });
@@ -1112,13 +1112,13 @@ function db_count_(tableKey, filters) {
  * @param {Object|Object[]} rows แถวเดียวหรือหลายแถว คีย์เป็นชื่อเดิมของระบบ
  * @return {Object[]} แถวที่ถูกบันทึกจริง พร้อมค่าที่ฐานข้อมูลเติมให้เอง
  */
-function db_insert_(tableKey, rows) {
+async function db_insert_(tableKey, rows) {
   var map = dbColumnMap_(tableKey);
   var list = (rows instanceof Array) ? rows : [rows];
   var payload = [];
   for (var i = 0; i < list.length; i++) payload.push(toDb_(tableKey, list[i]));
 
-  var result = db_fetch_('POST', '/' + map.table, payload, {
+  var result = await db_fetch_('POST', '/' + map.table, payload, {
     // ขอแถวที่บันทึกจริงกลับมาด้วย เพื่อให้เห็นค่าที่ DEFAULT ของฐานข้อมูลเติมให้
     // ซึ่งเป็นที่เดียวที่กฎ "ช่องว่างแปลว่าอะไร" ของกฎข้อ 25 ถูกบังคับใช้จริง
     prefer: 'return=representation',
@@ -1134,7 +1134,7 @@ function db_insert_(tableKey, rows) {
  * @param {Object} patch ค่าที่จะเปลี่ยน คีย์เป็นชื่อเดิมของระบบ
  * @return {Object[]} แถวหลังแก้
  */
-function db_update_(tableKey, filters, patch) {
+async function db_update_(tableKey, filters, patch) {
   var map = dbColumnMap_(tableKey);
   var parts = dbFilterParts_(map, filters);
 
@@ -1143,7 +1143,7 @@ function db_update_(tableKey, filters, patch) {
     throw new Error('แก้ไขทั้งตาราง ' + tableKey + ' ไม่ได้ — ต้องระบุเงื่อนไขอย่างน้อยหนึ่งข้อ');
   }
 
-  var result = db_fetch_('PATCH', '/' + map.table + '?' + parts.join('&'),
+  var result = await db_fetch_('PATCH', '/' + map.table + '?' + parts.join('&'),
     toDb_(tableKey, patch), {
       prefer: 'return=representation',
       context: 'แก้ไขแถวในตาราง ' + tableKey
@@ -1157,13 +1157,13 @@ function db_update_(tableKey, filters, patch) {
  * @param {Object|Object[]} rows แถวเดียวหรือหลายแถว
  * @return {Object[]} แถวหลังบันทึก
  */
-function db_upsert_(tableKey, rows) {
+async function db_upsert_(tableKey, rows) {
   var map = dbColumnMap_(tableKey);
   var list = (rows instanceof Array) ? rows : [rows];
   var payload = [];
   for (var i = 0; i < list.length; i++) payload.push(toDb_(tableKey, list[i]));
 
-  var result = db_fetch_('POST', '/' + map.table, payload, {
+  var result = await db_fetch_('POST', '/' + map.table, payload, {
     prefer: 'resolution=merge-duplicates,return=representation',
     context: 'เพิ่มหรือทับแถวในตาราง ' + tableKey
   });
@@ -1180,7 +1180,7 @@ function db_upsert_(tableKey, rows) {
  * @param {Object} filters เงื่อนไข ต้องมีอย่างน้อยหนึ่งข้อ
  * @return {Object[]} แถวที่ถูกลบ
  */
-function db_delete_(tableKey, filters) {
+async function db_delete_(tableKey, filters) {
   var map = dbColumnMap_(tableKey);
   var parts = dbFilterParts_(map, filters);
 
@@ -1188,7 +1188,7 @@ function db_delete_(tableKey, filters) {
     throw new Error('ลบทั้งตาราง ' + tableKey + ' ไม่ได้ — ต้องระบุเงื่อนไขอย่างน้อยหนึ่งข้อ');
   }
 
-  var result = db_fetch_('DELETE', '/' + map.table + '?' + parts.join('&'), null, {
+  var result = await db_fetch_('DELETE', '/' + map.table + '?' + parts.join('&'), null, {
     prefer: 'return=representation',
     context: 'ลบแถวในตาราง ' + tableKey
   });
@@ -1206,8 +1206,8 @@ function db_delete_(tableKey, filters) {
  * @param {Object} [args] อาร์กิวเมนต์ ชื่อตรงกับที่ประกาศไว้ในฟังก์ชัน
  * @return {*} ค่าที่ฟังก์ชันคืนมา
  */
-function db_rpc_(fnName, args) {
-  var result = db_fetch_('POST', '/rpc/' + fnName, args || {}, {
+async function db_rpc_(fnName, args) {
+  var result = await db_fetch_('POST', '/rpc/' + fnName, args || {}, {
     context: 'เรียกฟังก์ชัน ' + fnName
   });
   return result.json;
@@ -1226,7 +1226,7 @@ function db_rpc_(fnName, args) {
  * @param {Object[]} requests รายการ {tableKey, filters, select, order, limit, offset}
  * @return {Object[][]} ผลของแต่ละคำขอ เรียงตามลำดับที่ส่งเข้ามา
  */
-function db_fetchAll_(requests) {
+async function db_fetchAll_(requests) {
   if (!requests || !requests.length) return [];
 
   var key = dbServiceKey_();
@@ -1251,7 +1251,7 @@ function db_fetchAll_(requests) {
   try {
     results = httpSendAll_(params);
   } catch (e) {
-    dbFail_('อ่านหลายตารางพร้อมกัน', 0, '', e);
+    await dbFail_('อ่านหลายตารางพร้อมกัน', 0, '', e);
   }
 
   var out = [];
@@ -1261,7 +1261,7 @@ function db_fetchAll_(requests) {
     // คำขอใดคำขอหนึ่งพังแปลว่าหน้าที่กำลังสร้างจะขาดข้อมูลไปส่วนหนึ่ง
     // การคืนของที่ไม่ครบโดยไม่บอกใครแย่กว่าการหยุด จึงหยุดที่ตัวแรกที่พัง
     if (results[r].status < 200 || results[r].status >= 300) {
-      dbFail_('อ่านตาราง ' + tableKey + ' (พร้อมกันหลายตาราง)', results[r].status,
+      await dbFail_('อ่านตาราง ' + tableKey + ' (พร้อมกันหลายตาราง)', results[r].status,
         results[r].body, null);
     }
 
@@ -1286,7 +1286,7 @@ function db_fetchAll_(requests) {
  * @param {Object[]} requests รายการ {tableKey, filters}
  * @return {Object[][]} แถวที่ถูกลบของแต่ละคำขอ เรียงตามลำดับที่ส่งเข้ามา
  */
-function db_deleteAll_(requests) {
+async function db_deleteAll_(requests) {
   if (!requests || !requests.length) return [];
 
   var key = dbServiceKey_();
@@ -1319,7 +1319,7 @@ function db_deleteAll_(requests) {
   try {
     results = httpSendAll_(params);
   } catch (e) {
-    dbFail_('ลบหลายตารางพร้อมกัน', 0, '', e);
+    await dbFail_('ลบหลายตารางพร้อมกัน', 0, '', e);
   }
 
   var out = [];
@@ -1328,7 +1328,7 @@ function db_deleteAll_(requests) {
 
     // ตารางใดลบไม่สำเร็จ ต้องหยุดและบอกชื่อตาราง ไม่ใช่รายงานรวมว่าล้างเสร็จแล้ว
     if (results[r].status < 200 || results[r].status >= 300) {
-      dbFail_('ลบตาราง ' + tableKey + ' (พร้อมกันหลายตาราง)', results[r].status,
+      await dbFail_('ลบตาราง ' + tableKey + ' (พร้อมกันหลายตาราง)', results[r].status,
         results[r].body, null);
     }
 
@@ -1353,7 +1353,7 @@ function db_deleteAll_(requests) {
  *   โดยไม่ผ่านชั้นประกอบตัวกรองที่กำลังถูกสงสัยอยู่
  * @return {Object} {path, status, code, message, hint, details, rows, body}
  */
-function db_probeRaw_(path, method, allowLongUrl) {
+async function db_probeRaw_(path, method, allowLongUrl) {
   var out = { path: path, status: 0, code: '', message: '', hint: '', details: '',
     rows: -1, body: '' };
 
@@ -1364,7 +1364,7 @@ function db_probeRaw_(path, method, allowLongUrl) {
   DB_ROUND_COUNT_++;
 
   try {
-    result = httpSend_({
+    result = await httpSend_({
       method: String(method || 'get').toLowerCase(),
       url: dbBaseUrl_() + '/rest/v1' + path,
       headers: { 'apikey': key, 'Authorization': 'Bearer ' + key,
@@ -1415,14 +1415,14 @@ function dbProbeText_(value) {
  * @param {string} tableKey ตารางที่จะลองอ่าน
  * @return {Object} {ok, status, rows, reason} — ok=true แปลว่าปิดประตูอยู่จริง
  */
-function db_probeAnon_(tableKey) {
+async function db_probeAnon_(tableKey) {
   var key = dbAnonKey_();
   if (!key) return { ok: false, status: 0, rows: -1, reason: 'ยังไม่ได้ตั้งค่า SUPABASE_ANON_KEY จึงยังพิสูจน์ไม่ได้' };
 
   var map = dbColumnMap_(tableKey);
   var result = null;
   try {
-    result = httpSend_({
+    result = await httpSend_({
       method: 'get',
       url: dbBaseUrl_() + '/rest/v1/' + map.table + '?select=*&limit=5',
       headers: { 'apikey': key, 'Authorization': 'Bearer ' + key, 'Accept': 'application/json' }
@@ -1504,24 +1504,24 @@ var DB_PARALLEL_COUNT = 6;
  * @param {string} [arg] ค่าประกอบ เช่นรหัสลูกค้าที่มีอยู่จริง
  * @return {Object} {ms, status, headers, calls, note}
  */
-function db_probeTiming_(kind, arg) {
+async function db_probeTiming_(kind, arg) {
   var key = dbServiceKey_();
   var headers = { 'apikey': key, 'Authorization': 'Bearer ' + key, 'Accept': 'application/json' };
   var base = dbBaseUrl_() + '/rest/v1';
   var small = base + '/' + dbColumnMap_('Counter').table + '?select=*&limit=1';
 
   if (kind === 'BASELINE') {
-    return dbTimeOne_(DB_BASELINE_URL, {});
+    return await dbTimeOne_(DB_BASELINE_URL, {});
   }
   if (kind === 'ROOT') {
-    return dbTimeOne_(base + '/', headers);
+    return await dbTimeOne_(base + '/', headers);
   }
   if (kind === 'SMALL') {
-    return dbTimeOne_(small, headers);
+    return await dbTimeOne_(small, headers);
   }
   if (kind === 'INDEXED') {
     var customer = dbColumnMap_('Customer');
-    return dbTimeOne_(base + '/' + customer.table + '?' +
+    return await dbTimeOne_(base + '/' + customer.table + '?' +
       customer.toDb['รหัสลูกค้า'] + '=eq.' + encodeURIComponent(arg) + '&select=*&limit=1', headers);
   }
 
@@ -1539,7 +1539,7 @@ function db_probeTiming_(kind, arg) {
         status = all.length ? all[0].status : 0;
       } else {
         for (var s = 0; s < requests.length; s++) {
-          status = httpSend_(requests[s]).status;
+          status = await httpSend_(requests[s]).status;
         }
       }
     } catch (e) {
@@ -1559,10 +1559,10 @@ function db_probeTiming_(kind, arg) {
  * @param {Object} headers หัวของคำขอ
  * @return {Object} {ms, status, headers, calls, note}
  */
-function dbTimeOne_(url, headers) {
+async function dbTimeOne_(url, headers) {
   var startedAt = new Date().getTime();
   try {
-    var result = httpSend_({ method: 'get', url: url, headers: headers });
+    var result = await httpSend_({ method: 'get', url: url, headers: headers });
     return { ms: new Date().getTime() - startedAt, status: result.status,
       headers: result.headers, calls: 1, note: '' };
   } catch (e) {
@@ -1654,8 +1654,8 @@ function db_probeAnonAll_(tableKeys) {
  * @param {string} tableKey ชื่อตารางในระบบ ซึ่งเป็นชื่อเดียวกับชื่อแท็บ
  * @return {Object} {header, values}
  */
-function dbSnapshot_(tableKey) {
-  return dbValuesOf_(tableKey, db_selectAll_(tableKey, {}));
+async function dbSnapshot_(tableKey) {
+  return dbValuesOf_(tableKey, await db_selectAll_(tableKey, {}));
 }
 
 /**
@@ -1672,7 +1672,7 @@ function dbSnapshot_(tableKey) {
  * @param {string[]} tableKeys ชื่อตารางในระบบ
  * @return {Object} แผนที่จากชื่อตารางไปยัง {header, values}
  */
-function dbSnapshots_(tableKeys) {
+async function dbSnapshots_(tableKeys) {
   var requests = [];
   for (var i = 0; i < tableKeys.length; i++) {
     requests.push({
@@ -1683,11 +1683,11 @@ function dbSnapshots_(tableKeys) {
     });
   }
 
-  var results = db_fetchAll_(requests);
+  var results = await db_fetchAll_(requests);
   var out = {};
   for (var r = 0; r < results.length; r++) {
     var rows = results[r];
-    if (rows.length >= DB_PAGE_ROWS) rows = db_selectAll_(tableKeys[r], {});
+    if (rows.length >= DB_PAGE_ROWS) rows = await db_selectAll_(tableKeys[r], {});
     out[tableKeys[r]] = dbValuesOf_(tableKeys[r], rows);
   }
   return out;
@@ -1725,8 +1725,8 @@ function dbValuesOf_(tableKey, rows) {
  * @param {Object[]} objs แถวที่จะเพิ่ม คีย์เป็นชื่อเดิมของระบบ
  * @return {Object[]} แถวที่บันทึกจริง พร้อมค่าที่ฐานข้อมูลเติมให้
  */
-function dbAppendRows_(tableKey, objs) {
-  var written = db_insert_(tableKey, objs);
+async function dbAppendRows_(tableKey, objs) {
+  var written = await db_insert_(tableKey, objs);
   dbInvalidate_(tableKey);
   return written;
 }
@@ -1740,11 +1740,11 @@ function dbAppendRows_(tableKey, objs) {
  * @return {Object} แถวหลังแก้
  * @throws {Error} เมื่อไม่พบแถวนั้น
  */
-function dbUpdateRow_(tableKey, keyField, keyValue, patchObj) {
+async function dbUpdateRow_(tableKey, keyField, keyValue, patchObj) {
   var filters = {};
   filters[keyField] = keyValue;
 
-  var rows = db_update_(tableKey, filters, patchObj);
+  var rows = await db_update_(tableKey, filters, patchObj);
   dbInvalidate_(tableKey);
 
   if (!rows.length) {

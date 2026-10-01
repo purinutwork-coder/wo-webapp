@@ -20,16 +20,16 @@
  * @param {string} tokenHash ค่าที่เข้ารหัสแล้วของโทเคน
  * @return {Object|null}
  */
-function getSessionToken(tokenHash) {
-  return findOne_(SHEET.SESSION_TOKEN, 'Token_Hash', tokenHash);
+async function getSessionToken(tokenHash) {
+  return await findOne_(SHEET.SESSION_TOKEN, 'Token_Hash', tokenHash);
 }
 
 /**
  * โทเคนทั้งหมด รวมที่ปิดใช้งานและหมดอายุแล้ว
  * @return {Object[]}
  */
-function listSessionTokens() {
-  return readAll_(SHEET.SESSION_TOKEN);
+async function listSessionTokens() {
+  return await readAll_(SHEET.SESSION_TOKEN);
 }
 
 /**
@@ -37,8 +37,8 @@ function listSessionTokens() {
  * @param {Object} row ข้อมูลโทเคน
  * @return {Object}
  */
-function insertSessionToken(row) {
-  return appendRow_(SHEET.SESSION_TOKEN, row);
+async function insertSessionToken(row) {
+  return await appendRow_(SHEET.SESSION_TOKEN, row);
 }
 
 /**
@@ -47,8 +47,8 @@ function insertSessionToken(row) {
  * @param {Object} patch เฉพาะคอลัมน์ที่ต้องการเปลี่ยน
  * @return {Object}
  */
-function updateSessionToken(tokenHash, patch) {
-  return updateRow_(SHEET.SESSION_TOKEN, 'Token_Hash', tokenHash, patch);
+async function updateSessionToken(tokenHash, patch) {
+  return await updateRow_(SHEET.SESSION_TOKEN, 'Token_Hash', tokenHash, patch);
 }
 
 /**
@@ -62,11 +62,11 @@ function updateSessionToken(tokenHash, patch) {
  * @param {string} email อีเมลเจ้าของโทเคน
  * @return {Object[]}
  */
-function listSessionTokensOf_(email) {
+async function listSessionTokensOf_(email) {
   var wanted = String(email || '').trim();
   if (!wanted) return [];
 
-  return queryRows_(SHEET.SESSION_TOKEN,
+  return await queryRows_(SHEET.SESSION_TOKEN,
     { 'Email': { op: 'ilike', value: dbLikeLiteral_(wanted) } },
     { order: 'Token_Hash' });
 }
@@ -84,10 +84,10 @@ function listSessionTokensOf_(email) {
  * @param {Date} now เวลาปัจจุบัน
  * @return {number} จำนวนแถวที่ลบ
  */
-function deleteDeadSessionTokens_(now) {
-  var removed = db_delete_(SHEET.SESSION_TOKEN,
+async function deleteDeadSessionTokens_(now) {
+  var removed = await db_delete_(SHEET.SESSION_TOKEN,
     { 'Expires_Date': { op: 'lte', value: now } }).length;
-  removed += db_delete_(SHEET.SESSION_TOKEN, { 'Active': false }).length;
+  removed += await db_delete_(SHEET.SESSION_TOKEN, { 'Active': false }).length;
   dbInvalidate_(SHEET.SESSION_TOKEN);
   return removed;
 }

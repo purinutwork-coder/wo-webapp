@@ -13,8 +13,8 @@
  * @param {string} stepId เลขที่ Step
  * @return {Object|null}
  */
-function getStep(stepId) {
-  return findOne_(SHEET.TASK_STEP, 'Step_ID', stepId);
+async function getStep(stepId) {
+  return await findOne_(SHEET.TASK_STEP, 'Step_ID', stepId);
 }
 
 /**
@@ -22,8 +22,8 @@ function getStep(stepId) {
  * @param {string} taskId เลขที่งานของแผนก
  * @return {Object[]}
  */
-function listStepsByTask(taskId) {
-  return findBy_(SHEET.TASK_STEP, 'Task_ID', taskId);
+async function listStepsByTask(taskId) {
+  return await findBy_(SHEET.TASK_STEP, 'Task_ID', taskId);
 }
 
 /**
@@ -43,8 +43,8 @@ var STEP_ROWS_PER_TASK = 50;
  * @param {string[]} taskIds เลขที่งานของแผนก
  * @return {Object[]}
  */
-function listStepsByTasks(taskIds) {
-  return queryRowsIn_(SHEET.TASK_STEP, 'Task_ID', taskIds || [], {
+async function listStepsByTasks(taskIds) {
+  return await queryRowsIn_(SHEET.TASK_STEP, 'Task_ID', taskIds || [], {
     order: [{ column: 'Task_ID', ascending: true }, { column: 'Step_No', ascending: true }],
     rowsPerValue: STEP_ROWS_PER_TASK
   });
@@ -54,8 +54,8 @@ function listStepsByTasks(taskIds) {
  * อ่าน Step และงวดงานทั้งหมด
  * @return {Object[]}
  */
-function listSteps() {
-  return readAll_(SHEET.TASK_STEP);
+async function listSteps() {
+  return await readAll_(SHEET.TASK_STEP);
 }
 
 /**
@@ -63,8 +63,8 @@ function listSteps() {
  * @param {Object} step ข้อมูล Step
  * @return {Object}
  */
-function insertStep(step) {
-  return appendRow_(SHEET.TASK_STEP, step);
+async function insertStep(step) {
+  return await appendRow_(SHEET.TASK_STEP, step);
 }
 
 /**
@@ -72,8 +72,8 @@ function insertStep(step) {
  * @param {Object[]} steps รายการ Step
  * @return {Object[]}
  */
-function insertSteps(steps) {
-  return appendRows_(SHEET.TASK_STEP, steps);
+async function insertSteps(steps) {
+  return await appendRows_(SHEET.TASK_STEP, steps);
 }
 
 /**
@@ -82,8 +82,8 @@ function insertSteps(steps) {
  * @param {Object} patch เฉพาะคอลัมน์ที่ต้องการเปลี่ยน
  * @return {Object}
  */
-function updateStep(stepId, patch) {
-  return updateRow_(SHEET.TASK_STEP, 'Step_ID', stepId, patch);
+async function updateStep(stepId, patch) {
+  return await updateRow_(SHEET.TASK_STEP, 'Step_ID', stepId, patch);
 }
 
 /**
@@ -91,6 +91,6 @@ function updateStep(stepId, patch) {
  * @param {string} stepId เลขที่ Step
  * @return {boolean} true = ลบแล้ว
  */
-function deleteStep(stepId) {
-  return deleteRowByKey_(SHEET.TASK_STEP, 'Step_ID', stepId);
+async function deleteStep(stepId) {
+  return await deleteRowByKey_(SHEET.TASK_STEP, 'Step_ID', stepId);
 }

@@ -13,8 +13,8 @@
  * @param {string} taskId เลขที่งานของแผนก
  * @return {Object|null}
  */
-function getTask(taskId) {
-  return findOne_(SHEET.DEPARTMENT_TASK, 'Task_ID', taskId);
+async function getTask(taskId) {
+  return await findOne_(SHEET.DEPARTMENT_TASK, 'Task_ID', taskId);
 }
 
 /**
@@ -22,16 +22,16 @@ function getTask(taskId) {
  * @param {string} woId เลขที่ใบงาน
  * @return {Object[]}
  */
-function listTasksByWo(woId) {
-  return findBy_(SHEET.DEPARTMENT_TASK, 'WO_ID', woId);
+async function listTasksByWo(woId) {
+  return await findBy_(SHEET.DEPARTMENT_TASK, 'WO_ID', woId);
 }
 
 /**
  * อ่านงานของแผนกทั้งหมด
  * @return {Object[]}
  */
-function listTasks() {
-  return readAll_(SHEET.DEPARTMENT_TASK);
+async function listTasks() {
+  return await readAll_(SHEET.DEPARTMENT_TASK);
 }
 
 /**
@@ -40,8 +40,8 @@ function listTasks() {
  * @param {*} value ค่าที่ต้องการ
  * @return {Object[]}
  */
-function findTasksBy(field, value) {
-  return findBy_(SHEET.DEPARTMENT_TASK, field, value);
+async function findTasksBy(field, value) {
+  return await findBy_(SHEET.DEPARTMENT_TASK, field, value);
 }
 
 /**
@@ -100,7 +100,7 @@ var TASK_DEFAULT_ORDER = Object.freeze([
  *
  * @return {Object} แผนก → {คีย์ของมุมมอง → จำนวน}
  */
-function countAllTasksByView() {
+async function countAllTasksByView() {
   if (TASK_COUNT_RUN_CACHE_) return TASK_COUNT_RUN_CACHE_;
 
   var cached = cacheGet_(TASK_COUNT_CACHE_KEY_);
@@ -115,7 +115,7 @@ function countAllTasksByView() {
 
   var totals;
   try {
-    totals = db_rpc_('department_task_counts', {});
+    totals = await db_rpc_('department_task_counts', {});
   } catch (e) {
     /*
      * บอกชื่อไฟล์ที่ต้องรันออกมาตรง ๆ เพราะข้อความกลาง ๆ จะทำให้ต้องไล่หาสาเหตุ
@@ -234,10 +234,10 @@ function deptNames_() {
  * @param {string} dayText วันที่ 'YYYY-MM-DD' ตามเวลาไทย
  * @return {Object[]} แถว Department_Task
  */
-function findTasksVisitingOn(department, dayText) {
+async function findTasksVisitingOn(department, dayText) {
   if (!department || !dayText) return [];
 
-  return queryRows_(SHEET.DEPARTMENT_TASK, {
+  return await queryRows_(SHEET.DEPARTMENT_TASK, {
     'Department':  department,
     'Status':      { op: 'in', value: TASK_OPEN_STATUSES.slice() },
     'Visit_Start': { op: 'like', value: dbLikeLiteral_(dayText) + '*' }
@@ -275,7 +275,7 @@ var TASK_TODAY_LIMIT = 200;
  * @param {number} offset ข้ามไปกี่แถว
  * @return {Object} {rows, total} · total = -1 เมื่อฐานข้อมูลไม่ได้บอกจำนวนมา
  */
-function findTaskPage(department, statuses, dayText, order, limit, offset) {
+async function findTaskPage(department, statuses, dayText, order, limit, offset) {
   if (!department) return { rows: [], total: 0 };
 
   var filters = { 'Department': department };
@@ -287,7 +287,7 @@ function findTaskPage(department, statuses, dayText, order, limit, offset) {
    */
   if (dayText) filters['Visit_Start'] = { op: 'like', value: dbLikeLiteral_(dayText) + '*' };
 
-  return db_selectPage_(SHEET.DEPARTMENT_TASK, {
+  return await db_selectPage_(SHEET.DEPARTMENT_TASK, {
     filters: filters,
     order:   order,
     limit:   limit,
@@ -304,8 +304,8 @@ function findTaskPage(department, statuses, dayText, order, limit, offset) {
  * @param {string[]} woIds เลขที่ใบงาน — ขอบเขตมาจากขนาดหน้าที่ผู้เรียกตั้งเอง
  * @return {Object[]}
  */
-function listTasksByWos(woIds) {
-  return queryRowsIn_(SHEET.DEPARTMENT_TASK, 'WO_ID', woIds || [], {
+async function listTasksByWos(woIds) {
+  return await queryRowsIn_(SHEET.DEPARTMENT_TASK, 'WO_ID', woIds || [], {
     order: { column: 'Task_ID', ascending: true },
     rowsPerValue: 3
   });
@@ -316,8 +316,8 @@ function listTasksByWos(woIds) {
  * @param {Object} task ข้อมูลงานของแผนก
  * @return {Object} ข้อมูลที่เขียนจริง พร้อมฟิลด์ _row
  */
-function insertTask(task) {
-  return appendRow_(SHEET.DEPARTMENT_TASK, task);
+async function insertTask(task) {
+  return await appendRow_(SHEET.DEPARTMENT_TASK, task);
 }
 
 /**
@@ -325,8 +325,8 @@ function insertTask(task) {
  * @param {Object[]} tasks รายการงานของแผนก
  * @return {Object[]}
  */
-function insertTasks(tasks) {
-  return appendRows_(SHEET.DEPARTMENT_TASK, tasks);
+async function insertTasks(tasks) {
+  return await appendRows_(SHEET.DEPARTMENT_TASK, tasks);
 }
 
 /**
@@ -336,6 +336,6 @@ function insertTasks(tasks) {
  * @param {Date|string} [expectedUpdatedDate] ค่า Updated_Date ที่ผู้ใช้เห็นตอนเปิดหน้า (SPEC C-3)
  * @return {Object}
  */
-function updateTask(taskId, patch, expectedUpdatedDate) {
-  return updateRow_(SHEET.DEPARTMENT_TASK, 'Task_ID', taskId, patch, expectedUpdatedDate);
+async function updateTask(taskId, patch, expectedUpdatedDate) {
+  return await updateRow_(SHEET.DEPARTMENT_TASK, 'Task_ID', taskId, patch, expectedUpdatedDate);
 }

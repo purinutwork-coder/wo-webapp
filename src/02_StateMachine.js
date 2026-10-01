@@ -594,28 +594,28 @@ function decide_(nextStatus, currentWoStatus, rule) {
  * @return {Object} แผนที่ทำไปจริง {entity, id, action, from, to, changed, woEffect, audit, recalc}
  * @throws {Error} เมื่อไม่พบข้อมูล Transition ไม่ถูกต้อง สิทธิ์ไม่พอ หรือ Guard ไม่ผ่าน
  */
-function changeStatus(entity, id, action, user, payload) {
+async function changeStatus(entity, id, action, user, payload) {
   payload = payload || {};
 
-  var context = loadStatusContext_(entity, id, action, user, payload);
+  var context = await loadStatusContext_(entity, id, action, user, payload);
   var plan = planStatusChange_(entity, id, action, user, context.payload);
 
   if (action === ACTION.CREATE) {
-    if (payload.fields) insertEntityRow_(entity, plan, payload.fields);
+    if (payload.fields) await insertEntityRow_(entity, plan, payload.fields);
   } else if (plan.changed || payload.fields) {
-    writeEntityRow_(entity, id, plan, payload);
+    await writeEntityRow_(entity, id, plan, payload);
   }
 
-  writeAuditRecord(plan.audit);
+  await writeAuditRecord(plan.audit);
 
   if (plan.woEffect && context.payload.woId) {
     // Action ที่ตารางระบุสถานะ WO ไว้ตรง ๆ (TASK_RETURN -> RETURNED ตาม SPEC 5) ถือว่าชี้ขาด
     // และต้องไม่ให้ recalcWoStatus มาทับ เพราะในงานร่วม Task ของอีกแผนกยังเป็น IN_PROGRESS อยู่
     // ถ้าปล่อยให้ recalc ทำงานต่อ มันจะดึง WO กลับไป IN_PROGRESS แล้วการตีกลับก็หายไปเฉย ๆ
-    applyWoStatus_(context.payload.woId, plan.woEffect, action, context.payload.reason);
+    await applyWoStatus_(context.payload.woId, plan.woEffect, action, context.payload.reason);
   } else if (entity === ENTITY.TASK && context.payload.woId) {
     // ทุกครั้งที่ Task เปลี่ยน ต้องคำนวณสถานะ WO ใหม่ในรายการเดียวกัน (SPEC 20.3 · กฎข้อ 2)
-    plan.recalc = recalcWoStatus(context.payload.woId);
+    plan.recalc = await recalcWoStatus(context.payload.woId);
   }
 
   return plan;
@@ -629,11 +629,11 @@ function changeStatus(entity, id, action, user, payload) {
  * @return {Object} {status, changed, rule}
  * @throws {Error} เมื่อไม่พบใบงาน
  */
-function recalcWoStatus(woId) {
-  var wo = getWorkOrder(woId);
+async function recalcWoStatus(woId) {
+  var wo = await getWorkOrder(woId);
   if (!wo) throw new Error('ไม่พบใบงาน ' + woId + ' จึงคำนวณสถานะรวมไม่ได้');
 
-  var tasks = listTasksByWo(woId);
+  var tasks = await listTasksByWo(woId);
   var statuses = [];
   for (var i = 0; i < tasks.length; i++) {
     statuses.push(tasks[i][STATUS_FIELD[ENTITY.TASK]]);
@@ -641,7 +641,7 @@ function recalcWoStatus(woId) {
 
   var result = recalcFromStatuses_(statuses, wo[STATUS_FIELD[ENTITY.WO]]);
   if (result.changed) {
-    applyWoStatus_(woId, result.status, ACTION.RECALC, 'คำนวณจากสถานะ Task ตามกฎ ' + result.rule);
+    await applyWoStatus_(woId, result.status, ACTION.RECALC, 'คำนวณจากสถานะ Task ตามกฎ ' + result.rule);
   }
   return result;
 }
@@ -660,7 +660,7 @@ function recalcWoStatus(woId) {
  * @return {Object} {payload, row, wo}
  * @throws {Error} เมื่อไม่พบแถวที่จะเปลี่ยนสถานะ
  */
-function loadStatusContext_(entity, id, action, user, payload) {
+async function loadStatusContext_(entity, id, action, user, payload) {
   var enriched = copyPayload_(payload);
   var isCreate = (action === ACTION.CREATE);
   var fields = payload.fields || {};
@@ -676,7 +676,7 @@ function loadStatusContext_(entity, id, action, user, payload) {
       enriched.woId = id;
       return { payload: enriched, row: null, wo: null };
     }
-    var wo = getWorkOrder(id);
+    var wo = await getWorkOrder(id);
     if (!wo) throw new Error('ไม่พบใบงาน ' + id);
 
     enriched.fromStatus = wo[STATUS_FIELD[ENTITY.WO]] || null;
@@ -690,11 +690,11 @@ function loadStatusContext_(entity, id, action, user, payload) {
 
   if (entity !== ENTITY.TASK) throw new Error('ไม่รู้จัก Entity: ' + entity);
 
-  var task = isCreate ? null : getTask(id);
+  var task = isCreate ? null : await getTask(id);
   if (!isCreate && !task) throw new Error('ไม่พบงานของแผนก ' + id);
 
   var woId = (task ? task['WO_ID'] : (fields['WO_ID'] || payload.woId)) || null;
-  var parent = woId ? getWorkOrder(woId) : null;
+  var parent = woId ? await getWorkOrder(woId) : null;
   if (!parent) throw new Error('ไม่พบใบงานต้นทางของงานแผนก ' + (id || '(ใหม่)'));
 
   enriched.fromStatus = task ? (task[STATUS_FIELD[ENTITY.TASK]] || null) : null;
@@ -715,10 +715,10 @@ function loadStatusContext_(entity, id, action, user, payload) {
  * @param {Object} fields ข้อมูลทั้งแถวที่จะสร้าง
  * @return {Object} แถวที่เขียนจริง
  */
-function insertEntityRow_(entity, plan, fields) {
+async function insertEntityRow_(entity, plan, fields) {
   var row = copyPayload_(fields);
   row[STATUS_FIELD[entity]] = plan.to;
-  return (entity === ENTITY.WO) ? insertWorkOrder(row) : insertTask(row);
+  return (entity === ENTITY.WO) ? await insertWorkOrder(row) : await insertTask(row);
 }
 
 /**
@@ -729,14 +729,14 @@ function insertEntityRow_(entity, plan, fields) {
  * @param {Object} payload payload ที่ผู้เรียกส่งมา
  * @return {Object} แถวหลังแก้ไข
  */
-function writeEntityRow_(entity, id, plan, payload) {
+async function writeEntityRow_(entity, id, plan, payload) {
   var patch = copyPayload_(payload.fields || {});
   if (plan.changed) patch[STATUS_FIELD[entity]] = plan.to;
   if (entity === ENTITY.WO) {
     applyClosedDate_(patch, plan.changed ? plan.from : null, plan.changed ? plan.to : null);
-    return updateWorkOrder(id, patch, payload.expectedUpdatedDate);
+    return await updateWorkOrder(id, patch, payload.expectedUpdatedDate);
   }
-  return updateTask(id, patch, payload.expectedUpdatedDate);
+  return await updateTask(id, patch, payload.expectedUpdatedDate);
 }
 
 /**
@@ -789,8 +789,8 @@ function applyClosedDate_(patch, fromStatus, toStatus) {
  * @param {string} [remark] หมายเหตุที่จะบันทึกลง Audit
  * @return {string|null} สถานะใหม่ หรือ null เมื่อสถานะเดิมตรงอยู่แล้ว
  */
-function applyWoStatus_(woId, nextStatus, action, remark) {
-  var wo = getWorkOrder(woId);
+async function applyWoStatus_(woId, nextStatus, action, remark) {
+  var wo = await getWorkOrder(woId);
   if (!wo) throw new Error('ไม่พบใบงาน ' + woId);
 
   var from = wo[STATUS_FIELD[ENTITY.WO]] || null;
@@ -803,9 +803,9 @@ function applyWoStatus_(woId, nextStatus, action, remark) {
    * ถูกคำนวณจาก Task ไม่ได้มาจากการกดของผู้ใช้โดยตรง (กฎข้อ 2)
    */
   applyClosedDate_(patch, from, nextStatus);
-  updateWorkOrder(woId, patch);
+  await updateWorkOrder(woId, patch);
 
-  writeAuditRecord({
+  await writeAuditRecord({
     WO_ID: woId,
     Action: action,
     Entity: ENTITY.WO,

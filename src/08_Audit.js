@@ -31,7 +31,7 @@
  *                        เพื่อให้บรรทัดนั้นมี WO_ID ติดไปด้วย ค้นย้อนหลังได้ง่าย
  * @return {Object} แถวที่เขียนจริง
  */
-function writeAudit(entity, id, action, field, fromValue, toValue, remark, refs) {
+async function writeAudit(entity, id, action, field, fromValue, toValue, remark, refs) {
   refs = refs || {};
   var record = {
     WO_ID:      refs.woId || (entity === ENTITY.WO ? id : ''),
@@ -43,7 +43,7 @@ function writeAudit(entity, id, action, field, fromValue, toValue, remark, refs)
     To_Value:   toValue,
     Remark:     remark
   };
-  return writeAuditRecord(record);
+  return await writeAuditRecord(record);
 }
 
 /**
@@ -51,8 +51,8 @@ function writeAudit(entity, id, action, field, fromValue, toValue, remark, refs)
  * @param {Object} record แถว Audit ที่ยังไม่ได้เติม Log_ID / User / Role / Timestamp
  * @return {Object} แถวที่เขียนจริง
  */
-function writeAuditRecord(record) {
-  return writeAuditRecords([record])[0];
+async function writeAuditRecord(record) {
+  return await writeAuditRecords([record])[0];
 }
 
 /** ลำดับภายในการรันหนึ่งครั้ง — ทำให้บรรทัดที่เกิดในมิลลิวินาทีเดียวกันยังเรียงถูก */
@@ -90,11 +90,11 @@ function newLogId_() {
  * @param {Object[]} records รายการแถว Audit
  * @return {Object[]} แถวที่เขียนจริง
  */
-function writeAuditRecords(records) {
+async function writeAuditRecords(records) {
   if (!records || !records.length) return [];
 
   var user = currentUserEmail_();
-  var role = currentUserRole_(user);
+  var role = await currentUserRole_(user);
   var now = new Date();
   var rows = [];
   var auditRows = [];
@@ -130,8 +130,8 @@ function writeAuditRecords(records) {
   }
 
   var written = [];
-  if (auditRows.length) written = written.concat(appendRows_(SHEET.AUDIT_LOG, auditRows));
-  if (systemRows.length) written = written.concat(appendRows_(SHEET.SYSTEM_LOG, systemRows));
+  if (auditRows.length) written = written.concat(await appendRows_(SHEET.AUDIT_LOG, auditRows));
+  if (systemRows.length) written = written.concat(await appendRows_(SHEET.SYSTEM_LOG, systemRows));
   return written;
 }
 
@@ -215,11 +215,11 @@ function systemLogDetailPrefix_(woId, event) {
  * @param {string} detail รายละเอียดสำหรับผู้ดูแลอ่านย้อนหลัง
  * @param {string} [user] เจ้าของเหตุการณ์ เมื่อไม่ใช่ผู้ที่กำลังทำรายการ
  */
-function logSystemEvent_(action, detail, user) {
+async function logSystemEvent_(action, detail, user) {
   try {
     var record = { Action: action, Entity: ENTITY.SYSTEM, Remark: detail };
     if (user !== undefined) record.User = user;
-    writeAuditRecord(record);
+    await writeAuditRecord(record);
   } catch (e) {
     Logger.log('เขียน System_Log ไม่สำเร็จ (' + action + '): ' +
       ((e && e.message) ? e.message : e));
@@ -235,17 +235,17 @@ function logSystemEvent_(action, detail, user) {
  * @param {Error|string} error ข้อผิดพลาดที่จับได้
  * @return {boolean} true = เป็นเรื่องสิทธิ์ และบันทึกไปแล้ว
  */
-function logPermissionProblem_(error) {
+async function logPermissionProblem_(error) {
   // ลำดับเดียวกับ userFacingMessage_ เสมอ — เรื่อง "ยังไม่ได้รับอนุญาต" ต้องมาก่อน
   if (isAuthorizationError_(error)) {
     var scope = missingScopeOf_(error);
-    logSystemEvent_(ACTION.AUTH_REQUIRED,
+    await logSystemEvent_(ACTION.AUTH_REQUIRED,
       'สคริปต์ยังไม่ได้รับอนุญาตให้ใช้บริการของ Google ที่ขั้นตอนนั้นต้องใช้' +
       (scope ? (' · สิทธิ์ที่ขาดคือ ' + scope) : ''));
     return true;
   }
   if (isAccessDeniedError_(error)) {
-    logSystemEvent_(ACTION.ACCESS_DENIED, 'เข้าถึงฐานข้อมูลหรือ Drive ไม่ได้');
+    await logSystemEvent_(ACTION.ACCESS_DENIED, 'เข้าถึงฐานข้อมูลหรือ Drive ไม่ได้');
     return true;
   }
   return false;
@@ -270,7 +270,7 @@ function auditValue_(value) {
  * @param {string} email อีเมลผู้ใช้
  * @return {string} '' เมื่อยังไม่มีรายชื่อผู้ใช้นี้ในตาราง
  */
-function currentUserRole_(email) {
+async function currentUserRole_(email) {
   if (!email) return '';
 
   var cacheKey = 'role:' + email;
@@ -279,7 +279,7 @@ function currentUserRole_(email) {
   var cached = cacheGet_(cacheKey);
   if (cached !== null) return cached;
 
-  var row = getUserRole(email);
+  var row = await getUserRole(email);
   var role = row ? String(row.Role || '') : '';
   cachePut_(cacheKey, role, CACHE_TTL_SEC);
   return role;
@@ -310,8 +310,8 @@ var AUDIT_READ_ORDER = Object.freeze([
  * @param {string} woId เลขที่ใบงาน
  * @return {Object[]} เรียงจากเก่าไปใหม่
  */
-function listAuditByWo(woId) {
-  return queryRows_(SHEET.AUDIT_LOG, { 'WO_ID': woId }, { order: AUDIT_READ_ORDER });
+async function listAuditByWo(woId) {
+  return await queryRows_(SHEET.AUDIT_LOG, { 'WO_ID': woId }, { order: AUDIT_READ_ORDER });
 }
 
 /**
@@ -319,8 +319,8 @@ function listAuditByWo(woId) {
  * @param {string} taskId เลขที่งานของแผนก
  * @return {Object[]} เรียงจากเก่าไปใหม่
  */
-function listAuditByTask(taskId) {
-  return queryRows_(SHEET.AUDIT_LOG, { 'Task_ID': taskId }, { order: AUDIT_READ_ORDER });
+async function listAuditByTask(taskId) {
+  return await queryRows_(SHEET.AUDIT_LOG, { 'Task_ID': taskId }, { order: AUDIT_READ_ORDER });
 }
 
 /**
@@ -336,11 +336,11 @@ function listAuditByTask(taskId) {
  * @param {string} woId เลขที่ใบงาน
  * @return {Object[]} เรียงจากเก่าไปใหม่
  */
-function listSystemLogByWo(woId) {
+async function listSystemLogByWo(woId) {
   var needle = systemLogDetailPrefix_(woId, '');
   if (!needle) return [];
 
-  return queryRows_(SHEET.SYSTEM_LOG,
+  return await queryRows_(SHEET.SYSTEM_LOG,
     { 'Detail': { op: 'like', value: dbLikeLiteral_(needle) + '*' } },
     { order: AUDIT_READ_ORDER });
 }

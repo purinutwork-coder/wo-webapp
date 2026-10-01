@@ -148,10 +148,10 @@ function hashSessionToken_(token) {
  * @param {string} token โทเคนจากเบราว์เซอร์
  * @return {string} อีเมลเจ้าของ · ค่าว่างเมื่อใช้ไม่ได้
  */
-function emailOfToken_(token) {
+async function emailOfToken_(token) {
   if (!token) return '';
 
-  var row = getSessionToken(hashSessionToken_(token));
+  var row = await getSessionToken(hashSessionToken_(token));
   if (!row) return '';
   if (!isTruthyCell_(row['Active'])) return '';
 
@@ -165,7 +165,7 @@ function emailOfToken_(token) {
    */
   var ttlMs = TOKEN_TTL_HOURS * 3600 * 1000;
   if (expires.getTime() - now.getTime() < ttlMs / 2) {
-    updateSessionToken(row['Token_Hash'], {
+    await updateSessionToken(row['Token_Hash'], {
       'Expires_Date':   new Date(now.getTime() + ttlMs),
       'Last_Used_Date': now
     });
@@ -182,12 +182,12 @@ function emailOfToken_(token) {
  *
  * @return {number} จำนวนแถวที่ลบ
  */
-function pruneSessionTokens_() {
+async function pruneSessionTokens_() {
   /*
    * บนฐานข้อมูลสั่งลบได้เลย ไม่ต้องอ่านมาดูก่อนว่าแถวไหนตาย
    * เพดานสะสมก่อนค่อยลบมีไว้เพราะการอ่านทั้งแท็บแพง ซึ่งไม่เกี่ยวกันกับการลบแบบมีเงื่อนไขอีกต่อไป
    */
-  return deleteDeadSessionTokens_(new Date());
+  return await deleteDeadSessionTokens_(new Date());
 }
 
 /* ---------------------------------------------------------------------------
@@ -199,11 +199,11 @@ function pruneSessionTokens_() {
  * @param {string} username ชื่อผู้ใช้
  * @return {Object|null} แถวใน User_Role
  */
-function userByUsername_(username) {
+async function userByUsername_(username) {
   var wanted = String(username || '').trim().toLowerCase();
   if (!wanted) return null;
 
-  var rows = listUserRoles(false);   // รวมแถวที่ปิดใช้งาน เพื่อให้ตอบข้อความเดียวกันทุกกรณี
+  var rows = await listUserRoles(false);   // รวมแถวที่ปิดใช้งาน เพื่อให้ตอบข้อความเดียวกันทุกกรณี
   for (var i = 0; i < rows.length; i++) {
     if (String(rows[i]['Username'] || '').trim().toLowerCase() === wanted) return rows[i];
   }
@@ -236,8 +236,8 @@ function lockMinutesLeft_(row) {
  * @return {Object} {token, user, mustChangePassword}
  * @throws {Error} เมื่อเข้าไม่ได้
  */
-function login(username, password) {
-  var row = userByUsername_(username);
+async function login(username, password) {
+  var row = await userByUsername_(username);
 
   /*
    * ไม่พบชื่อผู้ใช้ — ยังต้องเสียเวลาเท่ากับกรณีที่พบ
@@ -245,7 +245,7 @@ function login(username, password) {
    */
   if (!row) {
     hashPassword_(String(password || ''), 'no-such-user', PASSWORD_ITERATIONS);
-    writeLoginAudit_('', username, 'ไม่พบชื่อผู้ใช้');
+    await writeLoginAudit_('', username, 'ไม่พบชื่อผู้ใช้');
     throw new Error(LOGIN_FAILED_MESSAGE);
   }
 
@@ -253,7 +253,7 @@ function login(username, password) {
 
   var locked = lockMinutesLeft_(row);
   if (locked) {
-    writeLoginAudit_(email, username, 'บัญชีถูกล็อกอยู่');
+    await writeLoginAudit_(email, username, 'บัญชีถูกล็อกอยู่');
     throw new Error(LOGIN_LOCKED_MESSAGE + locked + ' นาที');
   }
 
@@ -261,8 +261,8 @@ function login(username, password) {
     passwordMatches_(password, row['Password_Salt'], row['Password_Hash']);
 
   if (!ok || !isTruthyCell_(row['Active'])) {
-    registerLoginFailure_(row);
-    writeLoginAudit_(email, username, ok ? 'บัญชีถูกปิดการใช้งาน' : 'รหัสผ่านไม่ถูกต้อง');
+    await registerLoginFailure_(row);
+    await writeLoginAudit_(email, username, ok ? 'บัญชีถูกปิดการใช้งาน' : 'รหัสผ่านไม่ถูกต้อง');
     throw new Error(LOGIN_FAILED_MESSAGE);
   }
 
@@ -272,14 +272,14 @@ function login(username, password) {
    */
   if (Number(row['Failed_Count'] || 0) !== 0 || row['Locked_Until']) {
     // null ไม่ใช่ข้อความว่าง — Postgres ปฏิเสธข้อความว่างสำหรับคอลัมน์ชนิดเวลา (code 22007)
-    updateUserRole_(email, { 'Failed_Count': 0, 'Locked_Until': null });
+    await updateUserRole_(email, { 'Failed_Count': 0, 'Locked_Until': null });
   }
 
-  pruneSessionTokens_();   // เก็บกวาดโทเคนเก่า ทำตอนนี้ตอนเดียว ไม่ทำทุกคำขอ
+  await pruneSessionTokens_();   // เก็บกวาดโทเคนเก่า ทำตอนนี้ตอนเดียว ไม่ทำทุกคำขอ
 
   var token = newSessionToken_();
   var now = new Date();
-  insertSessionToken({
+  await insertSessionToken({
     'Token_Hash':     hashSessionToken_(token),
     'Email':          email,
     'Issued_Date':    now,
@@ -288,7 +288,7 @@ function login(username, password) {
     'Active':         true
   });
 
-  writeAuthAudit_(ACTION.LOGIN, email, String(row['Role'] || ''), 'เข้าสู่ระบบสำเร็จ');
+  await writeAuthAudit_(ACTION.LOGIN, email, String(row['Role'] || ''), 'เข้าสู่ระบบสำเร็จ');
 
   return {
     token: token,
@@ -305,7 +305,7 @@ function login(username, password) {
  *
  * @param {Object} row แถวใน User_Role
  */
-function registerLoginFailure_(row) {
+async function registerLoginFailure_(row) {
   var failed = Number(row['Failed_Count'] || 0) + 1;
   var patch = { 'Failed_Count': failed };
 
@@ -313,7 +313,7 @@ function registerLoginFailure_(row) {
     patch['Locked_Until'] = new Date(new Date().getTime() + LOGIN_LOCK_MINUTES * 60000);
     patch['Failed_Count'] = 0;   // เริ่มนับใหม่หลังปลดล็อก
   }
-  updateUserRole_(String(row['Email'] || ''), patch);
+  await updateUserRole_(String(row['Email'] || ''), patch);
 
   /*
    * นาทีที่บัญชีถูกล็อกต้องมีบรรทัดของตัวเอง แยกจากบรรทัด "รหัสผ่านไม่ถูกต้อง"
@@ -321,7 +321,7 @@ function registerLoginFailure_(row) {
    * ต้องนั่งนับบรรทัดรหัสผิดของแต่ละคนเอาเองว่าครบห้าครั้งเมื่อไร
    */
   if (patch['Locked_Until']) {
-    writeAuthAudit_(ACTION.ACCOUNT_LOCKED, String(row['Email'] || ''),
+    await writeAuthAudit_(ACTION.ACCOUNT_LOCKED, String(row['Email'] || ''),
       String(row['Role'] || ''),
       'ใส่รหัสผ่านผิดครบ ' + LOGIN_MAX_FAILURES + ' ครั้ง บัญชีถูกล็อก ' +
       LOGIN_LOCK_MINUTES + ' นาที');
@@ -339,9 +339,9 @@ function registerLoginFailure_(row) {
  * @param {string} username ชื่อผู้ใช้ที่พิมพ์มา
  * @param {string} reason สาเหตุ สำหรับผู้ดูแลอ่านย้อนหลัง
  */
-function writeLoginAudit_(email, username, reason) {
+async function writeLoginAudit_(email, username, reason) {
   try {
-    writeAuthAudit_(ACTION.LOGIN_FAILED, email || String(username || ''), '', reason);
+    await writeAuthAudit_(ACTION.LOGIN_FAILED, email || String(username || ''), '', reason);
   } catch (e) {
     // บันทึกไม่สำเร็จต้องไม่ทำให้การตอบกลับเปลี่ยนไป ไม่งั้นจะกลายเป็นตัวบอกว่ามีใครอยู่บ้าง
   }
@@ -362,7 +362,7 @@ function writeLoginAudit_(email, username, reason) {
  * @param {string} role Role ของเจ้าของบัญชี (ค่าว่างเมื่อยังไม่รู้)
  * @param {string} remark คำอธิบายสำหรับผู้ดูแลอ่านย้อนหลัง
  */
-function writeAuthAudit_(action, subject, role, remark) {
+async function writeAuthAudit_(action, subject, role, remark) {
   /*
    * บันทึกไม่สำเร็จ ต้องไม่ทำให้การเข้าสู่ระบบล้มตาม
    *
@@ -371,7 +371,7 @@ function writeAuthAudit_(action, subject, role, remark) {
    * ทั้งระบบ" เพราะแท็บบันทึกหายไปแท็บเดียว ซึ่งหนักกว่าการเสียบรรทัดบันทึกไปมาก
    */
   try {
-    writeAuditRecord({
+    await writeAuditRecord({
       User:   String(subject || ''),
       Role:   String(role || ''),
       Action: action,
@@ -389,13 +389,13 @@ function writeAuthAudit_(action, subject, role, remark) {
  * @param {string} token โทเคนจากเบราว์เซอร์
  * @return {boolean} true = มีโทเคนให้ปิด
  */
-function logout(token) {
+async function logout(token) {
   if (!token) return false;
-  var row = getSessionToken(hashSessionToken_(token));
+  var row = await getSessionToken(hashSessionToken_(token));
   if (!row) return false;
 
-  updateSessionToken(row['Token_Hash'], { 'Active': false, 'Expires_Date': new Date() });
-  writeAuthAudit_(ACTION.LOGOUT, String(row['Email'] || ''), '', 'ออกจากระบบ');
+  await updateSessionToken(row['Token_Hash'], { 'Active': false, 'Expires_Date': new Date() });
+  await writeAuthAudit_(ACTION.LOGOUT, String(row['Email'] || ''), '', 'ออกจากระบบ');
   return true;
 }
 
@@ -408,21 +408,21 @@ function logout(token) {
  * @param {string} email อีเมลของผู้ใช้
  * @return {number} จำนวนโทเคนที่ถูกปิด
  */
-function forceLogoutUser(email) {
+async function forceLogoutUser(email) {
   var wanted = String(email || '').trim().toLowerCase();
   if (!wanted) throw new Error('ยังไม่ได้ระบุว่าจะให้ใครออกจากระบบ');
 
   // กรองด้วยอีเมลที่ฐานข้อมูล แล้วยังเทียบซ้ำในหน่วยความจำตามเดิม ผลจึงตรงกันทุกกรณี
-  var rows = listSessionTokensOf_(wanted);
+  var rows = await listSessionTokensOf_(wanted);
   var closed = 0;
   for (var i = 0; i < rows.length; i++) {
     if (String(rows[i]['Email'] || '').trim().toLowerCase() !== wanted) continue;
     if (!isTruthyCell_(rows[i]['Active'])) continue;
-    updateSessionToken(rows[i]['Token_Hash'], { 'Active': false, 'Expires_Date': new Date() });
+    await updateSessionToken(rows[i]['Token_Hash'], { 'Active': false, 'Expires_Date': new Date() });
     closed++;
   }
 
-  writeAuthAudit_(ACTION.FORCE_LOGOUT, wanted, '', 'ปิดโทเคน ' + closed + ' ใบ');
+  await writeAuthAudit_(ACTION.FORCE_LOGOUT, wanted, '', 'ปิดโทเคน ' + closed + ' ใบ');
   return closed;
 }
 
@@ -437,11 +437,11 @@ function forceLogoutUser(email) {
  * @param {boolean} mustChange บังคับให้เปลี่ยนตอนเข้าครั้งแรกหรือไม่
  * @return {Object} แถวที่แก้แล้ว
  */
-function writeNewPassword_(email, password, mustChange) {
+async function writeNewPassword_(email, password, mustChange) {
   assertPasswordStrength_(password);
 
   var salt = newPasswordSalt_();
-  return updateUserRole_(email, {
+  return await updateUserRole_(email, {
     'Password_Salt':        salt,
     'Password_Hash':        encodePasswordHash_(PASSWORD_ITERATIONS,
                               hashPassword_(password, salt, PASSWORD_ITERATIONS)),
@@ -463,8 +463,8 @@ function writeNewPassword_(email, password, mustChange) {
  * @param {string} newPassword รหัสใหม่
  * @return {Object} {changed:true}
  */
-function changeOwnPassword(user, oldPassword, newPassword) {
-  var row = getUserRole(user.email);
+async function changeOwnPassword(user, oldPassword, newPassword) {
+  var row = await getUserRole(user.email);
   if (!row) throw new Error('ไม่พบบัญชีของคุณในทะเบียนผู้ใช้ กรุณาติดต่อผู้ดูแลระบบ');
 
   if (!passwordMatches_(oldPassword, row['Password_Salt'], row['Password_Hash'])) {
@@ -474,8 +474,8 @@ function changeOwnPassword(user, oldPassword, newPassword) {
     throw new Error('รหัสผ่านใหม่ต้องไม่ซ้ำกับรหัสเดิม');
   }
 
-  writeNewPassword_(user.email, newPassword, false);
-  writeAuthAudit_(ACTION.PASSWORD_CHANGE, user.email, '', 'เปลี่ยนรหัสผ่านด้วยตัวเอง');
+  await writeNewPassword_(user.email, newPassword, false);
+  await writeAuthAudit_(ACTION.PASSWORD_CHANGE, user.email, '', 'เปลี่ยนรหัสผ่านด้วยตัวเอง');
   return { changed: true };
 }
 
@@ -490,16 +490,16 @@ function changeOwnPassword(user, oldPassword, newPassword) {
  * @param {Object} actor ผู้ดูแลที่ทำรายการ
  * @return {Object} {email, forcedLogout}
  */
-function setPasswordFor(email, tempPassword, actor) {
-  var row = getUserRole(email);
+async function setPasswordFor(email, tempPassword, actor) {
+  var row = await getUserRole(email);
   if (!row) throw new Error('ไม่พบผู้ใช้ ' + email + ' ในทะเบียนผู้ใช้');
 
-  writeNewPassword_(email, tempPassword, true);
+  await writeNewPassword_(email, tempPassword, true);
 
   // ตั้งรหัสใหม่แล้วโทเคนเดิมต้องใช้ไม่ได้ ไม่งั้นคนที่ยึดบัญชีไปแล้วยังอยู่ต่อได้อีก 12 ชั่วโมง
-  var closed = forceLogoutUser(email);
+  var closed = await forceLogoutUser(email);
 
-  writeAuthAudit_(ACTION.PASSWORD_RESET, email, '',
+  await writeAuthAudit_(ACTION.PASSWORD_RESET, email, '',
     'ผู้ดูแลตั้งรหัสชั่วคราวให้ โดย ' + actingEmail_(actor));
   return { email: email, forcedLogout: closed };
 }
@@ -522,8 +522,8 @@ function setPasswordFor(email, tempPassword, actor) {
  * @param {string} tempPassword รหัสชั่วคราว อย่างน้อย 8 ตัวอักษร
  * @return {string} ข้อความสรุปสำหรับอ่านใน Execution log
  */
-function createFirstAdmin(email, username, displayName, tempPassword) {
-  var existing = listUserRoles(true);
+async function createFirstAdmin(email, username, displayName, tempPassword) {
+  var existing = await listUserRoles(true);
   for (var i = 0; i < existing.length; i++) {
     if (splitRoles_(existing[i]['Role']).indexOf(ROLE.ADMIN) !== -1) {
       throw new Error('มีผู้ดูแล (ADMIN) ในระบบอยู่แล้ว — ฟังก์ชันนี้ใช้ได้เฉพาะตอนยังไม่มีใครเลย ' +
@@ -534,10 +534,10 @@ function createFirstAdmin(email, username, displayName, tempPassword) {
   if (!email || !username) throw new Error('ต้องระบุทั้งอีเมลและชื่อผู้ใช้');
   assertPasswordStrength_(tempPassword);
 
-  if (userByUsername_(username)) throw new Error('ชื่อผู้ใช้ "' + username + '" ถูกใช้ไปแล้ว');
+  if (await userByUsername_(username)) throw new Error('ชื่อผู้ใช้ "' + username + '" ถูกใช้ไปแล้ว');
 
   var salt = newPasswordSalt_();
-  appendRow_(SHEET.USER_ROLE, {
+  await appendRow_(SHEET.USER_ROLE, {
     'Email':                String(email).trim(),
     'Username':             String(username).trim(),
     'Display_Name':         String(displayName || username).trim(),
@@ -565,11 +565,11 @@ function createFirstAdmin(email, username, displayName, tempPassword) {
  * @param {string} tempPassword รหัสชั่วคราว อย่างน้อย 8 ตัวอักษร
  * @return {string} ข้อความสรุปสำหรับอ่านใน Execution log
  */
-function resetPassword(username, tempPassword) {
-  var row = userByUsername_(username);
+async function resetPassword(username, tempPassword) {
+  var row = await userByUsername_(username);
   if (!row) throw new Error('ไม่พบชื่อผู้ใช้ "' + username + '" ในทะเบียนผู้ใช้');
 
-  var result = setPasswordFor(String(row['Email']), tempPassword,
+  var result = await setPasswordFor(String(row['Email']), tempPassword,
     { email: 'ผู้ดูแลระบบ (ตัวแก้ไข Apps Script)' });
 
   return 'ตั้งรหัสชั่วคราวให้ ' + username + ' แล้ว · ปิดโทเคนเดิม ' + result.forcedLogout +
@@ -605,8 +605,8 @@ function measurePasswordCost() {
  * @param {Object} patch เฉพาะคอลัมน์ที่ต้องการเปลี่ยน
  * @return {Object}
  */
-function updateUserRole_(email, patch) {
-  var row = updateRow_(SHEET.USER_ROLE, 'Email', email, patch);
+async function updateUserRole_(email, patch) {
+  var row = await updateRow_(SHEET.USER_ROLE, 'Email', email, patch);
   clearDisplayNameCache_();   // ชื่อที่แสดงอาจเพิ่งเปลี่ยน ต้องไม่ใช้ของเดิมต่อ
   return row;
 }
@@ -630,11 +630,11 @@ function updateUserRole_(email, patch) {
  * @param {*} email อีเมลที่เก็บไว้ในฐานข้อมูล
  * @return {string} ชื่อที่ใช้แสดง หรืออีเมลเดิมเมื่อไม่มีในทะเบียน
  */
-function displayNameOf_(email) {
+async function displayNameOf_(email) {
   var key = String(email || '').trim();
   if (!key) return '';
 
-  var names = displayNameMap_();
+  var names = await displayNameMap_();
   var found = names[key.toLowerCase()];
   return found || key;
 }
@@ -650,12 +650,12 @@ function displayNameOf_(email) {
  *
  * @return {Object} คีย์เป็นอีเมลตัวพิมพ์เล็ก
  */
-function displayNameMap_() {
+async function displayNameMap_() {
   if (DISPLAY_NAME_MAP_) return DISPLAY_NAME_MAP_;
 
   var map = {};
   try {
-    var rows = listUserRoles(false);
+    var rows = await listUserRoles(false);
     for (var i = 0; i < rows.length; i++) {
       var email = String(rows[i]['Email'] || '').trim();
       if (!email) continue;

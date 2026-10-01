@@ -12,8 +12,8 @@
  * @param {string} fileId เลขที่ไฟล์ในทะเบียน
  * @return {Object|null}
  */
-function getFile(fileId) {
-  return findOne_(SHEET.FILE_INDEX, 'File_ID', fileId);
+async function getFile(fileId) {
+  return await findOne_(SHEET.FILE_INDEX, 'File_ID', fileId);
 }
 
 /**
@@ -21,8 +21,8 @@ function getFile(fileId) {
  * @param {string} woId เลขที่ใบงาน
  * @return {Object[]}
  */
-function listFilesByWo(woId) {
-  return filesMatching_({ 'WO_ID': woId });
+async function listFilesByWo(woId) {
+  return await filesMatching_({ 'WO_ID': woId });
 }
 
 /**
@@ -30,8 +30,8 @@ function listFilesByWo(woId) {
  * @param {string} taskId เลขที่งานของแผนก
  * @return {Object[]}
  */
-function listFilesByTask(taskId) {
-  return filesMatching_({ 'Task_ID': taskId });
+async function listFilesByTask(taskId) {
+  return await filesMatching_({ 'Task_ID': taskId });
 }
 
 /**
@@ -39,8 +39,8 @@ function listFilesByTask(taskId) {
  * @param {string} stepId เลขที่ Step
  * @return {Object[]}
  */
-function listFilesByStep(stepId) {
-  return filesMatching_({ 'Step_ID': stepId });
+async function listFilesByStep(stepId) {
+  return await filesMatching_({ 'Step_ID': stepId });
 }
 
 /**
@@ -55,17 +55,17 @@ function listFilesByStep(stepId) {
  * @param {Object} filters เงื่อนไขของทะเบียนไฟล์
  * @return {Object[]}
  */
-function filesMatching_(filters) {
+async function filesMatching_(filters) {
   return activeRowsOf_(SHEET.FILE_INDEX,
-    queryRows_(SHEET.FILE_INDEX, filters, { order: 'File_ID' }));
+    await queryRows_(SHEET.FILE_INDEX, filters, { order: 'File_ID' }));
 }
 
 /**
  * อ่านทะเบียนไฟล์ทั้งหมด รวมแถวที่ปิดใช้งานแล้ว
  * @return {Object[]}
  */
-function listFiles() {
-  return readAll_(SHEET.FILE_INDEX);
+async function listFiles() {
+  return await readAll_(SHEET.FILE_INDEX);
 }
 
 /**
@@ -73,8 +73,8 @@ function listFiles() {
  * @param {Object} file ข้อมูลไฟล์
  * @return {Object}
  */
-function insertFile(file) {
-  return appendRow_(SHEET.FILE_INDEX, file);
+async function insertFile(file) {
+  return await appendRow_(SHEET.FILE_INDEX, file);
 }
 
 /**
@@ -82,8 +82,8 @@ function insertFile(file) {
  * @param {Object[]} files รายการไฟล์
  * @return {Object[]}
  */
-function insertFiles(files) {
-  return appendRows_(SHEET.FILE_INDEX, files);
+async function insertFiles(files) {
+  return await appendRows_(SHEET.FILE_INDEX, files);
 }
 
 /**
@@ -92,8 +92,8 @@ function insertFiles(files) {
  * @param {Object} patch เฉพาะคอลัมน์ที่ต้องการเปลี่ยน
  * @return {Object}
  */
-function updateFile(fileId, patch) {
-  return updateRow_(SHEET.FILE_INDEX, 'File_ID', fileId, patch);
+async function updateFile(fileId, patch) {
+  return await updateRow_(SHEET.FILE_INDEX, 'File_ID', fileId, patch);
 }
 
 /**
@@ -102,8 +102,8 @@ function updateFile(fileId, patch) {
  * @param {string} fileId เลขที่ไฟล์
  * @return {Object}
  */
-function deactivateFile(fileId) {
-  return deactivateRow_(SHEET.FILE_INDEX, fileId);
+async function deactivateFile(fileId) {
+  return await deactivateRow_(SHEET.FILE_INDEX, fileId);
 }
 
 /**

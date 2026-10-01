@@ -11,8 +11,8 @@
  * @param {string} pjId รหัสสถานที่ (ไม่ใช่เลขงาน)
  * @return {Object|null}
  */
-function getLocation(pjId) {
-  return findOne_(SHEET.PROJECT_LOCATION, 'PJ_ID', pjId);
+async function getLocation(pjId) {
+  return await findOne_(SHEET.PROJECT_LOCATION, 'PJ_ID', pjId);
 }
 
 /**
@@ -20,16 +20,16 @@ function getLocation(pjId) {
  * (ชื่อ listLocations() ถูกใช้โดย 05_Location.gs ซึ่งกรองตามลูกค้าและโครงการให้แล้ว)
  * @return {Object[]}
  */
-function listAllLocations() {
-  return readAll_(SHEET.PROJECT_LOCATION);
+async function listAllLocations() {
+  return await readAll_(SHEET.PROJECT_LOCATION);
 }
 
 /**
  * อ่านเฉพาะทะเบียนสถานที่ที่ยังใช้งานอยู่ (คอลัมน์ Active)
  * @return {Object[]}
  */
-function listActiveLocations() {
-  return readAllActive_(SHEET.PROJECT_LOCATION);
+async function listActiveLocations() {
+  return await readAllActive_(SHEET.PROJECT_LOCATION);
 }
 
 /**
@@ -38,8 +38,8 @@ function listActiveLocations() {
  * @param {*} value ค่าที่ต้องการ
  * @return {Object[]}
  */
-function findLocationsBy(field, value) {
-  return findBy_(SHEET.PROJECT_LOCATION, field, value);
+async function findLocationsBy(field, value) {
+  return await findBy_(SHEET.PROJECT_LOCATION, field, value);
 }
 
 /**
@@ -47,8 +47,8 @@ function findLocationsBy(field, value) {
  * @param {Object} location ข้อมูลทะเบียนสถานที่
  * @return {Object}
  */
-function insertLocation(location) {
-  return appendRow_(SHEET.PROJECT_LOCATION, location);
+async function insertLocation(location) {
+  return await appendRow_(SHEET.PROJECT_LOCATION, location);
 }
 
 /**
@@ -57,8 +57,8 @@ function insertLocation(location) {
  * @param {Object} patch เฉพาะคอลัมน์ที่ต้องการเปลี่ยน
  * @return {Object}
  */
-function updateLocation(pjId, patch) {
-  return updateRow_(SHEET.PROJECT_LOCATION, 'PJ_ID', pjId, patch);
+async function updateLocation(pjId, patch) {
+  return await updateRow_(SHEET.PROJECT_LOCATION, 'PJ_ID', pjId, patch);
 }
 
 /**
@@ -66,6 +66,6 @@ function updateLocation(pjId, patch) {
  * @param {string} pjId รหัสสถานที่
  * @return {Object}
  */
-function deactivateLocation(pjId) {
-  return deactivateRow_(SHEET.PROJECT_LOCATION, pjId);
+async function deactivateLocation(pjId) {
+  return await deactivateRow_(SHEET.PROJECT_LOCATION, pjId);
 }

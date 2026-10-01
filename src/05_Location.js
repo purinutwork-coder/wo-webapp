@@ -32,7 +32,7 @@
  * @return {string} PJ_ID ที่ใบงานนี้ต้องใช้
  * @throws {Error} เมื่อไม่มีรหัสลูกค้าหรือไม่ได้ระบุสถานที่
  */
-function resolveProjectLocation(customerCode, project, location, woId, customer) {
+async function resolveProjectLocation(customerCode, project, location, woId, customer) {
   if (isBlankText_(customerCode)) {
     throw new Error('ลูกค้ารายนี้ยังไม่มีรหัสใน Sheet Customer กรุณาเพิ่มรหัสลูกค้าก่อนเปิดใบงาน');
   }
@@ -40,27 +40,27 @@ function resolveProjectLocation(customerCode, project, location, woId, customer)
     throw new Error('ยังไม่ได้ระบุสถานที่ กรุณาเลือกจากรายการเดิม หรือเพิ่มสถานที่ใหม่ก่อน');
   }
 
-  var existing = findLocationRow_(customerCode, project, location);
+  var existing = await findLocationRow_(customerCode, project, location);
   if (existing) {
     // ใช้ PJ_ID เดิม แล้วนับจำนวนใบงานของสถานที่นั้นเพิ่ม
     var count = Number(existing['WO_Count'] || 0) + 1;
-    updateLocation(existing['PJ_ID'], { 'WO_Count': count });
+    await updateLocation(existing['PJ_ID'], { 'WO_Count': count });
     return existing['PJ_ID'];
   }
 
   var lock = acquireLock_();
   try {
     // อ่านซ้ำในล็อก เผื่อมีคนอื่นเพิ่งสร้างสถานที่เดียวกันไปก่อนหน้าเสี้ยววินาที
-    var again = findLocationRow_(customerCode, project, location);
+    var again = await findLocationRow_(customerCode, project, location);
     if (again) {
-      updateLocation(again['PJ_ID'], { 'WO_Count': Number(again['WO_Count'] || 0) + 1 });
+      await updateLocation(again['PJ_ID'], { 'WO_Count': Number(again['WO_Count'] || 0) + 1 });
       return again['PJ_ID'];
     }
 
-    var seq = nextLocationSeq_(customerCode, project);
+    var seq = await nextLocationSeq_(customerCode, project);
     var pjId = formatPjId_(customerCode, seq.projectSeq, seq.locationSeq);
 
-    insertLocation({
+    await insertLocation({
       'PJ_ID':         pjId,
       'Customer_Code': String(customerCode).trim(),
       'Customer_Name': (customer && customer.customerName) || '',
@@ -92,8 +92,8 @@ function resolveProjectLocation(customerCode, project, location, woId, customer)
  * @param {string} project ชื่อโครงการ
  * @return {Object} {projectSeq, locationSeq}
  */
-function nextLocationSeq_(customerCode, project) {
-  var rows = listAllLocations();   // รวมแถวที่ปิดใช้งานแล้ว เพื่อไม่ให้ออกเลขซ้ำของเดิม
+async function nextLocationSeq_(customerCode, project) {
+  var rows = await listAllLocations();   // รวมแถวที่ปิดใช้งานแล้ว เพื่อไม่ให้ออกเลขซ้ำของเดิม
   var customerKey = normalizeLocationKey_(customerCode);
   var projectKey = normalizeLocationKey_(project);
 
@@ -161,8 +161,8 @@ function isBlankText_(value) {
  * @param {string} project ชื่อโครงการ (ว่างได้)
  * @return {Object[]} แถวจาก Project_Location ที่ยังใช้งานอยู่ เรียงตามชื่อสถานที่
  */
-function listLocations(customerCode, project) {
-  var rows = listActiveLocations();
+async function listLocations(customerCode, project) {
+  var rows = await listActiveLocations();
   var found = [];
   for (var i = 0; i < rows.length; i++) {
     if (sameCustomerAndProject_(rows[i], customerCode, project)) found.push(rows[i]);
@@ -187,11 +187,11 @@ function listLocations(customerCode, project) {
  * @param {string} location ชื่อสถานที่ที่กำลังจะเพิ่ม
  * @return {Object[]} รายการที่คล้ายกัน พร้อมฟิลด์ _distance บอกระยะห่างของตัวอักษร
  */
-function findSimilarLocation(customerCode, project, location) {
+async function findSimilarLocation(customerCode, project, location) {
   var target = normalizeLocationKey_(location);
   if (!target) return [];
 
-  var candidates = listLocations(customerCode, project);
+  var candidates = await listLocations(customerCode, project);
   var similar = [];
 
   for (var i = 0; i < candidates.length; i++) {
@@ -221,9 +221,9 @@ function findSimilarLocation(customerCode, project, location) {
  * @param {string} location ชื่อสถานที่
  * @return {Object|null}
  */
-function findLocationRow_(customerCode, project, location) {
+async function findLocationRow_(customerCode, project, location) {
   var key = normalizeLocationKey_(location);
-  var rows = listActiveLocations();
+  var rows = await listActiveLocations();
   for (var i = 0; i < rows.length; i++) {
     if (!sameCustomerAndProject_(rows[i], customerCode, project)) continue;
     if (normalizeLocationKey_(rows[i]['Location_Key'] || rows[i]['Location']) === key) return rows[i];

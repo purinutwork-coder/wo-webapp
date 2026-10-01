@@ -77,7 +77,7 @@ var DASHBOARD_RUN_CACHE_ = null;
  *
  * @return {Object} ยอดทุกช่องตามที่ dashboard_summary คืนมา
  */
-function dashboardTotals_() {
+async function dashboardTotals_() {
   if (DASHBOARD_RUN_CACHE_) return DASHBOARD_RUN_CACHE_;
 
   var cached = cacheGet_(DASHBOARD_CACHE_KEY_);
@@ -90,7 +90,7 @@ function dashboardTotals_() {
     }
   }
 
-  var totals = db_rpc_('dashboard_summary', {});
+  var totals = await db_rpc_('dashboard_summary', {});
 
   /*
    * PostgREST คืนค่าของฟังก์ชันที่ returns json มาเป็นก้อน JSON ตรง ๆ
@@ -233,8 +233,8 @@ function dashboardCards_() {
  * @param {Object} user ผู้ใช้ปัจจุบันจาก getCurrentUser_()
  * @return {Object} {cards, cardGroups, total, isEmpty, asOf}
  */
-function dashboardFor(user) {
-  var totals = dashboardTotals_();
+async function dashboardFor(user) {
+  var totals = await dashboardTotals_();
   var all = dashboardCards_();
   var cards = [];
 
@@ -339,7 +339,7 @@ function objectValues_(table) {
  * @param {Object} [query] เงื่อนไขจากหน้าจอ ดู normalizeWoQuery_()
  * @return {Object} {rows, total, page, pageSize, pageCount, filters, emptyReason}
  */
-function listWorkOrdersPage(query) {
+async function listWorkOrdersPage(query) {
   var q = normalizeWoQuery_(query);
 
   /*
@@ -349,7 +349,7 @@ function listWorkOrdersPage(query) {
    * ถ้าส่งต่อ มันจะกลายเป็น `in.()` ที่มีวงเล็บเปล่า ซึ่ง PostgREST บางรุ่นตอบ 400
    * และบางรุ่นตอบศูนย์แถว — พฤติกรรมที่เปลี่ยนได้โดยที่เราไม่ได้แก้อะไรเลย
    */
-  if (woQueryIsImpossible_(q)) return woListEmptyResult_(q, 'NO_MATCH');
+  if (woQueryIsImpossible_(q)) return await woListEmptyResult_(q, 'NO_MATCH');
 
   var filters = woListFilters_(q);
 
@@ -359,15 +359,15 @@ function listWorkOrdersPage(query) {
    * ไม่ใช่รายชื่อ WO_ID ที่ยาวตามจำนวนข้อมูล ซึ่งกฎข้อ 29 ห้ามไว้
    */
   if (q.taskStatuses.length || q.taskDepartments.length) {
-    var ids = woIdsFromTasks_(q);
+    var ids = await woIdsFromTasks_(q);
     if (!ids.length) {
-      return woListEmptyResult_(q, 'NO_MATCH');
+      return await woListEmptyResult_(q, 'NO_MATCH');
     }
     filters['WO_ID'] = { op: 'in', value: ids };
   }
 
   var page = Math.max(1, q.page);
-  var got = db_selectPage_(SHEET.WORK_ORDER, {
+  var got = await db_selectPage_(SHEET.WORK_ORDER, {
     select: woListFields_(),
     filters: filters,
     order: woListOrder_(q),
@@ -379,7 +379,7 @@ function listWorkOrdersPage(query) {
   var pageCount = Math.max(1, Math.ceil(total / WO_LIST_PAGE_SIZE));
 
   return {
-    rows:      woListRows_(got.rows),
+    rows:      await woListRows_(got.rows),
     total:     total,
     page:      page,
     pageSize:  WO_LIST_PAGE_SIZE,
@@ -395,7 +395,7 @@ function listWorkOrdersPage(query) {
      *
      * "ระบบว่างเปล่าหรือไม่" มาจากยอดของแดชบอร์ด ซึ่งแคชอยู่แล้ว จึงไม่มีคำขอเพิ่ม
      */
-    emptyReason: total ? '' : (woSystemIsEmpty_() ? 'NO_DATA' : 'NO_MATCH')
+    emptyReason: total ? '' : (await woSystemIsEmpty_() ? 'NO_DATA' : 'NO_MATCH')
   };
 }
 
@@ -435,14 +435,14 @@ function woListOrder_(q) {
  * @param {Object[]} rows แถวใบงานของหน้านี้
  * @return {Object[]} แถวในรูปที่หน้าจอใช้
  */
-function woListRows_(rows) {
+async function woListRows_(rows) {
   if (!rows.length) return [];
 
   var ids = [];
   for (var i = 0; i < rows.length; i++) ids.push(String(rows[i]['WO_ID']));
 
   var byWo = {};
-  var tasks = db_select_(SHEET.DEPARTMENT_TASK, {
+  var tasks = await db_select_(SHEET.DEPARTMENT_TASK, {
     select: ['WO_ID', 'Department', 'Status'],
     filters: { 'WO_ID': { op: 'in', value: ids } },
     // เพดานนี้เป็นของเรา ไม่ใช่ของข้อมูล · ยี่สิบใบมีงานแผนกได้ไม่เกินสองแผนกต่อใบ
@@ -502,12 +502,12 @@ function woListRows_(rows) {
  * @param {string} reason เหตุผลที่ว่าง
  * @return {Object}
  */
-function woListEmptyResult_(q, reason) {
+async function woListEmptyResult_(q, reason) {
   return {
     rows: [], total: 0, page: Math.max(1, q.page), pageSize: WO_LIST_PAGE_SIZE, pageCount: 1,
     filters: woListFilterOptions_(),
     query: woQueryEcho_(q),
-    emptyReason: woSystemIsEmpty_() ? 'NO_DATA' : reason
+    emptyReason: await woSystemIsEmpty_() ? 'NO_DATA' : reason
   };
 }
 
@@ -521,9 +521,9 @@ function woListEmptyResult_(q, reason) {
  *
  * @return {boolean}
  */
-function woSystemIsEmpty_() {
+async function woSystemIsEmpty_() {
   try {
-    return dashboardTotals_().isEmpty === true;
+    return await dashboardTotals_().isEmpty === true;
   } catch (e) {
     return false;   // อ่านยอดไม่ได้ ให้ถือว่ามีข้อมูล เพื่อไม่ชวนให้ไปสร้างใบงานซ้ำ
   }
@@ -667,12 +667,12 @@ function woListFilters_(q) {
  * @param {Object} q เงื่อนไขที่จัดรูปแล้ว
  * @return {string[]} เลขที่ใบงาน ไม่ซ้ำ
  */
-function woIdsFromTasks_(q) {
+async function woIdsFromTasks_(q) {
   var filters = {};
   if (q.taskStatuses.length)    filters['Status'] = { op: 'in', value: q.taskStatuses };
   if (q.taskDepartments.length) filters['Department'] = { op: 'in', value: q.taskDepartments };
 
-  var rows = db_select_(SHEET.DEPARTMENT_TASK, {
+  var rows = await db_select_(SHEET.DEPARTMENT_TASK, {
     select: ['WO_ID'],
     filters: filters,
     order: { column: 'WO_ID', ascending: false },

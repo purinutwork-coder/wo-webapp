@@ -62,14 +62,14 @@ var WEB_DEFAULT_PAGE = 'home';
  * @param {Object} e อีเวนต์จาก Apps Script (มี parameter ของ query string)
  * @return {HtmlOutput}
  */
-function doGet(e) {
+async function doGet(e) {
   var params = (e && e.parameter) ? e.parameter : {};
   var requested = String(params.page || WEB_DEFAULT_PAGE);
 
   // เปิดให้แตะชีตได้ตลอดคำขอนี้ — doGet เป็นทางเข้าที่ถูกต้องทางหนึ่ง (ดู 00_Config.gs)
   beginAnonymousRequest_();
   try {
-    return doGetRoute_(requested, params);
+    return await doGetRoute_(requested, params);
   } finally {
     endRequest_();
   }
@@ -81,9 +81,9 @@ function doGet(e) {
  * @param {Object} params ค่าจาก query string
  * @return {HtmlOutput|TextOutput}
  */
-function doGetRoute_(requested, params) {
+async function doGetRoute_(requested, params) {
   // หน้าตรวจสอบตัวตนคืนข้อความธรรมดาอยู่แล้ว จึงแยกออกมาก่อนเข้าเส้นทางปกติ
-  if (requested === WHOAMI_PAGE) return whoamiOutput_();
+  if (requested === WHOAMI_PAGE) return await whoamiOutput_();
 
   /*
    * ตอนนี้เหลือโปรเจกต์เดียว เบราว์เซอร์จึงเปิดตัวนี้ตรง ๆ
@@ -96,7 +96,7 @@ function doGetRoute_(requested, params) {
    * (ไม่พาไปหน้าอื่น เพราะกรอบของ Apps Script บล็อกการเปลี่ยนหน้าที่ผู้ใช้ไม่ได้กด)
    * การตรวจสิทธิ์จริงยังอยู่ที่ชั้น 09_Api เหมือนเดิมทุกข้อ
    */
-  return htmlOut_(renderPage_(params), requested);
+  return htmlOut_(await renderPage_(params), requested);
 }
 
 /**
@@ -190,7 +190,7 @@ function whoamiIsOn_() {
  *
  * @return {Object} {ok, data} หรือ {ok:false} เมื่อโหมดไล่ปัญหาปิดอยู่
  */
-function diagReport_() {
+async function diagReport_() {
   if (!whoamiIsOn_()) {
     return { ok: false, message: 'หน้าไล่ปัญหาปิดอยู่' };
   }
@@ -222,7 +222,7 @@ function diagReport_() {
       readOnly: apiReadOnlyActions_(),
       calledByPages: called,
       missing: missing,
-      bootstrap: bootstrapDiag_()
+      bootstrap: await bootstrapDiag_()
     }
   };
 }
@@ -235,7 +235,7 @@ function diagReport_() {
  *
  * @return {Object[]} [{page, keys, needs, missing}]
  */
-function bootstrapDiag_() {
+async function bootstrapDiag_() {
   var pages = Object.keys(WEB_PAGES).sort();
   var out = [];
 
@@ -244,7 +244,7 @@ function bootstrapDiag_() {
     var row = { page: page, keys: [], needs: [], missing: [] };
 
     try {
-      var boot = pageBootstrap_(page, {});
+      var boot = await pageBootstrap_(page, {});
       for (var key in boot) {
         if (Object.prototype.hasOwnProperty.call(boot, key)) row.keys.push(key);
       }
@@ -327,7 +327,7 @@ function callApiNamesInPages_() {
  */
 var BOOT_SAME_AS_TOP_ = Object.freeze(['user', 'labels', 'upload', 'counts']);
 
-function pageBootstrap_(page, params) {
+async function pageBootstrap_(page, params) {
   var boot = { user: null, menu: [], groups: [], counts: null,
     labels: null, upload: uploadLimits_(),
     // นิยามของมุมมองงานแผนกมาจาก TASK_VIEWS ที่เดียว หน้าเว็บจึงไม่มีรายการสถานะของตัวเอง
@@ -335,7 +335,7 @@ function pageBootstrap_(page, params) {
     error: '' };
 
   try {
-    var user = getCurrentUser_();
+    var user = await getCurrentUser_();
     boot.user = jsonSafe_(user);
     boot.menu = jsonSafe_(menuForUser_(user));
     /*
@@ -347,7 +347,7 @@ function pageBootstrap_(page, params) {
      * จำนวนงานของแผนกตัวเอง ติดไปกับทุกหน้าในคำขอเดียวกัน (SPEC 17.3)
      * ห้ามให้แถบเมนูยิงขอทีละเมนู เพราะหกเมนูย่อยคือหกคำขอต่อการเปิดหนึ่งหน้า
      */
-    boot.counts = user.department ? taskCountsForDepartment_(user.department) : null;
+    boot.counts = user.department ? await taskCountsForDepartment_(user.department) : null;
     boot.labels = jsonSafe_(uiLabels_());
   } catch (e) {
     // ระบุตัวตนไม่ได้ หรือไม่อยู่ในทะเบียน — หน้ายังต้องขึ้นมาพร้อมข้อความอธิบาย
@@ -358,12 +358,12 @@ function pageBootstrap_(page, params) {
   // ข้อมูลของหน้านั้น ๆ — ถ้าหน้าไหนไม่มีข้อมูลตั้งต้นก็ไม่ต้องมีในตารางนี้
   var loaders = {
     // หน้าแรกได้ยอดทั้งชุดมาพร้อมกันเลย จะได้ไม่ต้องยิงถามซ้ำตอนเปิด (SPEC 17.4)
-    home:       function () { return api_getDashboard(); },
+    home:       async function () { return await api_getDashboard(); },
     // หน้ารายการได้หน้าแรกของรายการมาพร้อมกัน ด้วยเหตุผลเดียวกัน
-    wolist:     function () { return api_listWorkOrders(webWoListQuery_(params)); },
-    create:     function () { return api_getBootstrap(String(params.wo || '')); },
-    approve:    function () { return api_listPendingApprovals(ROUTE.SP); },
-    labapprove: function () { return api_listPendingApprovals(ROUTE.LAB); },
+    wolist:     async function () { return await api_listWorkOrders(webWoListQuery_(params)); },
+    create:     async function () { return await api_getBootstrap(String(params.wo || '')); },
+    approve:    async function () { return await api_listPendingApprovals(ROUTE.SP); },
+    labapprove: async function () { return await api_listPendingApprovals(ROUTE.LAB); },
     /*
      * หน้าแผนกมีสองแหล่งข้อมูล ตามมุมมองที่เมนูย่อยเลือกมา (SPEC 17.3)
      *
@@ -372,10 +372,10 @@ function pageBootstrap_(page, params) {
      *
      * ยังเป็นคำขอเดียวต่อการเปิดหนึ่งหน้าเหมือนเดิม ไม่ได้เพิ่มขึ้นเลย
      */
-    work:       function () { return webTaskPageData_(params); },
-    lab:        function () { return webTaskPageData_(params); },
-    returned:   function () { return api_listReturnedWorkOrders(); },
-    wo:         function () { return api_getWoDetail(String(params.id || params.wo || '')); }
+    work:       async function () { return await webTaskPageData_(params); },
+    lab:        async function () { return await webTaskPageData_(params); },
+    returned:   async function () { return await api_listReturnedWorkOrders(); },
+    wo:         async function () { return await api_getWoDetail(String(params.id || params.wo || '')); }
   };
 
   if (!loaders[page] || !allowedPage_(boot.menu, page, String(params.dept || ''))) return boot;
@@ -472,7 +472,7 @@ function allowedPage_(menu, page, dept) {
  * @param {Object} params ค่าที่หน้าบ้านส่งมา (page, wo, base)
  * @return {string} HTML
  */
-function renderPage_(params) {
+async function renderPage_(params) {
   var requested = String(params.page || WEB_DEFAULT_PAGE);
   var page = Object.prototype.hasOwnProperty.call(WEB_PAGES, requested) ? requested : WEB_DEFAULT_PAGE;
 
@@ -513,7 +513,7 @@ function renderPage_(params) {
   } catch (err) {
     Logger.log('ประกอบหน้า ' + page + ' ไม่สำเร็จ: ' + ((err && err.message) ? err.message : String(err)));
     // ขอบที่สองของระบบ — ข้อผิดพลาดหนึ่งครั้งผ่านขอบเดียว จึงไม่ได้บรรทัดซ้ำ
-    logPermissionProblem_(err);
+    await logPermissionProblem_(err);
     return doGetErrorHtml_(userFacingMessage_(err));
   }
 }
@@ -547,7 +547,7 @@ function secretMatches_(candidate) {
  * @param {Object} e อีเวนต์จาก Apps Script (e.postData.contents คือ JSON ที่หน้าบ้านส่งมา)
  * @return {TextOutput} JSON ของ {ok, data} หรือ {ok, message}
  */
-function doPost(e) {
+async function doPost(e) {
   /*
    * ปิดไว้ทั้งทาง — ผู้ใช้เปิดโปรเจกต์นี้ตรง ๆ แล้ว ไม่มีใครต้องยิง POST เข้ามาอีก
    * ทางนี้เคยเป็นช่องทางเดียวที่รับคำขอจากภายนอก การปิดไว้จึงลดพื้นที่ที่ถูกยิงได้ลงทั้งทาง
@@ -582,14 +582,14 @@ function doPost(e) {
      */
     beginRequest_(payload.email);
     try {
-      return textOut_(renderPage_(payload.params || {}));
+      return textOut_(await renderPage_(payload.params || {}));
     } finally {
       endRequest_();
     }
   }
 
   if (mode === GATEWAY_MODE.DIAG) {
-    return jsonOut_(diagReport_());
+    return jsonOut_(await diagReport_());
   }
 
   if (mode !== GATEWAY_MODE.API) {
@@ -719,7 +719,7 @@ function whoamiEnabled_(value) {
  * ข้อความของหน้าตรวจสอบตัวตน
  * @return {TextOutput}
  */
-function whoamiOutput_() {
+async function whoamiOutput_() {
   var out = ContentService.createTextOutput();
   out.setMimeType(ContentService.MimeType.TEXT);
 
@@ -731,7 +731,7 @@ function whoamiOutput_() {
   }
   if (!enabled) return out.setContent('ปิดอยู่');
 
-  return out.setContent(whoamiReport_());
+  return out.setContent(await whoamiReport_());
 }
 
 /**
@@ -746,7 +746,7 @@ function whoamiOutput_() {
  *
  * @return {string}
  */
-function whoamiReport_() {
+async function whoamiReport_() {
   var active = whoamiValue_(function () { return Session.getActiveUser().getEmail(); });
   var effective = whoamiValue_(function () { return Session.getEffectiveUser().getEmail(); });
 
@@ -756,7 +756,7 @@ function whoamiReport_() {
   // จึงรับข้อความปฏิเสธมาแสดงแทน ไม่ปล่อยให้หน้าล้ม
   var roles = WHOAMI_BLANK;
   try {
-    var user = getCurrentUser_();
+    var user = await getCurrentUser_();
     roles = (user.roles && user.roles.length) ? user.roles.join(', ') : WHOAMI_BLANK;
   } catch (e) {
     roles = 'ระบุไม่ได้: ' + ((e && e.message) ? e.message : String(e));
@@ -849,7 +849,7 @@ function webWoListQuery_(params) {
  * @param {Object} params ค่าที่หน้าบ้านส่งมา
  * @return {Object} เปลือก {ok, data} แบบเดียวกับรายการ api_ อื่น
  */
-function webTaskPageData_(params) {
+async function webTaskPageData_(params) {
   /*
    * มุมมองที่เมนูย่อยชี้มา ถูกส่งต่อเข้าไปตรง ๆ แล้วให้ taskViewByKey_ เป็นคนตัดสิน
    * ว่ารู้จักหรือไม่ ที่นี่จึงไม่มีรายชื่อมุมมองเขียนซ้ำไว้ (กฎข้อ 1)
@@ -863,7 +863,7 @@ function webTaskPageData_(params) {
    * จาก URL มากรองแทน แล้วสองฝั่งก็พูดคนละมุมมองกันโดยไม่มีอะไรฟ้อง
    */
   var view = taskViewByKey_(params.view) ? String(params.view) : DEFAULT_TASK_VIEW;
-  return api_listMyTasks(false, view, Number(params.page) || 1);
+  return await api_listMyTasks(false, view, Number(params.page) || 1);
 }
 
 /**

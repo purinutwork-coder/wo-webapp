@@ -82,7 +82,7 @@ function reportPlaceholders_() {
  *                       topics: แถวหัวข้อไฟล์แนบตามลำดับในตาราง Attachment_Topic}
  * @return {Object} แผนที่ชื่อตัวแปร -> ข้อความ
  */
-function reportValues_(wo, files, meta) {
+async function reportValues_(wo, files, meta) {
   wo = wo || {};
   meta = meta || {};
 
@@ -119,13 +119,13 @@ function reportValues_(wo, files, meta) {
     'END_DATE':      formatForDisplay_(wo['End_Date']),
 
     'DEPARTMENT_TH': reportDepartment_(wo),
-    'APPROVED_BY':   displayNameOf_(wo['Approved_By']),
+    'APPROVED_BY':   await displayNameOf_(wo['Approved_By']),
     'APPROVED_DATE': formatForDisplay_(wo['Approved_Date']),
 
     // หัวข้อของเอกสารแนบ ไม่ใช่ชื่อไฟล์ · รายชื่อหัวข้อมาจาก meta เพราะฟังก์ชันนี้ห้ามแตะชีต
     'FILE_LIST':     reportFileList_(files, meta.topics),
     'REMARK':        wo['Remark'],
-    'CREATED_BY':    displayNameOf_(wo['Created_By']),
+    'CREATED_BY':    await displayNameOf_(wo['Created_By']),
     'CREATED_DATE':  formatForDisplay_(wo['Created_Date'])
   };
 
@@ -321,28 +321,28 @@ function reportArchiveList_(wo) {
  * @return {Object} {woId, version, url, fileId}
  * @throws {Error} เมื่อไม่พบใบงาน ยังไม่ได้ตั้งแม่แบบ หรือออกเอกสารไม่สำเร็จ
  */
-function generateWorkOrderReport(woId, user) {
+async function generateWorkOrderReport(woId, user) {
   var templateId = getProp_(PROP_KEY.WO_REPORT_TEMPLATE, false);
   if (!templateId) throw new Error(REPORT_TEMPLATE_NOT_SET_MESSAGE);
 
-  var wo = getWorkOrder(woId);
+  var wo = await getWorkOrder(woId);
   if (!wo) throw new Error('ไม่พบใบงาน ' + woId);
 
   var issuedAt = new Date();
-  var folderId = ensureWoFolder_(woId, '');       // รากของใบงานนี้ สร้างให้ถ้ายังไม่มี
+  var folderId = await ensureWoFolder_(woId, '');       // รากของใบงานนี้ สร้างให้ถ้ายังไม่มี
 
   /* ---------- 1) เก็บฉบับเดิมก่อน ห้ามทับทิ้ง ---------- */
   var archived = reportArchiveCount_(wo);
   var current = driveFileNamed_(folderId, REPORT_FILE_NAME);
   if (current) {
-    var archiveId = ensureWoFolder_(woId, REPORT_ARCHIVE_FOLDER);
+    var archiveId = await ensureWoFolder_(woId, REPORT_ARCHIVE_FOLDER);
     driveMoveFile_(current.id, archiveId, reportArchiveName_(archived + 1, issuedAt));
     archived++;
   }
   var version = archived + 1;
 
   /* ---------- 2) คัดลอกแม่แบบแล้วแทนค่า ---------- */
-  var values = reportValuesFor_(woId, wo, { version: version, issuedAt: issuedAt });
+  var values = await reportValuesFor_(woId, wo, { version: version, issuedAt: issuedAt });
 
   var tempId = '';
   try {
@@ -361,8 +361,8 @@ function generateWorkOrderReport(woId, user) {
   }
 
   /* ---------- 3) ให้ลิงก์ในแถวใบงานชี้ฉบับปัจจุบันเสมอ ---------- */
-  updateWorkOrder(woId, { 'Report_URL': pdf.url });
-  writeAudit(ENTITY.FILE, woId, ACTION.REPORT, 'Report_URL',
+  await updateWorkOrder(woId, { 'Report_URL': pdf.url });
+  await writeAudit(ENTITY.FILE, woId, ACTION.REPORT, 'Report_URL',
     wo['Report_URL'] || '', pdf.url, 'ออกใบสั่งงานฉบับที่ ' + version, { woId: woId });
 
   return { woId: woId, version: version, url: pdf.url, fileId: pdf.id };
@@ -380,8 +380,8 @@ function generateWorkOrderReport(woId, user) {
  * @param {Object} meta {version, issuedAt}
  * @return {Object} แผนที่ชื่อตัวแปร -> ข้อความ
  */
-function reportValuesFor_(woId, wo, meta) {
-  return reportValues_(wo, listWoFileViews(woId), {
+async function reportValuesFor_(woId, wo, meta) {
+  return await reportValues_(wo, await listWoFileViews(woId), {
     version:  meta.version,
     issuedAt: meta.issuedAt,
     /*
@@ -391,7 +391,7 @@ function reportValuesFor_(woId, wo, meta) {
      *
      * ตารางนี้อยู่ในชุดที่แคชไว้ จึงไม่ใช่คำขอเพิ่มในทางปฏิบัติ (SPEC 22.5)
      */
-    topics:   listAttachmentTopics(false)
+    topics:   await listAttachmentTopics(false)
   });
 }
 
@@ -407,7 +407,7 @@ function reportValuesFor_(woId, wo, meta) {
  * @param {string} when จังหวะที่ออก (ค่าจาก ACTION) ใช้บอกใน Audit ว่าพลาดตอนไหน
  * @return {Object|null} ผลของการออกเอกสาร หรือ null เมื่อไม่สำเร็จ
  */
-function tryGenerateWorkOrderReport_(woId, user, when) {
+async function tryGenerateWorkOrderReport_(woId, user, when) {
   /*
    * ชุดทดสอบปิดการออกเอกสารไว้ (ดู beginTestRun_ ใน 99_Test.gs)
    *
@@ -420,12 +420,12 @@ function tryGenerateWorkOrderReport_(woId, user, when) {
   if (REPORT_DISABLED_) return null;
 
   try {
-    return generateWorkOrderReport(woId, user);
+    return await generateWorkOrderReport(woId, user);
   } catch (err) {
     var message = (err && err.message) ? err.message : String(err);
     Logger.log('ออกใบสั่งงาน ' + woId + ' ไม่สำเร็จ (' + when + '): ' + message);
     try {
-      writeAudit(ENTITY.FILE, woId, ACTION.REPORT_FAILED, 'Report_URL', '', '',
+      await writeAudit(ENTITY.FILE, woId, ACTION.REPORT_FAILED, 'Report_URL', '', '',
         'ออกเอกสารตอน ' + when + ' ไม่สำเร็จ: ' + message, { woId: woId });
     } catch (ignored) {
       // เขียน Audit ไม่ได้ด้วย ก็ยังห้ามทำให้รายการหลักล้ม — เหลือร่องรอยใน Logger แล้ว
@@ -470,7 +470,7 @@ var REPORT_GUARD_TTL_SEC = 120;
  * @param {string} when จังหวะที่เรียก ใช้บอกใน Audit เมื่อออกไม่สำเร็จ
  * @return {Object|null} ผลของการออกเอกสาร · null เมื่อมีอยู่แล้วหรือออกไม่สำเร็จ
  */
-function ensureWorkOrderReport_(woId, user, when) {
+async function ensureWorkOrderReport_(woId, user, when) {
   var id = String(woId || '');
   if (!id) return null;
 
@@ -479,7 +479,7 @@ function ensureWorkOrderReport_(woId, user, when) {
    * อาจเพิ่งออกเอกสารไปหมาด ๆ แล้วแคชยังถือแถวก่อนหน้านั้นอยู่
    */
   clearRowCache_(SHEET.WORK_ORDER);
-  var wo = getWorkOrder(id);
+  var wo = await getWorkOrder(id);
   if (!wo) return null;
   if (String(wo['Report_URL'] || '')) return null;
 
@@ -487,5 +487,5 @@ function ensureWorkOrderReport_(woId, user, when) {
   if (cacheGet_(guard)) return null;
   cachePut_(guard, '1', REPORT_GUARD_TTL_SEC);
 
-  return tryGenerateWorkOrderReport_(id, user, when);
+  return await tryGenerateWorkOrderReport_(id, user, when);
 }

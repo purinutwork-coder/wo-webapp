@@ -33,11 +33,11 @@
  * @return {Object} แผนการเปลี่ยนสถานะจาก changeStatus()
  * @throws {Error} เมื่อไม่พบงาน สิทธิ์ไม่พอ ใบงานถูกตีกลับ หรือยังไม่ชำระเงิน
  */
-function acceptTask(taskId, user, expectedUpdatedDate) {
-  var task = getTask(taskId);
+async function acceptTask(taskId, user, expectedUpdatedDate) {
+  var task = await getTask(taskId);
   if (!task) throw new Error('ไม่พบงานของแผนก ' + taskId);
 
-  var plan = changeStatus(ENTITY.TASK, taskId, ACTION.TASK_ACCEPT, user, {
+  var plan = await changeStatus(ENTITY.TASK, taskId, ACTION.TASK_ACCEPT, user, {
     expectedUpdatedDate: expectedUpdatedDate,
     fields: {
       'Accepted_By':   actingEmail_(user),
@@ -45,7 +45,7 @@ function acceptTask(taskId, user, expectedUpdatedDate) {
     }
   });
   // แจ้งห้อง Admin ว่าแผนกรับงานแล้ว (SPEC 15.3)
-  notifyEvent_(NOTIFY_EVENT.TASK_ACCEPT, getWorkOrder(task['WO_ID']),
+  await notifyEvent_(NOTIFY_EVENT.TASK_ACCEPT, await getWorkOrder(task['WO_ID']),
     { department: task['Department'], taskId: taskId });
   return plan;
 }
@@ -71,14 +71,14 @@ var STEP_EDITABLE_FIELDS = Object.freeze(['Step_Name', 'Status', 'Due_Date']);
  * @return {Object} {plan, step} — step คือแถวหลังแก้ไข
  * @throws {Error} เมื่อไม่พบ Step ไม่พบงานต้นทาง สิทธิ์ไม่พอ หรือใบงานถูกตีกลับอยู่
  */
-function updateTaskStep(stepId, data, user) {
+async function updateTaskStep(stepId, data, user) {
   data = data || {};
 
-  var step = getStep(stepId);
+  var step = await getStep(stepId);
   if (!step) throw new Error('ไม่พบขั้นตอนงาน ' + stepId);
 
   var taskId = step['Task_ID'];
-  var task = getTask(taskId);
+  var task = await getTask(taskId);
   if (!task) throw new Error('ไม่พบงานของแผนกที่เป็นเจ้าของขั้นตอน ' + stepId);
 
   var patch = pickStepFields_(data);
@@ -94,7 +94,7 @@ function updateTaskStep(stepId, data, user) {
    * ซึ่งต้องทำได้ตลอด ไม่งั้นคนที่กดพลาดจะติดอยู่กับข้อมูลที่ผิดโดยแก้เองไม่ได้
    */
   if (patch['Status'] === STEP_STATUS.COMPLETED) {
-    var blocking = earlierUnfinishedStep_(listStepsByTask(taskId), step);
+    var blocking = earlierUnfinishedStep_(await listStepsByTask(taskId), step);
     if (blocking) {
       throw new Error('ยังปิด' + stepLabel_(step) + 'ไม่ได้ เพราะ' + stepLabel_(blocking) +
         'ยังไม่เสร็จ — ระบบให้ทำทีละขั้นตามลำดับ ทำขั้นก่อนหน้าให้เสร็จแล้วจึงกลับมาขั้นนี้');
@@ -112,21 +112,21 @@ function updateTaskStep(stepId, data, user) {
     patch['Completed_Date'] = null;
   }
 
-  var plan = changeStatus(ENTITY.TASK, taskId, ACTION.TASK_UPDATE, user, {
+  var plan = await changeStatus(ENTITY.TASK, taskId, ACTION.TASK_UPDATE, user, {
     remark: 'อัปเดต' + stepLabel_(step)
   });
 
-  var saved = updateStep(stepId, patch);
+  var saved = await updateStep(stepId, patch);
 
   // changeStatus() บันทึกไว้แล้วว่ามีการอัปเดตงานนี้ แต่ไม่รู้ว่าขั้นตอนไหน
   // จึงบันทึกอีกแถวที่ระบุขั้นตอนและสถานะก่อน–หลัง ให้ตามรอยได้ว่าใครปิดขั้นไหนเมื่อไร
-  writeAudit(ENTITY.TASK, taskId, ACTION.TASK_UPDATE, stepId,
+  await writeAudit(ENTITY.TASK, taskId, ACTION.TASK_UPDATE, stepId,
     step['Status'] || '', saved['Status'] || '',
     stepLabel_(step), { woId: task['WO_ID'], taskId: taskId });
 
   // แจ้งห้อง Admin ว่างานคืบหน้าถึงขั้นไหนแล้ว (SPEC 15.3 แถวอัปเดต Step / งวดงาน)
-  var progress = stepProgressOf_(taskId);
-  notifyEvent_(NOTIFY_EVENT.TASK_UPDATE, getWorkOrder(task['WO_ID']), {
+  var progress = await stepProgressOf_(taskId);
+  await notifyEvent_(NOTIFY_EVENT.TASK_UPDATE, await getWorkOrder(task['WO_ID']), {
     department: task['Department'],
     taskId: taskId,
     stepName: stepLabel_(step),
@@ -187,7 +187,7 @@ function stepLabel_(step) {
  * @param {string} department ค่าจาก DEPT
  * @return {Object} {pending, active, done} ตามคีย์ของ TASK_VIEWS
  */
-function taskCountsForDepartment_(department) {
+async function taskCountsForDepartment_(department) {
   var counts = emptyTaskCounts_();
   if (!department) return counts;
 
@@ -201,7 +201,7 @@ function taskCountsForDepartment_(department) {
    * แผนกที่ไม่มีงานเลยจะไม่มีอยู่ในก้อนที่ได้มา ซึ่งต้องแปลว่าศูนย์ ไม่ใช่ว่างเปล่า
    * จึงตั้งต้นด้วยศูนย์ครบทุกมุมมองไว้ก่อนเสมอ (กฎข้อ 32)
    */
-  var all = countAllTasksByView();
+  var all = await countAllTasksByView();
   var mine = all[department];
   if (!mine) return counts;
 
@@ -290,15 +290,15 @@ function earlierUnfinishedStep_(steps, step) {
  * @return {Object} แถวงวดที่สร้าง
  * @throws {Error} เมื่อไม่ใช่งานของแผนก Project สิทธิ์ไม่พอ หรือใบงานถูกตีกลับอยู่
  */
-function addTaskPeriod(taskId, name, user) {
-  var task = getTask(taskId);
+async function addTaskPeriod(taskId, name, user) {
+  var task = await getTask(taskId);
   if (!task) throw new Error('ไม่พบงานของแผนก ' + taskId);
 
   if (String(task['Department']) !== DEPT.PROJECT) {
     throw new Error('งวดงานมีเฉพาะงานของแผนก Project — งานของแผนกอื่นใช้ขั้นตอนที่ตั้งไว้แล้ว');
   }
 
-  var steps = listStepsByTask(taskId);
+  var steps = await listStepsByTask(taskId);
   var highest = 0;
   for (var i = 0; i < steps.length; i++) {
     var no = Number(steps[i]['Step_No'] || 0);
@@ -307,13 +307,13 @@ function addTaskPeriod(taskId, name, user) {
   var stepNo = highest + 1;
   var stepName = String(name || '').trim() || ('งวดที่ ' + stepNo);
 
-  changeStatus(ENTITY.TASK, taskId, ACTION.TASK_UPDATE, user, {
+  await changeStatus(ENTITY.TASK, taskId, ACTION.TASK_UPDATE, user, {
     remark: 'เพิ่มงวดงาน ' + stepName
   });
 
-  var row = insertStep(buildStepRow_(taskId, stepNo, stepName, STEP_TYPE.PERIOD));
+  var row = await insertStep(buildStepRow_(taskId, stepNo, stepName, STEP_TYPE.PERIOD));
 
-  writeAudit(ENTITY.TASK, taskId, ACTION.PERIOD_ADD, row['Step_ID'], '', stepName,
+  await writeAudit(ENTITY.TASK, taskId, ACTION.PERIOD_ADD, row['Step_ID'], '', stepName,
     'เพิ่มงวดงาน', { woId: task['WO_ID'], taskId: taskId });
 
   return row;
@@ -331,8 +331,8 @@ function addTaskPeriod(taskId, name, user) {
  * @return {Object} {taskId, stepName}
  * @throws {Error} เมื่อลบไม่ได้ตามเงื่อนไข
  */
-function removeTaskPeriod(stepId, user) {
-  var step = getStep(stepId);
+async function removeTaskPeriod(stepId, user) {
+  var step = await getStep(stepId);
   if (!step) throw new Error('ไม่พบงวดงานที่ต้องการลบ อาจถูกลบไปแล้ว');
 
   if (String(step['Type']) !== STEP_TYPE.PERIOD) {
@@ -342,7 +342,7 @@ function removeTaskPeriod(stepId, user) {
     throw new Error('งวดนี้ทำเสร็จไปแล้ว ลบไม่ได้ — ถ้าลงผิดงวด ให้เปิดงวดกลับเป็นยังไม่เสร็จก่อน');
   }
 
-  var files = listFilesByStep(stepId);
+  var files = await listFilesByStep(stepId);
   var active = 0;
   for (var i = 0; i < files.length; i++) {
     if (cellToBoolean_(files[i]['Is_Active'])) active++;
@@ -353,17 +353,17 @@ function removeTaskPeriod(stepId, user) {
   }
 
   var taskId = String(step['Task_ID']);
-  var task = getTask(taskId);
+  var task = await getTask(taskId);
   if (!task) throw new Error('ไม่พบงานของแผนกที่เป็นเจ้าของงวดนี้');
 
   var stepName = stepLabel_(step);
-  changeStatus(ENTITY.TASK, taskId, ACTION.TASK_UPDATE, user, {
+  await changeStatus(ENTITY.TASK, taskId, ACTION.TASK_UPDATE, user, {
     remark: 'ลบ' + stepName
   });
 
-  deleteStep(stepId);
+  await deleteStep(stepId);
 
-  writeAudit(ENTITY.TASK, taskId, ACTION.PERIOD_REMOVE, stepId, step['Step_Name'] || '', '',
+  await writeAudit(ENTITY.TASK, taskId, ACTION.PERIOD_REMOVE, stepId, step['Step_Name'] || '', '',
     'ลบงวดงาน', { woId: task['WO_ID'], taskId: taskId });
 
   return { taskId: taskId, stepName: stepName };
@@ -390,11 +390,11 @@ function removeTaskPeriod(stepId, user) {
  * @return {Object} แผนการเปลี่ยนสถานะ พร้อม plan.recalc ที่บอกผลการคำนวณสถานะ WO
  * @throws {Error} เมื่อไม่พบงาน สิทธิ์ไม่พอ ใบงานถูกตีกลับ หรือ Step ยังไม่ครบ
  */
-function completeTask(taskId, user, expectedUpdatedDate) {
-  var task = getTask(taskId);
+async function completeTask(taskId, user, expectedUpdatedDate) {
+  var task = await getTask(taskId);
   if (!task) throw new Error('ไม่พบงานของแผนก ' + taskId);
 
-  var progress = stepProgressOf_(taskId);
+  var progress = await stepProgressOf_(taskId);
 
   /*
    * ด่าน Report ที่บังคับ (SPEC 20.3 ข้อ 2) — ค้างมาตั้งแต่เฟส 4 เพราะยังไม่มีระบบแนบ
@@ -402,9 +402,9 @@ function completeTask(taskId, user, expectedUpdatedDate) {
    * ตรวจที่นี่ ไม่ใช่ที่หน้าเว็บ · หน้าเว็บซ่อนปุ่มให้ก็จริง แต่ใครก็ยิง api_completeTask
    * ตรง ๆ ได้ และงาน Project ที่ไม่มีงวดเลยจะไม่มีด่านอื่นเหลืออยู่เลยนอกจากด่านนี้
    */
-  var missing = missingRequiredReports_(taskId);
+  var missing = await missingRequiredReports_(taskId);
 
-  var plan = changeStatus(ENTITY.TASK, taskId, ACTION.TASK_COMPLETE, user, {
+  var plan = await changeStatus(ENTITY.TASK, taskId, ACTION.TASK_COMPLETE, user, {
     allStepsDone: progress.allDone,
     requiredReportsOk: missing.length === 0,
     missingReportsMessage: missing.length
@@ -421,10 +421,10 @@ function completeTask(taskId, user, expectedUpdatedDate) {
    *   ใบงานเสร็จสิ้น  เกิดเฉพาะเมื่อแผนกสุดท้ายปิดแล้วระบบคำนวณสถานะรวมใหม่เป็น COMPLETED
    * อ่านสถานะรวมใหม่หลัง changeStatus เพราะ recalcWoStatus ทำงานไปแล้วในนั้น
    */
-  var woAfter = getWorkOrder(task['WO_ID']);
-  notifyEvent_(NOTIFY_EVENT.TASK_COMPLETE, woAfter,
+  var woAfter = await getWorkOrder(task['WO_ID']);
+  await notifyEvent_(NOTIFY_EVENT.TASK_COMPLETE, woAfter,
     { department: task['Department'], taskId: taskId });
-  notifyWoClosedIfNeeded_(woAfter);
+  await notifyWoClosedIfNeeded_(woAfter);
   return plan;
 }
 
@@ -437,8 +437,8 @@ function completeTask(taskId, user, expectedUpdatedDate) {
  * @param {string} taskId เลขที่งานของแผนก
  * @return {Object} {total, done, allDone, pending: ชื่อขั้นที่ยังไม่เสร็จ}
  */
-function stepProgressOf_(taskId) {
-  return stepProgressFrom_(listStepsByTask(taskId));
+async function stepProgressOf_(taskId) {
+  return stepProgressFrom_(await listStepsByTask(taskId));
 }
 
 /**
@@ -488,13 +488,13 @@ function stepProgressFrom_(steps) {
  * @return {Object} {plan, remembered, returnCount}
  * @throws {Error} เมื่อไม่พบงาน ไม่กรอกเหตุผล หรือสิทธิ์ไม่พอ
  */
-function returnTask(taskId, reason, user) {
-  var task = getTask(taskId);
+async function returnTask(taskId, reason, user) {
+  var task = await getTask(taskId);
   if (!task) throw new Error('ไม่พบงานของแผนก ' + taskId);
   if (isEmptyValue_(reason)) throw new Error('ต้องระบุเหตุผลการตีกลับ');
 
   var woId = task['WO_ID'];
-  var wo = getWorkOrder(woId);
+  var wo = await getWorkOrder(woId);
   if (!wo) throw new Error('ไม่พบใบงานต้นทางของงานแผนก ' + taskId);
 
   /*
@@ -514,18 +514,18 @@ function returnTask(taskId, reason, user) {
   if (!check.allowed) throw new Error(check.message);
 
   // ข้อ 2: จำสถานะเดิมของ Task ทุกตัวไว้ก่อน แล้วค่อยเปลี่ยนอะไรก็ได้
-  var remembered = rememberTaskStatuses_(woId);
+  var remembered = await rememberTaskStatuses_(woId);
 
   // ข้อ 3–4: WO -> RETURNED ผ่าน woEffect ของ Transition · สถานะ Task คงเดิมเพราะ to เป็น KEEP_STATUS
-  var plan = changeStatus(ENTITY.TASK, taskId, ACTION.TASK_RETURN, user, {
+  var plan = await changeStatus(ENTITY.TASK, taskId, ACTION.TASK_RETURN, user, {
     reason: reason,
     fields: { 'Return_Reason': reason }
   });
 
-  var returnCount = bumpReturnCount_(woId, reason);
+  var returnCount = await bumpReturnCount_(woId, reason);
 
   // แผนกตีกลับ = ใบงานกลับไปหาผู้เปิดใบงานเหมือนกัน จึงเข้าห้อง Admin พร้อมเหตุผล
-  notifyEvent_(NOTIFY_EVENT.RETURN, getWorkOrder(woId),
+  await notifyEvent_(NOTIFY_EVENT.RETURN, await getWorkOrder(woId),
     { reason: reason, department: task['Department'] });
   return { plan: plan, remembered: remembered, returnCount: returnCount };
 }
@@ -541,13 +541,13 @@ function returnTask(taskId, reason, user) {
  * @param {string} reason เหตุผลการตีกลับ
  * @return {number} จำนวนครั้งที่ถูกตีกลับหลังเพิ่มแล้ว
  */
-function bumpReturnCount_(woId, reason) {
-  var wo = getWorkOrder(woId);
+async function bumpReturnCount_(woId, reason) {
+  var wo = await getWorkOrder(woId);
   var before = Number(wo['Return_Count'] || 0);
   var after = before + 1;
 
-  updateWorkOrder(woId, { 'Return_Reason': reason, 'Return_Count': after });
-  writeAudit(ENTITY.WO, woId, ACTION.TASK_RETURN, 'Return_Count', before, after, reason,
+  await updateWorkOrder(woId, { 'Return_Reason': reason, 'Return_Count': after });
+  await writeAudit(ENTITY.WO, woId, ACTION.TASK_RETURN, 'Return_Count', before, after, reason,
     { woId: woId });
 
   return after;
@@ -567,19 +567,19 @@ function bumpReturnCount_(woId, reason) {
  * @return {Object} แผนการเปลี่ยนสถานะ พร้อม plan.recalc
  * @throws {Error} เมื่อไม่พบงาน ไม่กรอกเหตุผล สิทธิ์ไม่พอ หรือใบงานถูกตีกลับอยู่
  */
-function cancelTask(taskId, reason, user, expectedUpdatedDate) {
-  var task = getTask(taskId);
+async function cancelTask(taskId, reason, user, expectedUpdatedDate) {
+  var task = await getTask(taskId);
   if (!task) throw new Error('ไม่พบงานของแผนก ' + taskId);
   if (isEmptyValue_(reason)) throw new Error('ต้องระบุเหตุผลการยกเลิกงาน');
 
-  var plan = changeStatus(ENTITY.TASK, taskId, ACTION.TASK_CANCEL, user, {
+  var plan = await changeStatus(ENTITY.TASK, taskId, ACTION.TASK_CANCEL, user, {
     reason: reason,
     expectedUpdatedDate: expectedUpdatedDate,
     fields: { 'Cancel_Reason': reason }
   });
   // แจ้งห้อง Admin และผู้อนุมัติของสายนั้นทุกครั้ง พร้อมเหตุผล (SPEC 8 · 15.3)
-  var afterCancel = getWorkOrder(task['WO_ID']);
-  notifyEvent_(NOTIFY_EVENT.TASK_CANCEL, afterCancel,
+  var afterCancel = await getWorkOrder(task['WO_ID']);
+  await notifyEvent_(NOTIFY_EVENT.TASK_CANCEL, afterCancel,
     { reason: reason, department: task['Department'], taskId: taskId });
 
   /*
@@ -587,7 +587,7 @@ function cancelTask(taskId, reason, user, expectedUpdatedDate) {
    * ใบจะกลายเป็น CANCELLED เมื่อทุกแผนกยกเลิกครบ หรือ COMPLETED เมื่อแผนกอื่นปิดงานไปแล้ว
    * ทั้งสองทางต้องแจ้งระดับใบงาน ซึ่งกติกาจำนวน Task จะเป็นตัวตัดสินอีกชั้นว่าซ้ำไหม
    */
-  notifyWoClosedIfNeeded_(afterCancel, reason);
+  await notifyWoClosedIfNeeded_(afterCancel, reason);
   return plan;
 }
 
@@ -622,8 +622,8 @@ var TASK_VISIT_FIELDS = Object.freeze(['Visit_Start', 'Visit_End']);
  * @return {Object} {plan, task} — task คือแถวหลังแก้ไข
  * @throws {Error} เมื่อไม่พบงาน สิทธิ์ไม่พอ ใบงานถูกตีกลับ หรือรูปแบบเวลาไม่ถูกต้อง
  */
-function setTaskVisit(taskId, visitStart, visitEnd, user) {
-  var task = getTask(taskId);
+async function setTaskVisit(taskId, visitStart, visitEnd, user) {
+  var task = await getTask(taskId);
   if (!task) throw new Error('ไม่พบงานของแผนก ' + taskId);
 
   var start = normalizeVisitText_(visitStart, fieldLabel('Visit_Start'));
@@ -637,12 +637,12 @@ function setTaskVisit(taskId, visitStart, visitEnd, user) {
     throw new Error('วันเวลาที่ออกงานต้องไม่มาก่อนวันเวลาที่เข้างาน');
   }
 
-  var plan = changeStatus(ENTITY.TASK, taskId, ACTION.TASK_UPDATE, user, {
+  var plan = await changeStatus(ENTITY.TASK, taskId, ACTION.TASK_UPDATE, user, {
     remark: 'กำหนดวันเวลาเข้างานของแผนก'
   });
 
   var patch = { 'Visit_Start': start, 'Visit_End': end };
-  var saved = updateTask(taskId, patch);
+  var saved = await updateTask(taskId, patch);
 
   /*
    * บันทึกระดับฟิลด์ ทีละช่องที่เปลี่ยนจริง (SPEC 13)
@@ -658,7 +658,7 @@ function setTaskVisit(taskId, visitStart, visitEnd, user) {
     var after = String(saved[field] || '');
     if (before === after) continue;
 
-    writeAudit(ENTITY.TASK, taskId, ACTION.TASK_UPDATE, field, before, after,
+    await writeAudit(ENTITY.TASK, taskId, ACTION.TASK_UPDATE, field, before, after,
       fieldLabel(field), { woId: task['WO_ID'], taskId: taskId });
   }
 
@@ -708,7 +708,7 @@ function normalizeVisitText_(value, label) {
  * @param {Object[]} tasks แถว Department_Task ของหน้านั้น
  * @return {Object} {wos, tasksByWo, stepsByTask}
  */
-function taskBundleOf_(tasks) {
+async function taskBundleOf_(tasks) {
   var empty = { wos: {}, tasksByWo: {}, stepsByTask: {} };
   if (!tasks || !tasks.length) return empty;
 
@@ -716,7 +716,7 @@ function taskBundleOf_(tasks) {
   for (var i = 0; i < tasks.length; i++) woIds.push(String(tasks[i]['WO_ID'] || ''));
 
   var wos = {};
-  var woRows = findWorkOrdersIn(woIds);
+  var woRows = await findWorkOrdersIn(woIds);
   for (var w = 0; w < woRows.length; w++) wos[String(woRows[w]['WO_ID'])] = woRows[w];
 
   /*
@@ -724,14 +724,14 @@ function taskBundleOf_(tasks) {
    * บนใบเดียวกัน จึงไม่ต้องยิงถามพี่น้องแยกอีกรอบ · และ `Task_ID` ที่ต้องใช้ถาม
    * ขั้นตอนก็มาจากชุดนี้ทั้งหมด ไม่ต้องประกอบเองจากสองที่ให้มีโอกาสตกหล่น
    */
-  var sibling = listTasksByWos(woIds);
+  var sibling = await listTasksByWos(woIds);
   var taskIds = [];
   for (var s = 0; s < sibling.length; s++) taskIds.push(String(sibling[s]['Task_ID'] || ''));
 
   return {
     wos:         wos,
     tasksByWo:   groupRowsBy_(sibling, 'WO_ID'),
-    stepsByTask: groupRowsBy_(listStepsByTasks(taskIds), 'Task_ID')
+    stepsByTask: groupRowsBy_(await listStepsByTasks(taskIds), 'Task_ID')
   };
 }
 
@@ -748,7 +748,7 @@ function taskBundleOf_(tasks) {
  * @param {Object} [options] {view, page, includeClosed}
  * @return {Object} {rows, total, page, pageSize, view, today}
  */
-function listTaskPage_(department, options) {
+async function listTaskPage_(department, options) {
   options = options || {};
   var today = thaiDayOf_(new Date());
   var view = taskViewByKey_(options.view);
@@ -774,7 +774,7 @@ function listTaskPage_(department, options) {
   }
 
   var page = Math.max(1, Number(options.page) || 1);
-  var got  = findTaskPage(department, statuses, dayText, order,
+  var got  = await findTaskPage(department, statuses, dayText, order,
     TASK_PAGE_SIZE, (page - 1) * TASK_PAGE_SIZE);
 
   /*
@@ -791,9 +791,9 @@ function listTaskPage_(department, options) {
     rows = kept;
   }
 
-  var bundle = taskBundleOf_(rows);
+  var bundle = await taskBundleOf_(rows);
   var out = [];
-  for (var i = 0; i < rows.length; i++) out.push(taskViewOf_(rows[i], bundle));
+  for (var i = 0; i < rows.length; i++) out.push(await taskViewOf_(rows[i], bundle));
 
   return {
     rows:     out,
@@ -816,9 +816,9 @@ function listTaskPage_(department, options) {
  * @param {number} [page] หน้าที่ต้องการ เริ่มที่ 1
  * @return {Object[]} ข้อมูลพร้อมแสดงผลจาก taskViewOf_()
  */
-function listTodayTasks(department, page) {
+async function listTodayTasks(department, page) {
   if (!department) return [];
-  return listTaskPage_(department, { view: TASK_TODAY_VIEW, page: page }).rows;
+  return await listTaskPage_(department, { view: TASK_TODAY_VIEW, page: page }).rows;
 }
 
 /* ---------------------------------------------------------------------------
@@ -842,8 +842,8 @@ function listTodayTasks(department, page) {
  * @param {Object} bundle ของทั้งหน้าจาก taskBundleOf_()
  * @return {Object} ข้อมูลพร้อมแสดงผล
  */
-function taskViewOf_(task, bundle) {
-  bundle = bundle || taskBundleOf_([task]);
+async function taskViewOf_(task, bundle) {
+  bundle = bundle || await taskBundleOf_([task]);
 
   var woId = task['WO_ID'];
   var wo = bundle.wos[String(woId)] || {};
@@ -861,7 +861,7 @@ function taskViewOf_(task, bundle) {
       type:     steps[i]['Type'],
       status:   steps[i]['Status'],
       done:     String(steps[i]['Status'] || '') === STEP_STATUS.COMPLETED,
-      completedBy:   displayNameOf_(steps[i]['Completed_By']),
+      completedBy:   await displayNameOf_(steps[i]['Completed_By']),
       completedDate: formatForDisplay_(steps[i]['Completed_Date'])
     });
   }
@@ -973,8 +973,8 @@ function taskViewOf_(task, bundle) {
       paymentDate:   formatForDisplay_(wo['Payment_Date'])
     },
 
-    acceptedBy:   displayNameOf_(task['Accepted_By']),
-    completedBy:  displayNameOf_(task['Completed_By']),
+    acceptedBy:   await displayNameOf_(task['Accepted_By']),
+    completedBy:  await displayNameOf_(task['Completed_By']),
     cancelReason: task['Cancel_Reason'] || '',
     returnReason: task['Return_Reason'] || ''
   };
@@ -991,9 +991,9 @@ function taskViewOf_(task, bundle) {
  * @param {Object} [options] {includeClosed: รวมงานที่ปิดหรือยกเลิกแล้วด้วย}
  * @return {Object[]} ข้อมูลพร้อมแสดงผลจาก taskViewOf_()
  */
-function listTasksForDepartment(department, options) {
+async function listTasksForDepartment(department, options) {
   options = options || {};
-  return listTaskPage_(department, {
+  return await listTaskPage_(department, {
     view:          options.view,
     page:          options.page,
     includeClosed: !!options.includeClosed

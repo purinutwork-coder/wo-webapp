@@ -40,11 +40,11 @@ function reportTypeOfDepartment_(department) {
  * @param {string} department ค่าจาก DEPT
  * @return {Object[]} [{code, name, formNo, required}]
  */
-function reportOptionsFor(department) {
+async function reportOptionsFor(department) {
   var wanted = reportTypeOfDepartment_(department);
   if (!wanted) return [];
 
-  var rows = listReportMaster(true);   // true = เฉพาะแถวที่ Active
+  var rows = await listReportMaster(true);   // true = เฉพาะแถวที่ Active
   var out = [];
 
   for (var i = 0; i < rows.length; i++) {
@@ -85,11 +85,11 @@ function reportOptionsFor(department) {
  * @param {string} taskId เลขที่งานของแผนก
  * @return {Object[]} [{code, name, formNo}] ว่าง = ครบแล้ว
  */
-function missingRequiredReports_(taskId) {
-  var task = getTask(taskId);
+async function missingRequiredReports_(taskId) {
+  var task = await getTask(taskId);
   if (!task) return [];
 
-  var options = reportOptionsFor(task['Department']);
+  var options = await reportOptionsFor(task['Department']);
   var required = [];
   for (var i = 0; i < options.length; i++) {
     if (options[i].required) required.push(options[i]);
@@ -97,7 +97,7 @@ function missingRequiredReports_(taskId) {
   if (!required.length) return [];
 
   var attached = {};
-  var files = listFilesByTask(taskId);
+  var files = await listFilesByTask(taskId);
   for (var f = 0; f < files.length; f++) {
     var code = String(files[f]['Report_Code'] || '');
     if (code) attached[code] = true;
@@ -154,13 +154,13 @@ function departmentLabel_(department) {
  * @return {Object} {taskId, woId, department, canEdit, canAddPeriod, scope, options,
  *                   photoTopicId, slots, missing, missingMessage}
  */
-function taskReportView(taskId) {
-  var task = getTask(taskId);
+async function taskReportView(taskId) {
+  var task = await getTask(taskId);
   if (!task) throw new Error('ไม่พบงานของแผนก ' + taskId);
 
   var department = String(task['Department'] || '');
-  var files = listFilesByTask(taskId);
-  var missing = missingRequiredReports_(taskId);
+  var files = await listFilesByTask(taskId);
+  var missing = await missingRequiredReports_(taskId);
 
   /* ---------- ไฟล์ที่แนบแล้ว แยกตามขั้นตอน และแยกเอกสารออกจากรูปหน้างาน ---------- */
   var byStep = {};
@@ -183,7 +183,7 @@ function taskReportView(taskId) {
    * ตัดสินที่นี่ที่เดียวแล้วส่งเป็นข้อความไปให้หน้าเว็บแสดง ไม่ให้หน้าเว็บเทียบสถานะเอง
    * เพราะการซ่อนปุ่มไม่ใช่การป้องกัน (กฎข้อ 7) ด่านจริงอยู่ที่ changeStatus ทุกทาง
    */
-  var wo = getWorkOrder(task['WO_ID']) || {};
+  var wo = await getWorkOrder(task['WO_ID']) || {};
   var taskStatus = String(task[STATUS_FIELD[ENTITY.TASK]] || '');
   var woReturned = String(wo[STATUS_FIELD[ENTITY.WO]] || '') === WO_STATUS.RETURNED;
   var canEdit = (taskStatus === TASK_STATUS.IN_PROGRESS) && !woReturned;
@@ -198,7 +198,7 @@ function taskReportView(taskId) {
 
   /* ---------- ที่ที่แนบได้ — ขั้นตอน งวด หรือตัวงานเอง ---------- */
   var slots = [];
-  var steps = listStepsByTask(taskId).slice();
+  var steps = await listStepsByTask(taskId).slice();
   steps.sort(function (a, b) { return Number(a['Step_No'] || 0) - Number(b['Step_No'] || 0); });
 
   for (var s = 0; s < steps.length; s++) {
@@ -213,7 +213,7 @@ function taskReportView(taskId) {
       stepName: String(steps[s]['Step_Name'] || ''),
       type:     steps[s]['Type'],
       done:     String(steps[s]['Status'] || '') === STEP_STATUS.COMPLETED,
-      doneBy:   displayNameOf_(steps[s]['Completed_By']),
+      doneBy:   await displayNameOf_(steps[s]['Completed_By']),
       doneDate: formatForDisplay_(steps[s]['Completed_Date']),
       // ทำทีละขั้นตามลำดับ · เหตุผลต้องเป็นประโยคที่บอกว่าต้องไปทำอะไรก่อน (SPEC 17.3)
       locked:   !canEdit || !!blocking,
@@ -252,7 +252,7 @@ function taskReportView(taskId) {
     closedReason: closedReason,
     canAddPeriod: canAddPeriod,
     scope:      fileScopeOfDepartment_(department),
-    options:    reportOptionsFor(department),
+    options:    await reportOptionsFor(department),
     // หัวข้อของรูปหน้างานมาจากเซิร์ฟเวอร์ ไม่ให้หน้าเว็บพิมพ์รหัสนี้เอง (SPEC 14.2)
     photoTopicId:   PHOTO_TOPIC.ID,
     photoTopicName: PHOTO_TOPIC.NAME,
@@ -362,12 +362,12 @@ function reportMasterSummary_(rows) {
  *
  * @return {string} รายงานที่อ่านได้ทันที
  */
-function checkReportMaster() {
+async function checkReportMaster() {
   var lines = ['ตรวจตาราง Report_Master'];
   var rows;
 
   try {
-    rows = listReportMaster(false);   // false = เอาแถวที่ปิดใช้งานมาด้วย
+    rows = await listReportMaster(false);   // false = เอาแถวที่ปิดใช้งานมาด้วย
   } catch (e) {
     lines.push('อ่านตารางไม่ได้: ' + openFailureMessage_(e, (e && e.message) ? e.message : String(e)));
     return logAndReturn_(lines);

@@ -304,7 +304,7 @@ function notifyWoUrl_(woId) {
  * @param {Object} [options] {method, headers, payload} · payload เป็นคู่คีย์-ค่าแบบฟอร์ม
  * @return {Object} {code, body}
  */
-function fetchExternal_(url, options) {
+async function fetchExternal_(url, options) {
   var given = options || {};
 
   /*
@@ -314,7 +314,7 @@ function fetchExternal_(url, options) {
    * Telegram รับเนื้อคำขอแบบฟอร์ม ไม่ใช่ JSON จึงส่งไปทาง form ของรูปแบบกลาง
    * ให้ชั้นยิงเป็นคนเข้ารหัสเอง แทนที่จะให้ที่นี่รู้วิธีเข้ารหัสของ Apps Script
    */
-  var result = httpSend_({
+  var result = await httpSend_({
     method: given.method || 'get',
     url: url,
     headers: given.headers,
@@ -328,8 +328,8 @@ function fetchExternal_(url, options) {
  * @param {string} url ที่อยู่ปลายทาง
  * @return {number}
  */
-function fetchStatusCode_(url) {
-  return fetchExternal_(url, { method: 'get' }).code;
+async function fetchStatusCode_(url) {
+  return await fetchExternal_(url, { method: 'get' }).code;
 }
 
 /**
@@ -353,7 +353,7 @@ function telegramToken_() {
  * @param {boolean} [isRetry] true = เป็นการลองใหม่หลังแก้เลขห้องแล้ว ห้ามแก้ซ้ำอีก
  * @return {Object} {ok, code, message}
  */
-function sendTelegramMessage_(channel, text, buttonUrl, isRetry) {
+async function sendTelegramMessage_(channel, text, buttonUrl, isRetry) {
   /*
    * โหมดเก็บข้อความของชุดทดสอบ — ต้องอยู่ก่อนทุกอย่าง
    * เพื่อให้เทสต์พิสูจน์เนื้อข้อความและห้องปลายทางได้โดยไม่ต้องมี Token และไม่ต้องต่อเน็ต
@@ -389,7 +389,7 @@ function sendTelegramMessage_(channel, text, buttonUrl, isRetry) {
     });
   }
 
-  var result = fetchExternal_(TELEGRAM_API_BASE + token + '/sendMessage',
+  var result = await fetchExternal_(TELEGRAM_API_BASE + token + '/sendMessage',
     { method: 'post', payload: payload });
 
   /*
@@ -405,7 +405,7 @@ function sendTelegramMessage_(channel, text, buttonUrl, isRetry) {
    * การที่ระบบแก้ค่าตั้งค่าของผู้ดูแลโดยไม่มีใครสั่ง
    */
   var movedTo = ok ? '' : migratedChatIdOf_(result.body);
-  if (movedTo && !isRetry) return resendAfterChatMove_(channel, movedTo, text, buttonUrl);
+  if (movedTo && !isRetry) return await resendAfterChatMove_(channel, movedTo, text, buttonUrl);
 
   return { ok: ok, code: result.code, message: ok ? '' : telegramErrorText_(result) };
 }
@@ -428,23 +428,23 @@ function migratedChatIdOf_(body) {
  * @param {string} buttonUrl ที่อยู่ของปุ่มเปิดใบงาน
  * @return {Object} {ok, code, message}
  */
-function resendAfterChatMove_(channel, newChatId, text, buttonUrl) {
+async function resendAfterChatMove_(channel, newChatId, text, buttonUrl) {
   var target = String(channel['Target'] || '');
   var oldChatId = String(channel['Chat_ID'] || '');
 
   try {
-    updateNotifyChannel_(String(channel['Channel_ID'] || ''), { 'Chat_ID': newChatId });
+    await updateNotifyChannel_(String(channel['Channel_ID'] || ''), { 'Chat_ID': newChatId });
   } catch (e) {
     // แก้ตารางไม่ได้ ก็ยังส่งรอบนี้ให้ถึงก่อน แล้วค่อยให้ผู้ดูแลตามแก้เอง
-    logSystemEvent_(ACTION.CHANNEL_FIXED, 'ห้อง ' + target + ' ย้ายไปเลข ' + newChatId +
+    await logSystemEvent_(ACTION.CHANNEL_FIXED, 'ห้อง ' + target + ' ย้ายไปเลข ' + newChatId +
       ' แต่แก้ตาราง Notify_Channel ไม่สำเร็จ ผู้ดูแลต้องแก้เอง');
   }
 
-  logSystemEvent_(ACTION.CHANNEL_FIXED, 'ห้อง ' + target + ' ถูกยกระดับเป็น supergroup · ' +
+  await logSystemEvent_(ACTION.CHANNEL_FIXED, 'ห้อง ' + target + ' ถูกยกระดับเป็น supergroup · ' +
     'ระบบแก้ Chat_ID จาก ' + oldChatId + ' เป็น ' + newChatId + ' ให้เองแล้ว');
 
   channel['Chat_ID'] = newChatId;
-  return sendTelegramMessage_(channel, text, buttonUrl, true);
+  return await sendTelegramMessage_(channel, text, buttonUrl, true);
 }
 
 /**
@@ -479,7 +479,7 @@ var TELEGRAM_TOKEN_NOT_SET_MESSAGE =
  * @param {Object} [extra] {reason, department, stepName, done, total}
  * @return {Object} {sent, skipped, failed} — จำนวนห้องในแต่ละผล
  */
-function notifyEvent_(event, wo, extra) {
+async function notifyEvent_(event, wo, extra) {
   var summary = { sent: 0, skipped: 0, failed: 0 };
   if (NOTIFY_DISABLED_) return summary;
 
@@ -498,7 +498,7 @@ function notifyEvent_(event, wo, extra) {
      * อ่านจำนวน Task จริงตรงนี้ ไม่รับมาจากผู้เรียก เพราะผู้เรียกแต่ละที่รู้ไม่เท่ากัน
      * และข้อที่ต้องตัดสินคือ "ทั้งใบมีกี่ Task" ซึ่งมีแหล่งเดียวคือตาราง Department_Task
      */
-    if (isWoLevelEvent_(event) && !shouldNotifyWoLevel_(listTasksByWo(woId).length)) {
+    if (isWoLevelEvent_(event) && !shouldNotifyWoLevel_(await listTasksByWo(woId).length)) {
       summary.skipped++;
       return summary;
     }
@@ -508,14 +508,14 @@ function notifyEvent_(event, wo, extra) {
       department: (extra && extra.department) ? extra.department : (wo || {})['Assignment_Type']
     };
     var targets = notifyTargetsOf_(event, context);
-    var channels = notifyChannelsFor_(targets);
+    var channels = await notifyChannelsFor_(targets);
 
     if (!channels.length) {
       /*
        * ไม่มีห้องที่ตั้งค่าไว้ ไม่ใช่ข้อผิดพลาดของผู้ใช้ แต่ต้องรู้
        * ไม่งั้นระบบจะดูเหมือนทำงานปกติทั้งที่ไม่มีใครได้รับข่าวเลยสักคน
        */
-      writeNotifyAudit_(woId, event, ACTION.NOTIFY_FAILED,
+      await writeNotifyAudit_(woId, event, ACTION.NOTIFY_FAILED,
         'ไม่มีห้องที่ตั้งค่าไว้สำหรับ ' + targets.join(', '));
       summary.failed++;
       return summary;
@@ -526,7 +526,7 @@ function notifyEvent_(event, wo, extra) {
     var problems = [];
 
     for (var i = 0; i < channels.length; i++) {
-      var result = sendTelegramMessage_(channels[i], text, url);
+      var result = await sendTelegramMessage_(channels[i], text, url);
       if (result.ok) summary.sent++;
       else {
         summary.failed++;
@@ -535,10 +535,10 @@ function notifyEvent_(event, wo, extra) {
     }
 
     if (problems.length) {
-      writeNotifyAudit_(woId, event, ACTION.NOTIFY_FAILED, problems.join(' · '));
+      await writeNotifyAudit_(woId, event, ACTION.NOTIFY_FAILED, problems.join(' · '));
     } else {
       markNotifySent_(woId, event, scope);
-      writeNotifyAudit_(woId, event, ACTION.NOTIFY,
+      await writeNotifyAudit_(woId, event, ACTION.NOTIFY,
         'ส่งเข้าห้อง ' + targets.join(', ') + ' รวม ' + summary.sent + ' ห้อง');
     }
   } catch (err) {
@@ -550,7 +550,7 @@ function notifyEvent_(event, wo, extra) {
     summary.failed++;
     Logger.log('แจ้งเตือน ' + event + ' ไม่สำเร็จ: ' + ((err && err.message) ? err.message : err));
     try {
-      writeNotifyAudit_(String((wo || {})['WO_ID'] || ''), event, ACTION.NOTIFY_FAILED,
+      await writeNotifyAudit_(String((wo || {})['WO_ID'] || ''), event, ACTION.NOTIFY_FAILED,
         (err && err.message) ? err.message : String(err));
     } catch (ignored) {
       // เขียน Audit ไม่ได้ด้วย ก็ยังห้ามทำให้รายการหลักล้ม — เหลือร่องรอยใน Logger แล้ว
@@ -569,12 +569,12 @@ function notifyEvent_(event, wo, extra) {
  * @param {Object} wo แถวใบงานหลังเปลี่ยนสถานะแล้ว
  * @param {string} [reason] เหตุผล ใช้เมื่อใบถูกยกเลิก
  */
-function notifyWoClosedIfNeeded_(wo, reason) {
+async function notifyWoClosedIfNeeded_(wo, reason) {
   if (!wo) return;
   var status = wo[STATUS_FIELD[ENTITY.WO]];
-  if (status === WO_STATUS.COMPLETED) notifyEvent_(NOTIFY_EVENT.WO_COMPLETED, wo);
+  if (status === WO_STATUS.COMPLETED) await notifyEvent_(NOTIFY_EVENT.WO_COMPLETED, wo);
   else if (status === WO_STATUS.CANCELLED) {
-    notifyEvent_(NOTIFY_EVENT.WO_CANCELLED, wo, { reason: reason });
+    await notifyEvent_(NOTIFY_EVENT.WO_CANCELLED, wo, { reason: reason });
   }
 }
 
@@ -587,8 +587,8 @@ function notifyWoClosedIfNeeded_(wo, reason) {
  * @param {string[]} targets รายชื่อห้อง (ค่าจาก NOTIFY_TARGET)
  * @return {Object[]} แถวจากตาราง Notify_Channel
  */
-function notifyChannelsFor_(targets) {
-  var rows = listNotifyChannels(true);   // true = เฉพาะแถวที่ Active
+async function notifyChannelsFor_(targets) {
+  var rows = await listNotifyChannels(true);   // true = เฉพาะแถวที่ Active
   var out = [];
 
   for (var i = 0; i < rows.length; i++) {
@@ -657,8 +657,8 @@ function markNotifySent_(woId, event, scope) {
  * @param {string} action ค่าจาก ACTION (NOTIFY หรือ NOTIFY_FAILED)
  * @param {string} remark รายละเอียด
  */
-function writeNotifyAudit_(woId, event, action, remark) {
-  writeAudit(ENTITY.WO, woId, action, 'Telegram', '', event, remark, { woId: woId });
+async function writeNotifyAudit_(woId, event, action, remark) {
+  await writeAudit(ENTITY.WO, woId, action, 'Telegram', '', event, remark, { woId: woId });
 }
 
 /* ---------------------------------------------------------------------------
@@ -682,7 +682,7 @@ function writeNotifyAudit_(woId, event, action, remark) {
  * @param {string} woId เลขที่ใบงาน
  * @return {string} รายงานที่อ่านได้ทันที
  */
-function traceNotify(woId) {
+async function traceNotify(woId) {
   var id = String(woId || '').trim();
   var lines = ['ไล่ดูการแจ้งเตือนของใบงาน ' + (id || '(ไม่ได้ระบุเลขที่)')];
 
@@ -691,13 +691,13 @@ function traceNotify(woId) {
     return logAndReturn_(lines);
   }
 
-  var wo = getWorkOrder(id);
+  var wo = await getWorkOrder(id);
   if (!wo) {
     lines.push('ไม่พบใบงานนี้ในระบบ — ตรวจเลขที่อีกครั้ง');
     return logAndReturn_(lines);
   }
 
-  var tasks = listTasksByWo(id);
+  var tasks = await listTasksByWo(id);
   lines.push('สถานะ ' + woStatusLabel(wo[STATUS_FIELD[ENTITY.WO]]) +
     ' · สายงาน ' + (wo['Route'] || '-') +
     ' · แผนกผู้รับงาน ' + (wo['Assignment_Type'] || '-') +
@@ -714,7 +714,7 @@ function traceNotify(woId) {
   var names = notifyEventNames_();
   var history = {};
 
-  var logs = listAuditByWo(id);
+  var logs = await listAuditByWo(id);
   for (var i = 0; i < logs.length; i++) {
     if (String(logs[i]['Action'] || '') !== ACTION.NOTIFY) continue;
     var event = String(logs[i]['To_Value'] || '');
@@ -723,7 +723,7 @@ function traceNotify(woId) {
     history[event].last = String(logs[i]['Remark'] || '');
   }
 
-  var failures = listSystemLogByWo(id);
+  var failures = await listSystemLogByWo(id);
   for (var f = 0; f < failures.length; f++) {
     if (String(failures[f]['Event'] || '') !== ACTION.NOTIFY_FAILED) continue;
     var detail = String(failures[f]['Detail'] || '');
@@ -743,7 +743,7 @@ function traceNotify(woId) {
       route: wo['Route'],
       department: wo['Assignment_Type']
     });
-    var channels = notifyChannelsFor_(targets);
+    var channels = await notifyChannelsFor_(targets);
     var past = history[event];
 
     var state;
@@ -820,7 +820,7 @@ function logAndReturn_(lines) {
  *
  * @return {string} ผลการตรวจแบบอ่านได้ทันที
  */
-function checkTelegram() {
+async function checkTelegram() {
   var lines = [];
   var token = telegramToken_();
 
@@ -833,7 +833,7 @@ function checkTelegram() {
   }
 
   /* ---------- บอทใช้งานได้จริงไหม ---------- */
-  var me = fetchExternal_(TELEGRAM_API_BASE + token + '/getMe', { method: 'get' });
+  var me = await fetchExternal_(TELEGRAM_API_BASE + token + '/getMe', { method: 'get' });
   if (me.code === 200 && me.body.indexOf('"ok":true') !== -1) {
     var name = /"username"\s*:\s*"([^"]*)"/.exec(me.body);
     lines.push('ผ่าน    Bot Token — บอทชื่อ @' + (name ? name[1] : 'ไม่ทราบชื่อ'));
@@ -843,7 +843,7 @@ function checkTelegram() {
   }
 
   /* ---------- ห้องที่ตั้งค่าไว้ ส่งได้จริงไหม ---------- */
-  var rows = listNotifyChannels(false);   // false = เอาทั้งหมด รวมห้องที่ปิดอยู่ด้วย
+  var rows = await listNotifyChannels(false);   // false = เอาทั้งหมด รวมห้องที่ปิดอยู่ด้วย
   lines.push('ห้องในตาราง Notify_Channel ทั้งหมด ' + rows.length + ' ห้อง');
 
   var known = [];
@@ -867,7 +867,7 @@ function checkTelegram() {
       continue;
     }
 
-    var chat = fetchExternal_(TELEGRAM_API_BASE + token +
+    var chat = await fetchExternal_(TELEGRAM_API_BASE + token +
       '/getChat?chat_id=' + encodeURIComponent(String(row['Chat_ID'])), { method: 'get' });
     if (chat.code === 200 && chat.body.indexOf('"ok":true') !== -1) {
       usable++;
@@ -882,7 +882,7 @@ function checkTelegram() {
   // ห้องที่ขาดแปลว่าเหตุการณ์นั้นจะเงียบตลอดไป ซึ่งมองจากหน้าจอไม่เห็นเลย
   var missing = [];
   for (var t = 0; t < known.length; t++) {
-    if (!notifyChannelsFor_([known[t]]).length) missing.push(known[t]);
+    if (!await notifyChannelsFor_([known[t]]).length) missing.push(known[t]);
   }
   if (missing.length) {
     lines.push('!! ยังไม่มีห้องที่ใช้งานได้สำหรับ ' + missing.join(', ') +

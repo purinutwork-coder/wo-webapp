@@ -22,7 +22,7 @@ var CHECK_DB_PING_TIMES = 3;
  *
  * @return {string} ข้อความสั้น ๆ บอกว่าให้ไปอ่านผลที่ไหน
  */
-function checkSupabase() {
+async function checkSupabase() {
   /*
    * ด่านเดียวกับที่ getSheet_() ใช้ (กฎข้อ 21) · ชื่อฟังก์ชันไม่ลงท้ายด้วยขีดล่าง
    * จึงเรียกได้จาก google.script.run · ถ้าไม่มีบรรทัดนี้ ใครก็ตามที่เปิดหน้าเว็บ
@@ -37,7 +37,7 @@ function checkSupabase() {
     return 'ยังตั้งค่าไม่ครบ — ดูรายละเอียดใน Execution log';
   }
 
-  var ping = checkDbPing_(lines);
+  var ping = await checkDbPing_(lines);
 
   /*
    * ถ้าต่อไม่ได้ด้วยเหตุที่เหมือนกันทุกตาราง (คีย์ผิด ที่อยู่ผิด โปรเจกต์หยุด)
@@ -56,13 +56,13 @@ function checkSupabase() {
     return 'ต่อฐานข้อมูลไม่ได้ — ดูสาเหตุและทางแก้ใน Execution log';
   }
 
-  var tables = checkDbTables_(lines);
-  checkDbCounter_(lines);
+  var tables = await checkDbTables_(lines);
+  await checkDbCounter_(lines);
   checkDbAnon_(lines, tables);
-  checkDbCustomer_(lines);
+  await checkDbCustomer_(lines);
   checkBackupSection_(lines);
-  var objects = checkSqlVersions_(lines);
-  checkNewColumns_(lines, objects);
+  var objects = await checkSqlVersions_(lines);
+  await checkNewColumns_(lines, objects);
 
   if (!tables.length) checkDbAdvice_(lines, db_lastFailure_());
 
@@ -116,7 +116,7 @@ function checkDbSettings_(lines) {
  * @param {string[]} lines บรรทัดผลลัพธ์ที่กำลังสะสมอยู่
  * @return {Object} {ok, failure}
  */
-function checkDbPing_(lines) {
+async function checkDbPing_(lines) {
   lines.push('');
   lines.push('########## 2. การเชื่อมต่อและเวลาไป-กลับ ##########');
 
@@ -124,7 +124,7 @@ function checkDbPing_(lines) {
   for (var i = 0; i < CHECK_DB_PING_TIMES; i++) {
     var startedAt = new Date().getTime();
     try {
-      db_count_(CHECK_DB_PING_TABLE);
+      await db_count_(CHECK_DB_PING_TABLE);
     } catch (e) {
       var why = db_lastFailure_();
       lines.push('  ครั้งที่ ' + (i + 1) + ': ต่อไม่สำเร็จ');
@@ -239,7 +239,7 @@ function checkDbAdvice_(lines, failure) {
  * @param {string[]} lines บรรทัดผลลัพธ์ที่กำลังสะสมอยู่
  * @return {string[]} ชื่อตารางในระบบที่มีอยู่จริง
  */
-function checkDbTables_(lines) {
+async function checkDbTables_(lines) {
   lines.push('');
   lines.push('########## 3. ตารางและจำนวนแถว ##########');
 
@@ -254,7 +254,7 @@ function checkDbTables_(lines) {
   for (var i = 0; i < keys.length; i++) {
     var name = keys[i];
     try {
-      var rows = db_count_(name);
+      var rows = await db_count_(name);
       found.push(name);
       lines.push('  ' + checkDbPad_(name) + ' → ' + DB_COLUMNS[name].table +
         ' · ' + (rows < 0 ? 'นับไม่ได้' : (rows + ' แถว')));
@@ -298,14 +298,14 @@ function checkDbPad_(name, width) {
  * ตัวออกเลขแบบ atomic ทำงานจริงไหม — ต้องได้เลขเรียงกันและไม่ซ้ำ
  * @param {string[]} lines บรรทัดผลลัพธ์ที่กำลังสะสมอยู่
  */
-function checkDbCounter_(lines) {
+async function checkDbCounter_(lines) {
   lines.push('');
   lines.push('########## 4. ตัวออกเลขที่ next_running_number ##########');
 
   var numbers = [];
   try {
     for (var i = 0; i < 3; i++) {
-      numbers.push(Number(db_rpc_('next_running_number', { p_key: CHECK_DB_COUNTER_KEY })));
+      numbers.push(Number(await db_rpc_('next_running_number', { p_key: CHECK_DB_COUNTER_KEY })));
     }
   } catch (e) {
     var why = db_lastFailure_();
@@ -320,7 +320,7 @@ function checkDbCounter_(lines) {
      * ไม่ลบแถวทดสอบเมื่อเรียกไม่สำเร็จสักครั้ง เพราะไม่มีแถวให้ลบตั้งแต่แรก
      * การยิงคำสั่งลบตอนนี้จะล้มซ้ำอีกครั้ง แล้วทิ้งบรรทัดใน System_Log เพิ่มฟรี ๆ
      */
-    if (numbers.length) checkDbCleanupCounter_(lines);
+    if (numbers.length) await checkDbCleanupCounter_(lines);
     return;
   }
 
@@ -335,16 +335,16 @@ function checkDbCounter_(lines) {
   if (!consecutive || !unique) {
     lines.push('  !! ตัวออกเลขยังไม่ปลอดภัย — ห้ามย้าย Counter จนกว่าจะแก้');
   }
-  checkDbCleanupCounter_(lines);
+  await checkDbCleanupCounter_(lines);
 }
 
 /**
  * ลบแถวทดสอบของตัวออกเลขทิ้ง — ต้องเรียกทุกทางออก ไม่งั้นจะทิ้งขยะไว้ในตารางจริง
  * @param {string[]} lines บรรทัดผลลัพธ์ที่กำลังสะสมอยู่
  */
-function checkDbCleanupCounter_(lines) {
+async function checkDbCleanupCounter_(lines) {
   try {
-    var removed = db_delete_('Counter', { 'Key': CHECK_DB_COUNTER_KEY });
+    var removed = await db_delete_('Counter', { 'Key': CHECK_DB_COUNTER_KEY });
     lines.push('  ลบแถวทดสอบ ' + CHECK_DB_COUNTER_KEY + ' แล้ว (' + removed.length + ' แถว)');
   } catch (e) {
     lines.push('  ! ลบแถวทดสอบ ' + CHECK_DB_COUNTER_KEY + ' ไม่สำเร็จ ต้องไปลบเองในตาราง counter');
@@ -458,7 +458,7 @@ var CHECK_CUSTOMER_MIN_YEAR = 1990;
  *
  * @param {string[]} lines บรรทัดผลลัพธ์ที่กำลังสะสมอยู่
  */
-function checkDbCustomer_(lines) {
+async function checkDbCustomer_(lines) {
   lines.push('');
   lines.push('########## 6. สภาพตาราง Customer (SPEC 22.8) ##########');
 
@@ -466,7 +466,7 @@ function checkDbCustomer_(lines) {
   try {
     // อ่านทั้งตารางในคำขอเดียว แล้วคำนวณในหน่วยความจำ · การนับแบบที่ต้องดูเลขวัน
     // ของแต่ละแถว ทำด้วยตัวกรองของ PostgREST ไม่ได้ถ้าไม่เขียนฟังก์ชันในฐานข้อมูล
-    rows = db_selectAll_('Customer', {
+    rows = await db_selectAll_('Customer', {
       select: ['รหัสลูกค้า', 'ชื่อลูกค้า', 'วันที่เริ่มติดต่อ']
     });
   } catch (e) {
@@ -484,7 +484,7 @@ function checkDbCustomer_(lines) {
    * ซึ่งแย่กว่าไม่รายงานเลย เพราะมันดูน่าเชื่อถือทุกบรรทัด
    */
   var counted = -1;
-  try { counted = db_count_('Customer'); } catch (e) { counted = -1; }
+  try { counted = await db_count_('Customer'); } catch (e) { counted = -1; }
 
   if (counted >= 0 && counted !== health.total) {
     lines.push('  !! อ่านมาได้ ' + health.total + ' แถว แต่ฐานข้อมูลนับได้ ' + counted + ' แถว');
@@ -680,7 +680,7 @@ var PROBE_KEY_COLUMN = 'customer_code';
  *
  * @return {string} ข้อความสั้น ๆ บอกว่าให้ไปอ่านผลที่ไหน
  */
-function probeFilters() {
+async function probeFilters() {
   assertDataAccessAllowed_();
 
   var lines = ['===== สำรวจการตีความตัวกรองของ PostgREST ของจริง ====='];
@@ -699,7 +699,7 @@ function probeFilters() {
    * ขอมาห้าแถวแล้วเลือกแถวที่ชื่อยาวพอ เพราะข้อสำรวจกลุ่ม ง. ใช้ `<เศษชื่อ>_`
    * ซึ่งต้องมีอักขระตัวถัดไปให้ขีดล่างแทน · ชื่อสั้นเกินไปจะทำให้ข้อนั้นไม่มีความหมาย
    */
-  var seed = db_probeRaw_('/' + PROBE_TABLE + '?select=' + PROBE_KEY_COLUMN + ',' +
+  var seed = await db_probeRaw_('/' + PROBE_TABLE + '?select=' + PROBE_KEY_COLUMN + ',' +
     PROBE_TEXT_COLUMN + '&limit=20');
 
   var sample = null;
@@ -731,7 +731,7 @@ function probeFilters() {
 
   for (var i = 0; i < cases.length; i++) {
     var one = cases[i];
-    var got = db_probeRaw_(one.path);
+    var got = await db_probeRaw_(one.path);
     results[one.id] = got;
     probePrint_(lines, one, got);
   }
@@ -958,7 +958,7 @@ var LEFTOVER_PREFIX = 'TEST-';
  *
  * @return {string} ข้อความสั้น ๆ บอกว่าให้ไปอ่านผลที่ไหน
  */
-function cleanLeftoverTestRows() {
+async function cleanLeftoverTestRows() {
   assertDataAccessAllowed_();
 
   var lines = ['===== เก็บกวาดแถวทดสอบที่ค้างในตารางจริง ====='];
@@ -969,7 +969,7 @@ function cleanLeftoverTestRows() {
     var where = encodeURIComponent(target.column) + '=' +
       encodeURIComponent('like.' + LEFTOVER_PREFIX + '*');
 
-    var found = db_probeRaw_('/' + target.table + '?select=' + target.column + '&' + where);
+    var found = await db_probeRaw_('/' + target.table + '?select=' + target.column + '&' + where);
     if (found.status !== 200) {
       lines.push(target.table + ': อ่านไม่ได้ — ' + found.status + ' ' +
         (found.code || '') + ' ' + probeCut_(found.message));
@@ -982,8 +982,8 @@ function cleanLeftoverTestRows() {
       continue;
     }
 
-    var removed = db_probeRaw_('/' + target.table + '?' + where, 'delete');
-    var after = db_probeRaw_('/' + target.table + '?select=' + target.column + '&' + where);
+    var removed = await db_probeRaw_('/' + target.table + '?' + where, 'delete');
+    var after = await db_probeRaw_('/' + target.table + '?select=' + target.column + '&' + where);
 
     lines.push(target.table + ': พบ ' + found.rows + ' แถว · ลบได้ ' +
       (removed.status === 200 ? removed.rows : 'ล้มเหลว (' + removed.status + ')') +
@@ -1031,7 +1031,7 @@ var PROBE_URL_STEPS = 16;
  *
  * @return {string} ข้อความสั้น ๆ บอกว่าให้ไปอ่านผลที่ไหน
  */
-function probeUrlLimit() {
+async function probeUrlLimit() {
   assertDataAccessAllowed_();
 
   var lines = ['===== วัดเพดานความยาว URL ที่ยิงออกไปได้จริง ====='];
@@ -1045,12 +1045,12 @@ function probeUrlLimit() {
   var high = PROBE_URL_MAX;    // ยาวเท่านี้แล้วไม่ผ่าน
   var checked = [];
 
-  if (!urlLengthWorks_(low, lines)) {
+  if (!await urlLengthWorks_(low, lines)) {
     lines.push('ความยาวต่ำสุดที่ลอง (' + low + ') ก็ยังไม่ผ่าน — ช่วงที่ตั้งไว้ผิด');
     Logger.log(lines.join(NEW_LINE_));
     return 'ช่วงที่ตั้งไว้ผิด — ดูรายละเอียดใน Execution log';
   }
-  if (urlLengthWorks_(high, lines)) {
+  if (await urlLengthWorks_(high, lines)) {
     lines.push('ความยาวสูงสุดที่ลอง (' + high + ') ยังผ่าน — ไม่มีเพดานในช่วงนี้');
     Logger.log(lines.join(NEW_LINE_));
     return 'ไม่พบเพดานในช่วงที่ลอง — ดูรายละเอียดใน Execution log';
@@ -1058,7 +1058,7 @@ function probeUrlLimit() {
 
   for (var step = 0; step < PROBE_URL_STEPS && (high - low) > 1; step++) {
     var middle = Math.floor((low + high) / 2);
-    var works = urlLengthWorks_(middle, lines);
+    var works = await urlLengthWorks_(middle, lines);
     checked.push(middle + (works ? ' ผ่าน' : ' ไม่ผ่าน'));
     if (works) low = middle; else high = middle;
   }
@@ -1088,8 +1088,8 @@ function probeUrlLimit() {
  * @param {string[]} lines บรรทัดรายงาน
  * @return {boolean} true = คำขอออกไปถึงปลายทางแล้ว
  */
-function urlLengthWorks_(length, lines) {
-  var got = db_probeRaw_(paddedProbePath_(length), 'get', true);
+async function urlLengthWorks_(length, lines) {
+  var got = await db_probeRaw_(paddedProbePath_(length), 'get', true);
 
   // ต่อไม่ติดจริง ๆ กับยาวเกินจนยิงไม่ออก ต้องแยกออกจากกัน ไม่งั้นวัดได้ตัวเลขที่ผิด
   if (got.status === 0 && String(got.message).indexOf('URL Length') === -1 &&
@@ -1265,13 +1265,13 @@ function sqlFileEvidence_(one, objects) {
  * @param {string[]} lines บรรทัดผลลัพธ์ที่กำลังสะสมอยู่
  * @return {Object} ของในฐานข้อมูลจาก db_objects() หรือ {} ถ้าอ่านไม่ได้
  */
-function checkSqlVersions_(lines) {
+async function checkSqlVersions_(lines) {
   lines.push('');
   lines.push('########## 8. ไฟล์ SQL ถูกรันครบหรือยัง ##########');
 
   var objects;
   try {
-    objects = db_rpc_('db_objects', {});
+    objects = await db_rpc_('db_objects', {});
   } catch (e) {
     lines.push('  !! เรียก db_objects() ไม่ได้ (รหัส ' + db_lastFailure_().status + ')');
     lines.push('  แปลว่ายังไม่ได้รัน supabase_schema.sql ฉบับที่มีระบบบอกเวอร์ชัน');
@@ -1505,7 +1505,7 @@ var CHECK_DB_FUNCTIONS = Object.freeze([
  *
  * @param {string[]} lines บรรทัดผลลัพธ์ที่กำลังสะสมอยู่
  */
-function checkNewColumns_(lines, objects) {
+async function checkNewColumns_(lines, objects) {
   lines.push('');
   lines.push('########## 9. ของในฐานข้อมูลที่โค้ดต้องพึ่ง ##########');
 
@@ -1515,7 +1515,7 @@ function checkNewColumns_(lines, objects) {
     var one = CHECK_NEW_COLUMNS[i];
     var label = one.table + '.' + one.column;
     try {
-      db_select_(one.table, { select: [one.column], limit: 1 });
+      await db_select_(one.table, { select: [one.column], limit: 1 });
       lines.push('  ' + checkDbPad_(label) + ' → มีแล้ว');
     } catch (e) {
       missing.push(label);
@@ -1523,8 +1523,8 @@ function checkNewColumns_(lines, objects) {
     }
   }
 
-  checkDueDateFormula_(lines, missing);
-  checkDashboardOverdue_(lines, missing);
+  await checkDueDateFormula_(lines, missing);
+  await checkDashboardOverdue_(lines, missing);
   checkDbObjects_(lines, missing, objects);
 
   lines.push('');
@@ -1618,12 +1618,12 @@ function checkDbObjects_(lines, missing, objects) {
  * @param {string[]} lines บรรทัดผลลัพธ์ที่กำลังสะสมอยู่
  * @param {string[]} missing รายชื่อสิ่งที่ยังไม่มี — ใช้บันทึกเพิ่มเมื่อ RPC ยังเป็นตัวเก่า
  */
-function checkDashboardOverdue_(lines, missing) {
+async function checkDashboardOverdue_(lines, missing) {
   var label = 'ยอด "เลยกำหนด" ใน RPC';
   var totals;
 
   try {
-    totals = db_rpc_('dashboard_summary', {});
+    totals = await db_rpc_('dashboard_summary', {});
   } catch (e) {
     missing.push('RPC dashboard_summary');
     lines.push('  ' + checkDbPad_(label) +
@@ -1658,10 +1658,10 @@ function checkDashboardOverdue_(lines, missing) {
  * @param {string[]} lines บรรทัดผลลัพธ์ที่กำลังสะสมอยู่
  * @param {string[]} missing รายชื่อคอลัมน์ที่ยังไม่มี — ใช้บันทึกเพิ่มเมื่อสูตรหาย
  */
-function checkDueDateFormula_(lines, missing) {
+async function checkDueDateFormula_(lines, missing) {
   var rows;
   try {
-    rows = db_select_(SHEET.WORK_ORDER, {
+    rows = await db_select_(SHEET.WORK_ORDER, {
       select: ['WO_ID', 'Created_Date', 'Duration_Days', 'Due_Date'],
       filters: { 'Duration_Days': { op: 'not.is', value: null } },
       order: { column: 'Created_Date', ascending: false },
@@ -1724,9 +1724,9 @@ function checkDueDateFormula_(lines, missing) {
  * @param {Object} [params] ค่าที่มากับ query string เช่น {dept, view}
  * @return {string} HTML ทั้งหน้า
  */
-function servedHtmlOf_(pageName, params) {
+async function servedHtmlOf_(pageName, params) {
   var one = params || {};
-  return renderPage_({
+  return await renderPage_({
     page: pageName,
     wo:   one.wo   || '',
     dept: one.dept || '',
@@ -1901,7 +1901,7 @@ function checkDbSnippet_(text) {
  * @param {Object} [params] ค่าที่มากับ query string เช่น {dept:'SERVICE', view:'active'}
  * @return {string} ข้อความสรุป
  */
-function dumpServedHtml(pageName, params) {
+async function dumpServedHtml(pageName, params) {
   assertDataAccessAllowed_();
 
   var page = String(pageName || WEB_DEFAULT_PAGE);
@@ -1909,7 +1909,7 @@ function dumpServedHtml(pageName, params) {
   var html;
 
   try {
-    html = servedHtmlOf_(page, params);
+    html = await servedHtmlOf_(page, params);
   } catch (e) {
     lines.push('!! ประกอบหน้าไม่สำเร็จ: ' + ((e && e.message) || String(e)));
     Logger.log(lines.join(NEW_LINE_));
@@ -1985,7 +1985,7 @@ var FILES_PROBE_FILE_NAME = 'ตรวจระบบไฟล์.txt';
  * @param {string} woId เลขที่ใบงานที่จะใช้ตรวจ
  * @return {string} ข้อความสรุป — รายละเอียดอยู่ใน Execution log
  */
-function checkFilesAndReport(woId) {
+async function checkFilesAndReport(woId) {
   assertDataAccessAllowed_();
 
   var id = String(woId || '').trim();
@@ -2007,13 +2007,13 @@ function checkFilesAndReport(woId) {
 
   var score = { fail: 0 };
 
-  filesProbeScopes_(lines, score);
-  var wo = filesProbeWoRow_(lines, score, id);
+  await filesProbeScopes_(lines, score);
+  var wo = await filesProbeWoRow_(lines, score, id);
 
   if (wo) {
     filesProbeFolders_(lines, score, wo);
-    filesProbeUpload_(lines, score, wo);
-    filesProbeReport_(lines, score, wo);
+    await filesProbeUpload_(lines, score, wo);
+    await filesProbeReport_(lines, score, wo);
   }
 
   lines.push('');
@@ -2037,7 +2037,7 @@ function checkFilesAndReport(woId) {
  * @param {string[]} lines บรรทัดผลลัพธ์ที่กำลังสะสมอยู่
  * @param {Object} score ตัวนับจุดที่ต้องแก้
  */
-function filesProbeScopes_(lines, score) {
+async function filesProbeScopes_(lines, score) {
   lines.push('');
   lines.push('########## 1. สิทธิ์ที่ระบบไฟล์ต้องใช้ ##########');
 
@@ -2047,7 +2047,7 @@ function filesProbeScopes_(lines, score) {
    * การนับแถวหนึ่งครั้งจึงเป็นหลักฐานที่ถูกที่สุดว่าสิทธิ์นี้ยังอยู่
    */
   try {
-    var rows = db_count_(SHEET.FILE_INDEX, {});
+    var rows = await db_count_(SHEET.FILE_INDEX, {});
     lines.push('  script.external_request → ใช้ได้ (นับ File_Index ได้ ' + rows + ' แถว)');
   } catch (e) {
     score.fail++;
@@ -2094,13 +2094,13 @@ function filesProbeScopes_(lines, score) {
  * @param {string} woId เลขที่ใบงาน
  * @return {Object|null} แถวใบงาน หรือ null เมื่อไม่พบ
  */
-function filesProbeWoRow_(lines, score, woId) {
+async function filesProbeWoRow_(lines, score, woId) {
   lines.push('');
   lines.push('########## 2. Folder_ID และ Folder_Map ในฐานข้อมูล ##########');
 
   var rows;
   try {
-    rows = db_select_(SHEET.WORK_ORDER, { filters: { 'WO_ID': woId }, limit: 1 });
+    rows = await db_select_(SHEET.WORK_ORDER, { filters: { 'WO_ID': woId }, limit: 1 });
   } catch (e) {
     score.fail++;
     lines.push('  !! อ่านแถวใบงานไม่ได้: ' + ((e && e.message) || String(e)));
@@ -2225,13 +2225,13 @@ function filesProbeFolders_(lines, score, wo) {
  * @param {Object} score ตัวนับจุดที่ต้องแก้
  * @param {Object} wo แถวใบงาน
  */
-function filesProbeUpload_(lines, score, wo) {
+async function filesProbeUpload_(lines, score, wo) {
   lines.push('');
   lines.push('########## 4. อัปโหลดไฟล์ทดสอบแล้วลบทิ้ง ##########');
 
   var topics;
   try {
-    topics = listAttachmentTopics(true);
+    topics = await listAttachmentTopics(true);
   } catch (e) {
     score.fail++;
     lines.push('  !! อ่านหัวข้อไฟล์แนบไม่ได้: ' + ((e && e.message) || String(e)));
@@ -2248,7 +2248,7 @@ function filesProbeUpload_(lines, score, wo) {
 
   var row;
   try {
-    row = uploadFile({
+    row = await uploadFile({
       woId:     wo['WO_ID'],
       scope:    FILE_SCOPE.WO,
       topicId:  topic['Topic_ID'],
@@ -2282,7 +2282,7 @@ function filesProbeUpload_(lines, score, wo) {
     }
   }
 
-  filesProbeCleanup_(lines, score, row);
+  await filesProbeCleanup_(lines, score, row);
 }
 
 /**
@@ -2299,11 +2299,11 @@ function filesProbeUpload_(lines, score, wo) {
  * @param {Object} score ตัวนับจุดที่ต้องแก้
  * @param {Object} row แถวไฟล์ที่เพิ่งสร้าง
  */
-function filesProbeCleanup_(lines, score, row) {
+async function filesProbeCleanup_(lines, score, row) {
   var driveId = row['Drive_File_ID'];
 
   try {
-    removeFile(row['File_ID']);
+    await removeFile(row['File_ID']);
   } catch (e) {
     score.fail++;
     lines.push('  !! ลบไฟล์ทดสอบไม่สำเร็จ: ' + ((e && e.message) || String(e)));
@@ -2325,9 +2325,9 @@ function filesProbeCleanup_(lines, score, row) {
 
   /* ---------- ลบแถวในทะเบียนแล้วอ่านกลับ ---------- */
   try {
-    var removed = db_delete_(SHEET.FILE_INDEX, { 'File_ID': row['File_ID'] });
+    var removed = await db_delete_(SHEET.FILE_INDEX, { 'File_ID': row['File_ID'] });
     clearRowCache_(SHEET.FILE_INDEX);
-    var left = db_select_(SHEET.FILE_INDEX, { filters: { 'File_ID': row['File_ID'] }, limit: 1 });
+    var left = await db_select_(SHEET.FILE_INDEX, { filters: { 'File_ID': row['File_ID'] }, limit: 1 });
     if (left.length) {
       score.fail++;
       lines.push('  !! ลบแถวในทะเบียนแล้วแต่ยังอ่านเจออยู่ — ' + row['File_ID']);
@@ -2351,14 +2351,14 @@ function filesProbeCleanup_(lines, score, row) {
  * @param {Object} score ตัวนับจุดที่ต้องแก้
  * @param {Object} wo แถวใบงาน
  */
-function filesProbeReport_(lines, score, wo) {
+async function filesProbeReport_(lines, score, wo) {
   lines.push('');
   lines.push('########## 5. ออกใบสั่งงาน (PDF) ##########');
 
   var before = String(wo['Report_URL'] || '');
   var result;
   try {
-    result = generateWorkOrderReport(wo['WO_ID'], null);
+    result = await generateWorkOrderReport(wo['WO_ID'], null);
   } catch (e) {
     score.fail++;
     lines.push('  !! ออกเอกสารไม่สำเร็จ: ' + ((e && e.message) || String(e)));
@@ -2387,7 +2387,7 @@ function filesProbeReport_(lines, score, wo) {
    * หน้ารายละเอียดจะไม่มีปุ่มเปิดเอกสาร ทั้งที่เอกสารออกมาเรียบร้อยแล้ว
    */
   clearRowCache_(SHEET.WORK_ORDER);
-  var rows = db_select_(SHEET.WORK_ORDER, { filters: { 'WO_ID': wo['WO_ID'] }, limit: 1 });
+  var rows = await db_select_(SHEET.WORK_ORDER, { filters: { 'WO_ID': wo['WO_ID'] }, limit: 1 });
   var after = rows.length ? String(rows[0]['Report_URL'] || '') : '';
 
   if (after && after === result.url) {
@@ -2453,7 +2453,7 @@ function filesProbeArchive_(lines, score, wo) {
  *
  * @return {string} รายงานที่อ่านได้ทันที
  */
-function checkTaskCounts() {
+async function checkTaskCounts() {
   clearTaskCountCache_();
 
   var lines = ['เทียบตัวเลขบนเมนูกับจำนวนที่หน้ารายการแสดงจริง'];
@@ -2461,12 +2461,12 @@ function checkTaskCounts() {
   var wrong = 0;
 
   for (var d = 0; d < depts.length; d++) {
-    var counts = taskCountsForDepartment_(depts[d]);
+    var counts = await taskCountsForDepartment_(depts[d]);
     lines.push('แผนก ' + depts[d]);
 
     for (var v = 0; v < TASK_VIEWS.length; v++) {
       var view = TASK_VIEWS[v];
-      var got = listTaskPage_(depts[d], { view: view.key, page: 1 });
+      var got = await listTaskPage_(depts[d], { view: view.key, page: 1 });
       var same = Number(counts[view.key] || 0) === Number(got.total || 0);
       if (!same) wrong++;
 
@@ -2509,7 +2509,7 @@ var WIPE_TABLES_ = Object.freeze([
  * @param {string} confirm ต้องเป็น 'ลบข้อมูลใบงานทั้งหมด'
  * @return {string} รายงานที่อ่านได้ทันที
  */
-function wipeWorkOrderData(confirm) {
+async function wipeWorkOrderData(confirm) {
   if (String(confirm || '') !== 'ลบข้อมูลใบงานทั้งหมด') {
     return adminSay_('ไม่ได้ลบอะไร — ต้องเรียกพร้อมคำยืนยัน: ' +
       "clasp run wipeWorkOrderData --params " + String.fromCharCode(39) +
@@ -2520,7 +2520,7 @@ function wipeWorkOrderData(confirm) {
 
   /* ---------- Drive ก่อน เพราะรหัสโฟลเดอร์อยู่ในแถวที่จะลบ ---------- */
   var folders = 0, folderFail = 0;
-  var wos = queryRows_(SHEET.WORK_ORDER, {}, { limit: 1000 });
+  var wos = await queryRows_(SHEET.WORK_ORDER, {}, { limit: 1000 });
   for (var w = 0; w < wos.length; w++) {
     var folderId = String(wos[w]['Folder_ID'] || '');
     if (!folderId) continue;
@@ -2533,19 +2533,19 @@ function wipeWorkOrderData(confirm) {
   var total = 0, problems = [];
   for (var i = 0; i < WIPE_TABLES_.length; i++) {
     var one = WIPE_TABLES_[i];
-    var before = queryRows_(one.sheet, {}, { limit: 5000 }).length;
+    var before = await queryRows_(one.sheet, {}, { limit: 5000 }).length;
 
     if (before) {
       var filters = {};
       filters[one.key] = { op: 'neq', value: '__ไม่มีค่านี้อยู่จริง__' };
-      db_delete_(one.sheet, filters);
+      await db_delete_(one.sheet, filters);
     }
 
     /*
      * อ่านกลับเพื่อยืนยัน ห้ามเชื่อว่าลบแล้วเพราะคำสั่งไม่โยน error
      * นี่คือกติกาเดียวกับที่ใช้กับการล้างข้อมูลทดสอบ
      */
-    var after = queryRows_(one.sheet, {}, { limit: 5000 }).length;
+    var after = await queryRows_(one.sheet, {}, { limit: 5000 }).length;
     total += before - after;
     lines.push('  ' + one.sheet + ': ' + before + ' → ' + after + ' แถว');
     if (after) problems.push(one.sheet + ' เหลือ ' + after + ' แถว');

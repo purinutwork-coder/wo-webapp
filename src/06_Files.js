@@ -340,7 +340,7 @@ function isImageMimeType_(mimeType) {
  * @param {Object} plan แผนชื่อไฟล์จาก fileNamePlan_()
  * @return {number} ลำดับถัดไป เริ่มที่ 1
  */
-function nextFileSeq_(woId, plan) {
+async function nextFileSeq_(woId, plan) {
   var head = plan.prefix + '_' + plan.middle + '_';
 
   /*
@@ -351,7 +351,7 @@ function nextFileSeq_(woId, plan) {
    * ใช้ findBy_ ไม่ใช่ listFilesByWo เพราะต้องนับรวมแถวที่ปิดใช้งานไปแล้วด้วย
    * ไม่งั้นไฟล์ใหม่จะได้เลขซ้ำกับไฟล์ที่ถูกลบไปแล้ว
    */
-  var rows = findBy_(SHEET.FILE_INDEX, 'WO_ID', woId);
+  var rows = await findBy_(SHEET.FILE_INDEX, 'WO_ID', woId);
   var highest = 0;
 
   for (var i = 0; i < rows.length; i++) {
@@ -378,10 +378,10 @@ function nextFileSeq_(woId, plan) {
  * @param {string} woId เลขที่ใบงาน
  * @return {string[]} ชื่อหัวข้อที่ยังขาด
  */
-function missingRequiredTopics_(woId) {
-  var topics = listAttachmentTopics();      // คัดเฉพาะ Active มาให้แล้ว
+async function missingRequiredTopics_(woId) {
+  var topics = await listAttachmentTopics();      // คัดเฉพาะ Active มาให้แล้ว
   var attached = {};
-  var files = listFilesByWo(woId);          // คัดเฉพาะ Is_Active มาให้แล้ว
+  var files = await listFilesByWo(woId);          // คัดเฉพาะ Is_Active มาให้แล้ว
   for (var f = 0; f < files.length; f++) {
     attached[String(files[f]['Topic_ID'] || '')] = true;
   }
@@ -450,11 +450,11 @@ function validateUploadRequest_(request) {
  * @return {Object} {topicName, formNo, stepNo}
  * @throws {Error} เมื่อหัวข้อที่ส่งมาไม่มีอยู่จริง
  */
-function resolveFileTopic_(request) {
+async function resolveFileTopic_(request) {
   var scope = request.scope;
 
   if (scope === FILE_SCOPE.WO) {
-    var topic = getAttachmentTopic(request.topicId);
+    var topic = await getAttachmentTopic(request.topicId);
     if (!topic) {
       throw new Error('ไม่พบหัวข้อไฟล์แนบที่เลือก กรุณาเลือกจากรายการอีกครั้ง');
     }
@@ -477,12 +477,12 @@ function resolveFileTopic_(request) {
     return {
       topicName: PHOTO_TOPIC.NAME,
       formNo:    PHOTO_TOPIC.NAME,
-      stepNo:    stepNoOf_(request.stepId),
+      stepNo:    await stepNoOf_(request.stepId),
       photo:     true
     };
   }
 
-  var report = getReport(request.reportCode);
+  var report = await getReport(request.reportCode);
   if (!report) {
     throw new Error('ไม่พบเอกสารที่เลือก กรุณาเลือกจากรายการอีกครั้ง');
   }
@@ -491,7 +491,7 @@ function resolveFileTopic_(request) {
   return {
     topicName: report['Report_Name'],
     formNo: report['Form_No'] || report['Report_Code'],
-    stepNo: stepNoOf_(request.stepId)
+    stepNo: await stepNoOf_(request.stepId)
   };
 }
 
@@ -501,9 +501,9 @@ function resolveFileTopic_(request) {
  * @param {string} stepId เลขที่ Step
  * @return {number} 0 เมื่อไม่ได้ระบุมา
  */
-function stepNoOf_(stepId) {
+async function stepNoOf_(stepId) {
   if (!stepId) return 0;
-  var step = getStep(stepId);
+  var step = await getStep(stepId);
   if (!step) {
     throw new Error('ไม่พบขั้นตอนหรืองวดงานที่เลือก กรุณาโหลดหน้าใหม่แล้วลองอีกครั้ง');
   }
@@ -616,12 +616,12 @@ function driveRootFolder_() {
  *
  * @return {string} ข้อความสรุปสำหรับอ่านใน Execution log
  */
-function checkDriveFolder() {
+async function checkDriveFolder() {
   // สองตัวนี้แตะ Drive โดยไม่ผ่านชั้นชีต ด่านที่ getSheet_() จึงครอบไม่ถึง ต้องกันเอง
   // ไม่งั้นใครก็ตามที่เปิดหน้าเว็บจะสร้างโฟลเดอร์ใน Drive ของเจ้าของระบบได้
   assertDataAccessAllowed_();
 
-  var state = driveStorageState_();
+  var state = await driveStorageState_();
 
   if (state.rootOk) {
     return adminSay_('ที่เก็บไฟล์พร้อมใช้งาน · โฟลเดอร์ราก "' + driveFolderName_(state.rootId) + '" ' +
@@ -693,7 +693,7 @@ function adminSay_(text) {
  *
  * @return {Object} {rootId, root, rootOk, container, parent}
  */
-function driveStorageState_() {
+async function driveStorageState_() {
   var rootId = getProp_(PROP_KEY.DRIVE_ROOT_FOLDER, false);
   var root = rootId ? driveFolderById_(rootId) : null;
   var containerId = PropertiesService.getScriptProperties().getProperty(PROP_DRIVE_WO_FOLDER);
@@ -712,7 +712,7 @@ function driveStorageState_() {
   var claimed = '';
 
   if (!container) {
-    var woFolderId = oneWorkOrderFolderId_();
+    var woFolderId = await oneWorkOrderFolderId_();
     claimed = woFolderId;
     var known = driveFolderById_(woFolderId);
     var above = known ? driveFolderParent_(known.id) : null;
@@ -757,9 +757,9 @@ function driveStorageState_() {
  *
  * @return {string} รหัสโฟลเดอร์ หรือค่าว่าง
  */
-function oneWorkOrderFolderId_() {
+async function oneWorkOrderFolderId_() {
   try {
-    var rows = queryRows_(SHEET.WORK_ORDER, {}, { limit: 20 });
+    var rows = await queryRows_(SHEET.WORK_ORDER, {}, { limit: 20 });
     for (var i = 0; i < rows.length; i++) {
       var folderId = String(rows[i]['Folder_ID'] || '');
       if (folderId) return folderId;
@@ -778,16 +778,16 @@ function oneWorkOrderFolderId_() {
  *
  * @return {string} ข้อความสรุปสำหรับอ่านใน Execution log
  */
-function setupDriveFolder() {
+async function setupDriveFolder() {
   // สองตัวนี้แตะ Drive โดยไม่ผ่านชั้นชีต ด่านที่ getSheet_() จึงครอบไม่ถึง ต้องกันเอง
   // ไม่งั้นใครก็ตามที่เปิดหน้าเว็บจะสร้างโฟลเดอร์ใน Drive ของเจ้าของระบบได้
   assertDataAccessAllowed_();
 
   var props = PropertiesService.getScriptProperties();
-  var state = driveStorageState_();
+  var state = await driveStorageState_();
 
   if (state.rootOk) {
-    return 'มีที่เก็บไฟล์อยู่แล้ว ไม่ได้สร้างใหม่ · ' + checkDriveFolder();   // checkDriveFolder พิมพ์เองแล้ว
+    return 'มีที่เก็บไฟล์อยู่แล้ว ไม่ได้สร้างใหม่ · ' + await checkDriveFolder();   // checkDriveFolder พิมพ์เองแล้ว
   }
 
   /*
@@ -800,7 +800,7 @@ function setupDriveFolder() {
   if (state.container || state.claimedFolderId) {
     return 'ไม่ได้สร้างรากใหม่ เพราะฐานข้อมูลยังบอกว่ามีโฟลเดอร์ของใบงานอยู่ · ' +
       'การสร้างรากใบใหม่ตอนนี้จะทำให้ไฟล์ของใบงานเก่าทั้งหมดอยู่นอกสายตาระบบถาวร · ' +
-      checkDriveFolder();
+      await checkDriveFolder();
   }
 
   var created = driveCreateRootFolder_(DRIVE_ROOT_FOLDER_NAME);
@@ -1330,12 +1330,12 @@ function driveCountFiles_(folderId) {
  * @param {string} folderPath เส้นทางโฟลเดอร์ย่อย เช่น 'Attachments' หรือ 'Service/Step 2'
  * @return {string} รหัสโฟลเดอร์ปลายทาง
  */
-function ensureWoFolder_(woId, folderPath) {
+async function ensureWoFolder_(woId, folderPath) {
   var lock = acquireLock_();
   try {
     // อ่านซ้ำในล็อก เผื่อมีคนอื่นเพิ่งสร้างโฟลเดอร์เดียวกันไปก่อนหน้าเสี้ยววินาที
     clearRowCache_(SHEET.WORK_ORDER);
-    var wo = getWorkOrder(woId);
+    var wo = await getWorkOrder(woId);
     if (!wo) throw new Error('ไม่พบใบงาน ' + woId);
 
     var patch = {};
@@ -1352,7 +1352,7 @@ function ensureWoFolder_(woId, folderPath) {
     var mapText = JSON.stringify(map);
     if (mapText !== String(wo['Folder_Map'] || '')) patch['Folder_Map'] = mapText;
 
-    if (hasOwnKeys_(patch)) updateWorkOrder(woId, patch);
+    if (hasOwnKeys_(patch)) await updateWorkOrder(woId, patch);
     return targetId;
   } finally {
     lock.releaseLock();
@@ -1427,9 +1427,9 @@ function hasOwnKeys_(obj) {
  * @param {Object} user ผู้ทำรายการ
  * @return {Object} แถวในทะเบียนไฟล์ที่เพิ่งบันทึก
  */
-function uploadFile(request, user) {
+async function uploadFile(request, user) {
   var checked = validateUploadRequest_(request);
-  var topic = resolveFileTopic_(request);
+  var topic = await resolveFileTopic_(request);
 
   var plan = fileNamePlan_({
     woId: request.woId,
@@ -1442,14 +1442,14 @@ function uploadFile(request, user) {
     fileName: request.fileName
   });
 
-  var seq = nextFileSeq_(request.woId, plan);
+  var seq = await nextFileSeq_(request.woId, plan);
   var savedName = buildSavedFileName_(plan, seq);
 
   // สร้างโฟลเดอร์ (ในล็อก) ให้เสร็จก่อน แล้วค่อยอัปโหลด (นอกล็อก)
-  var folderId = ensureWoFolder_(request.woId, plan.folderPath);
+  var folderId = await ensureWoFolder_(request.woId, plan.folderPath);
   var stored = driveCreateFile_(folderId, request.content, request.mimeType, savedName);
 
-  var row = insertFile({
+  var row = await insertFile({
     'File_ID':            newFileId_(request.woId),
     'WO_ID':              request.woId,
     'Task_ID':            request.taskId || '',
@@ -1470,7 +1470,7 @@ function uploadFile(request, user) {
   });
 
   // ระบุเหตุการณ์ด้วย Entity + Action เสมอ ห้ามให้ใครนับแถวรวมของใบงาน (SPEC 21)
-  writeAudit(ENTITY.FILE, row['File_ID'], ACTION.UPLOAD, 'Saved_File_Name', '', savedName,
+  await writeAudit(ENTITY.FILE, row['File_ID'], ACTION.UPLOAD, 'Saved_File_Name', '', savedName,
     'แนบไฟล์ ' + String(request.fileName || ''), { woId: request.woId, taskId: request.taskId || '' });
 
   return row;
@@ -1493,14 +1493,14 @@ function newFileId_(woId) {
  * @param {string} fileId เลขที่ไฟล์ในทะเบียน
  * @return {Object} แถวที่ถูกปิดใช้งาน
  */
-function removeFile(fileId) {
-  var file = getFile(fileId);
+async function removeFile(fileId) {
+  var file = await getFile(fileId);
   if (!file) throw new Error('ไม่พบไฟล์ที่ต้องการลบ อาจถูกลบไปแล้ว');
 
   driveTrashById_(file['Drive_File_ID'], false);
-  var row = deactivateFile(fileId);
+  var row = await deactivateFile(fileId);
 
-  writeAudit(ENTITY.FILE, fileId, ACTION.DELETE_FILE, 'Is_Active', true, false,
+  await writeAudit(ENTITY.FILE, fileId, ACTION.DELETE_FILE, 'Is_Active', true, false,
     'ลบไฟล์ ' + String(file['Saved_File_Name'] || ''),
     { woId: file['WO_ID'], taskId: file['Task_ID'] || '' });
   return row;
@@ -1524,11 +1524,11 @@ function trashFolder_(folderId) {
  * @param {string} woId เลขที่ใบงาน
  * @return {Object[]}
  */
-function listWoFileViews(woId) {
-  var files = listFilesByWo(woId);
+async function listWoFileViews(woId) {
+  var files = await listFilesByWo(woId);
   var views = [];
   for (var i = 0; i < files.length; i++) {
-    views.push(fileViewOf_(files[i]));
+    views.push(await fileViewOf_(files[i]));
   }
   return views;
 }
@@ -1538,7 +1538,7 @@ function listWoFileViews(woId) {
  * @param {Object} file แถวจาก File_Index
  * @return {Object}
  */
-function fileViewOf_(file) {
+async function fileViewOf_(file) {
   return {
     fileId:      file['File_ID'],
     woId:        file['WO_ID'],
@@ -1553,7 +1553,7 @@ function fileViewOf_(file) {
     // หน้าจอต้องรู้ว่าไฟล์ไหนเป็นรูป เพื่อขอภาพย่อมาแสดงแทนการขึ้นแค่ชื่อไฟล์
     mimeType:    file['Mime_Type'] || '',
     isImage:     isImageMimeType_(file['Mime_Type']),
-    uploadedBy:  displayNameOf_(file['Uploaded_By']),
+    uploadedBy:  await displayNameOf_(file['Uploaded_By']),
     display: {
       uploadedDate: formatForDisplay_(file['Uploaded_Date'])
     }
@@ -1573,8 +1573,8 @@ function fileViewOf_(file) {
  * @param {string} woId เลขที่ใบงาน
  * @return {Object[]} [{topicId, name, required, files: [...]}]
  */
-function listWoAttachmentGroups(woId) {
-  var files = listWoFileViews(woId);
+async function listWoAttachmentGroups(woId) {
+  var files = await listWoFileViews(woId);
   var byTopic = {};
 
   for (var i = 0; i < files.length; i++) {
@@ -1584,7 +1584,7 @@ function listWoAttachmentGroups(woId) {
     byTopic[id].push(files[i]);
   }
 
-  var topics = listAttachmentTopics(false);
+  var topics = await listAttachmentTopics(false);
   var out = [];
   for (var t = 0; t < topics.length; t++) {
     var topicId = String(topics[t]['Topic_ID'] || '');

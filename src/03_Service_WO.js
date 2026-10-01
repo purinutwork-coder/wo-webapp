@@ -98,7 +98,7 @@ function missingFieldsMessage_(missing) {
  * @return {Object} {woId, pjId, workOrder}
  * @throws {Error} เมื่อสิทธิ์ไม่พอหรือกรอกข้อมูลบังคับไม่ครบ
  */
-function createWorkOrder(form, user, options) {
+async function createWorkOrder(form, user, options) {
   form = form || {};
   options = options || {};
 
@@ -127,10 +127,10 @@ function createWorkOrder(form, user, options) {
   assertScheduleOrder_(scheduled);
 
   // 3) ออก WO_ID ก่อน โดยล็อกเฉพาะช่วงอ่าน–เขียนตาราง Counter
-  var woId = nextRunningNumber(counterKeyOfMonth_(options.woIdPrefix || PREFIX.WO, new Date()));
+  var woId = await nextRunningNumber(counterKeyOfMonth_(options.woIdPrefix || PREFIX.WO, new Date()));
 
   // 4) แล้วจึงหา PJ_ID — เจอของเดิมใช้ซ้ำ ไม่เจอจึงออกใหม่จากเลข WO ที่เพิ่งได้
-  var pjId = resolveProjectLocation(
+  var pjId = await resolveProjectLocation(
     form['Customer_Code'], form['Project'], form['Location'], woId,
     { customerName: form['Customer_Name'] });
 
@@ -144,7 +144,7 @@ function createWorkOrder(form, user, options) {
   fields['Payment_Status'] = form['Payment_Status'] || PAYMENT.UNPAID;
   fields['Payment_Required'] = form['Payment_Required'] === true;
 
-  changeStatus(ENTITY.WO, woId, ACTION.CREATE, user, {
+  await changeStatus(ENTITY.WO, woId, ACTION.CREATE, user, {
     requiredFieldsOk: true,
     fields: fields
   });
@@ -167,7 +167,7 @@ function createWorkOrder(form, user, options) {
     Logger.log('ใบงาน ' + woId + ' ยังมีไฟล์รออัปโหลด ' + options.filesPending +
       ' ไฟล์ จึงเลื่อนการออกใบสั่งงานไปหลังอัปโหลดเสร็จ');
   } else {
-    tryGenerateWorkOrderReport_(woId, user, ACTION.CREATE);
+    await tryGenerateWorkOrderReport_(woId, user, ACTION.CREATE);
   }
 
   /*
@@ -176,11 +176,11 @@ function createWorkOrder(form, user, options) {
    * ตั้งแต่ตัดขั้นบันทึกร่างออก การเปิดใบงานคือการขออนุมัติในตัว ใบจึงไปรอที่ผู้อนุมัติทันที
    * เหตุการณ์นี้จึงเป็น SUBMIT ตามตาราง ไม่ใช่เหตุการณ์ใหม่ที่ไม่มีใครรับ
    */
-  notifyEvent_(NOTIFY_EVENT.SUBMIT, getWorkOrder(woId));
+  await notifyEvent_(NOTIFY_EVENT.SUBMIT, await getWorkOrder(woId));
 
   // อ่านแถวใหม่ "หลัง" ออกเอกสารแล้ว เพื่อให้หน้าจอได้ Report_URL และ Updated_Date ล่าสุด
   // ถ้าอ่านก่อน หน้าจอจะถือค่าเก่าแล้วชนกับการตรวจ Optimistic Lock ในการกดครั้งถัดไป
-  return { woId: woId, pjId: pjId, workOrder: getWorkOrder(woId) };
+  return { woId: woId, pjId: pjId, workOrder: await getWorkOrder(woId) };
 }
 
 /**
@@ -402,8 +402,8 @@ function counterKeyOfMonth_(prefix, date) {
  * @param {string} key คีย์ของตัวนับ เช่น WO-2609
  * @return {string} เลขที่เต็มรูปแบบ เช่น WO-2609-0001
  */
-function nextRunningNumber(key) {
-  return key + '-' + padNumber_(nextCounterValue_(key), 4);
+async function nextRunningNumber(key) {
+  return key + '-' + padNumber_(await nextCounterValue_(key), 4);
 }
 
 /**
@@ -563,20 +563,20 @@ function toIsoText_(value) {
  * @param {string} woId เลขที่ใบงาน
  * @return {Object}
  */
-function workOrderDetail(woId) {
+async function workOrderDetail(woId) {
   var id = String(woId || '').trim();
   if (!id) return { found: false, woId: '', reason: 'ยังไม่ได้เลือกใบงาน' };
 
-  var wo = getWorkOrder(id);
+  var wo = await getWorkOrder(id);
   if (!wo) return { found: false, woId: id, reason: 'ไม่พบใบงาน ' + id };
 
-  var logs = listAuditByWo(id);
-  var tasks = listTasksByWo(id);
+  var logs = await listAuditByWo(id);
+  var tasks = await listTasksByWo(id);
   var taskViews = [];
 
   for (var i = 0; i < tasks.length; i++) {
     var taskId = tasks[i]['Task_ID'];
-    var steps = listStepsByTask(taskId);
+    var steps = await listStepsByTask(taskId);
     var stepViews = [];
     for (var s = 0; s < steps.length; s++) {
       stepViews.push({
@@ -585,7 +585,7 @@ function workOrderDetail(woId) {
         type:     steps[s]['Type'],
         status:   steps[s]['Status'],
         dueDate:  formatForDisplay_(steps[s]['Due_Date']),
-        completedBy:   displayNameOf_(steps[s]['Completed_By']),
+        completedBy:   await displayNameOf_(steps[s]['Completed_By']),
         completedDate: formatForDisplay_(steps[s]['Completed_Date'])
       });
     }
@@ -595,7 +595,7 @@ function workOrderDetail(woId) {
       department: tasks[i]['Department'],
       status:     tasks[i][STATUS_FIELD[ENTITY.TASK]],
       steps:      stepViews,
-      progress:   stepProgressOf_(taskId),
+      progress:   await stepProgressOf_(taskId),
       /*
        * วันเวลาที่แผนกนัดเข้างานจริง — ต้องอยู่ในสายตาพร้อมกับวันครบกำหนดของใบงาน
        * เพราะคำถามที่คนถามจริงคือ "เลยกำหนดแล้ว ช่างนัดไว้วันไหน"
@@ -603,8 +603,8 @@ function workOrderDetail(woId) {
        */
       visitStart: formatForDisplay_(tasks[i]['Visit_Start']),
       visitEnd:   formatForDisplay_(tasks[i]['Visit_End']),
-      acceptedBy:   displayNameOf_(tasks[i]['Accepted_By']),
-      completedBy:  displayNameOf_(tasks[i]['Completed_By']),
+      acceptedBy:   await displayNameOf_(tasks[i]['Accepted_By']),
+      completedBy:  await displayNameOf_(tasks[i]['Completed_By']),
       cancelReason: tasks[i]['Cancel_Reason'] || '',
       returnReason: tasks[i]['Return_Reason'] || '',
       display: {
@@ -650,8 +650,8 @@ function workOrderDetail(woId) {
       due:            dueInfoOf_(wo['Created_Date'], wo['Duration_Days'],
                         wo[STATUS_FIELD[ENTITY.WO]]),
       // ชื่อที่แสดง แปลงตอนส่งออกเท่านั้น ของที่เก็บยังเป็นอีเมล (SPEC 13)
-      createdBy:      displayNameOf_(wo['Created_By']),
-      approvedBy:     displayNameOf_(wo['Approved_By']),
+      createdBy:      await displayNameOf_(wo['Created_By']),
+      approvedBy:     await displayNameOf_(wo['Approved_By']),
       returnCount:    Number(wo['Return_Count'] || 0),
       returnReason:   wo['Return_Reason'] || '',
       cancelReason:   wo['Cancel_Reason'] || '',
@@ -663,7 +663,7 @@ function workOrderDetail(woId) {
        */
       reopenCount:    Number(wo['Reopen_Count'] || 0),
       reopenReason:   wo['Reopen_Reason'] || '',
-      reopenedBy:     displayNameOf_(wo['Reopened_By']),
+      reopenedBy:     await displayNameOf_(wo['Reopened_By']),
       /*
        * ลิงก์โฟลเดอร์ไม่ถูกส่งออกไปอีกแล้ว (กฎข้อ 34 · SPEC 16)
        *
@@ -685,7 +685,7 @@ function workOrderDetail(woId) {
     tasks: taskViews,
     timeline: timelineOf_(logs),
     reasons: reasonHistoryOf_(logs),
-    files: listWoFileViews(id),
+    files: await listWoFileViews(id),
 
     report: {
       currentUrl: wo['Report_URL'] || '',
@@ -695,7 +695,7 @@ function workOrderDetail(woId) {
     payment: {
       required: cellToBoolean_(wo['Payment_Required']),
       status:   wo['Payment_Status'] || PAYMENT.UNPAID,
-      by:       displayNameOf_(wo['Payment_By']),
+      by:       await displayNameOf_(wo['Payment_By']),
       remark:   wo['Payment_Remark'] || '',
       date:     formatForDisplay_(wo['Payment_Date'])
     }
@@ -709,9 +709,9 @@ function workOrderDetail(woId) {
  * @param {Date|string} [expectedUpdatedDate] ค่า Updated_Date ที่หน้าจอถืออยู่
  * @return {Object} แผนการเปลี่ยนสถานะ
  */
-function submitWorkOrder(woId, user, expectedUpdatedDate) {
+async function submitWorkOrder(woId, user, expectedUpdatedDate) {
   // ตรวจที่นี่ด้วย ไม่ใช่เชื่อการตรวจในหน้าเว็บอย่างเดียว เพราะหน้าที่ถูกดัดแปลงข้ามการตรวจได้ทั้งชุด
-  var wo = getWorkOrder(woId);
+  var wo = await getWorkOrder(woId);
   if (!wo) throw new Error('ไม่พบใบงาน ' + woId);
 
   /*
@@ -729,7 +729,7 @@ function submitWorkOrder(woId, user, expectedUpdatedDate) {
    * เพราะตอนนี้ใบงานเกิดพร้อมสถานะรออนุมัติทันที ไม่มีช่วงเวลาให้แนบไฟล์ก่อนส่ง
    * คนที่ต้องใช้เอกสารตัดสินใจคือผู้อนุมัติ ด่านจึงควรอยู่ตรงนั้น
    */
-  var plan = changeStatus(ENTITY.WO, woId, ACTION.SUBMIT, user, {
+  var plan = await changeStatus(ENTITY.WO, woId, ACTION.SUBMIT, user, {
     requiredFieldsOk: true,
     expectedUpdatedDate: expectedUpdatedDate
   });
@@ -739,8 +739,8 @@ function submitWorkOrder(woId, user, expectedUpdatedDate) {
    * SUBMIT เกิดได้จากใบที่ถูกตีกลับเท่านั้น ฉบับนี้จึงเป็นฉบับ "แก้แล้ว" เสมอ
    * และจะมีหมายเหตุบอกว่าเคยถูกตีกลับด้วยเหตุผลอะไรติดไปบนกระดาษ
    */
-  tryGenerateWorkOrderReport_(woId, user, ACTION.SUBMIT);
-  notifyEvent_(NOTIFY_EVENT.SUBMIT, getWorkOrder(woId));
+  await tryGenerateWorkOrderReport_(woId, user, ACTION.SUBMIT);
+  await notifyEvent_(NOTIFY_EVENT.SUBMIT, await getWorkOrder(woId));
   return plan;
 }
 
@@ -756,7 +756,7 @@ function submitWorkOrder(woId, user, expectedUpdatedDate) {
  * @param {Object} [options] {expectedUpdatedDate}
  * @return {Object} {plan, tasks, resumed}
  */
-function approveWorkOrder(woId, assignmentType, user, options) {
+async function approveWorkOrder(woId, assignmentType, user, options) {
   options = options || {};
 
   /*
@@ -766,14 +766,14 @@ function approveWorkOrder(woId, assignmentType, user, options) {
    * จะข้ามการตรวจได้ทั้งชุด · ข้อความต้องบอกว่าขาดหัวข้อไหน ไม่ใช่บอกแค่ว่าไฟล์ไม่ครบ
    * เพื่อให้ผู้อนุมัติตีกลับพร้อมเหตุผลที่ผู้เปิดใบงานเอาไปแก้ได้ทันที
    */
-  var missingTopics = missingRequiredTopics_(woId);
+  var missingTopics = await missingRequiredTopics_(woId);
   if (missingTopics.length) {
     throw new Error(missingTopicsMessage_(missingTopics) +
       ' อนุมัติไม่ได้จนกว่าเอกสารจะครบ — ถ้าต้องการให้ผู้เปิดใบงานแนบเพิ่ม ให้ตีกลับพร้อมเหตุผล');
   }
 
   // ข้อ 1–4: Role ตรงสาย ไม่ใช่ผู้สร้างเอง และต้องระบุแผนก — ตรวจโดย Guard ใน changeStatus
-  var plan = changeStatus(ENTITY.WO, woId, ACTION.ACCEPT, user, {
+  var plan = await changeStatus(ENTITY.WO, woId, ACTION.ACCEPT, user, {
     assignmentType: assignmentType,
     requiredFilesOk: true,
     expectedUpdatedDate: options.expectedUpdatedDate,
@@ -786,26 +786,26 @@ function approveWorkOrder(woId, assignmentType, user, options) {
   });
 
   // ข้อ 5: มี Task เดิมอยู่แล้วหรือไม่ (กฎข้อ 11)
-  var existing = listTasksByWo(woId);
+  var existing = await listTasksByWo(woId);
   if (existing.length) {
-    var resumed = resumePausedTasks_(existing);
+    var resumed = await resumePausedTasks_(existing);
     // ฉบับที่แผนกพิมพ์ถือไปหน้างาน — ฉบับที่ถูกใช้จริงที่สุด (SPEC 16.1)
-    tryGenerateWorkOrderReport_(woId, user, ACTION.ACCEPT);
-    notifyEvent_(NOTIFY_EVENT.ACCEPT, getWorkOrder(woId), { department: assignmentType });
+    await tryGenerateWorkOrderReport_(woId, user, ACTION.ACCEPT);
+    await notifyEvent_(NOTIFY_EVENT.ACCEPT, await getWorkOrder(woId), { department: assignmentType });
     return { plan: plan, tasks: existing, resumed: resumed };
   }
 
   // ข้อ 6–7: ยังไม่มี จึงสร้าง Task และ Task_Step ตั้งต้น
-  var created = createDepartmentTasks_(woId, assignmentType, user, options);
+  var created = await createDepartmentTasks_(woId, assignmentType, user, options);
 
   /*
    * ออกเอกสารหลังสร้างงานของแผนกแล้ว ไม่ใช่ก่อน (SPEC 16.1)
    * เพราะฉบับนี้ต้องมีแผนกผู้รับงาน ผู้อนุมัติ วันที่อนุมัติ และเลขงานของแผนกครบ
    */
-  tryGenerateWorkOrderReport_(woId, user, ACTION.ACCEPT);
+  await tryGenerateWorkOrderReport_(woId, user, ACTION.ACCEPT);
 
   // แจ้งห้อง Admin และห้องของแผนกผู้รับงาน (SPEC 15.3 แถว ACCEPT)
-  notifyEvent_(NOTIFY_EVENT.ACCEPT, getWorkOrder(woId), { department: assignmentType });
+  await notifyEvent_(NOTIFY_EVENT.ACCEPT, await getWorkOrder(woId), { department: assignmentType });
 
   return { plan: plan, tasks: created, resumed: 0 };
 }
@@ -824,7 +824,7 @@ function approveWorkOrder(woId, assignmentType, user, options) {
  * @param {Object[]} tasks Task ทั้งหมดของใบงาน
  * @return {number} จำนวน Task ที่ปลดพัก
  */
-function resumePausedTasks_(tasks) {
+async function resumePausedTasks_(tasks) {
   var resumed = 0;
   for (var i = 0; i < tasks.length; i++) {
     var task = tasks[i];
@@ -835,12 +835,12 @@ function resumePausedTasks_(tasks) {
     var patch = { 'Status_Before_Return': '' };
     if (String(current) !== String(before)) patch[STATUS_FIELD[ENTITY.TASK]] = before;
 
-    updateTask(task['Task_ID'], patch);
-    writeAudit(ENTITY.TASK, task['Task_ID'], ACTION.ACCEPT, 'Status_Before_Return',
+    await updateTask(task['Task_ID'], patch);
+    await writeAudit(ENTITY.TASK, task['Task_ID'], ACTION.ACCEPT, 'Status_Before_Return',
       before, '', 'ปลดพักงานหลังอนุมัติซ้ำ', { woId: task['WO_ID'], taskId: task['Task_ID'] });
 
     if (patch[STATUS_FIELD[ENTITY.TASK]]) {
-      writeAudit(ENTITY.TASK, task['Task_ID'], ACTION.ACCEPT, STATUS_FIELD[ENTITY.TASK],
+      await writeAudit(ENTITY.TASK, task['Task_ID'], ACTION.ACCEPT, STATUS_FIELD[ENTITY.TASK],
         current, before, 'คืนสถานะงานกลับเป็นค่าก่อนถูกพัก',
         { woId: task['WO_ID'], taskId: task['Task_ID'] });
     }
@@ -856,7 +856,7 @@ function resumePausedTasks_(tasks) {
  * @param {Object} user ผู้อนุมัติ
  * @return {Object[]} Task ที่สร้าง
  */
-function createDepartmentTasks_(woId, assignmentType, user) {
+async function createDepartmentTasks_(woId, assignmentType, user) {
   var departments = departmentsOfAssignment(assignmentType);
   var created = [];
 
@@ -864,7 +864,7 @@ function createDepartmentTasks_(woId, assignmentType, user) {
     var department = departments[i];
     var taskId = buildTaskId_(woId, department);
 
-    changeStatus(ENTITY.TASK, taskId, ACTION.CREATE, user, {
+    await changeStatus(ENTITY.TASK, taskId, ACTION.CREATE, user, {
       woId: woId,
       fields: {
         'Task_ID': taskId,
@@ -874,8 +874,8 @@ function createDepartmentTasks_(woId, assignmentType, user) {
       }
     });
 
-    createStepsForTask_(taskId, department);
-    created.push(getTask(taskId));
+    await createStepsForTask_(taskId, department);
+    created.push(await getTask(taskId));
   }
   return created;
 }
@@ -911,15 +911,15 @@ function buildTaskId_(woId, department) {
  * @param {string} department แผนกเจ้าของงาน
  * @return {Object[]} Step ที่สร้าง
  */
-function createStepsForTask_(taskId, department) {
+async function createStepsForTask_(taskId, department) {
   if (department !== DEPT.SERVICE) return [];
 
   var rows = [];
-  var names = stepNamesOfDepartment_(department);
+  var names = await stepNamesOfDepartment_(department);
   for (var i = 0; i < names.length; i++) {
     rows.push(buildStepRow_(taskId, i + 1, names[i], STEP_TYPE.STEP));
   }
-  return rows.length ? insertSteps(rows) : [];
+  return rows.length ? await insertSteps(rows) : [];
 }
 
 /**
@@ -927,8 +927,8 @@ function createStepsForTask_(taskId, department) {
  * @param {string} department แผนกเจ้าของงาน
  * @return {string[]} เรียงตาม Step_No
  */
-function stepNamesOfDepartment_(department) {
-  var templates = listStepTemplates();
+async function stepNamesOfDepartment_(department) {
+  var templates = await listStepTemplates();
   var mine = [];
   for (var i = 0; i < templates.length; i++) {
     if (String(templates[i]['Department'] || '').toUpperCase() === department) mine.push(templates[i]);
@@ -971,16 +971,16 @@ function buildStepRow_(taskId, stepNo, stepName, type) {
  * @param {Date|string} [expectedUpdatedDate] ค่า Updated_Date ที่หน้าจอถืออยู่
  * @return {Object} แผนการเปลี่ยนสถานะ
  */
-function returnWorkOrder(woId, reason, user, expectedUpdatedDate) {
-  var wo = getWorkOrder(woId);
+async function returnWorkOrder(woId, reason, user, expectedUpdatedDate) {
+  var wo = await getWorkOrder(woId);
   if (!wo) throw new Error('ไม่พบใบงาน ' + woId);
   if (isEmptyValue_(reason)) throw new Error('ต้องระบุเหตุผลการตีกลับ');
 
   // ข้อ 2: จำสถานะเดิมของ Task ทุกตัวไว้ก่อน แล้วค่อยเปลี่ยนสถานะ WO
-  rememberTaskStatuses_(woId);
+  await rememberTaskStatuses_(woId);
 
   // ข้อ 3: เปลี่ยน WO เป็น RETURNED และเพิ่มตัวนับ Return_Count
-  var plan = changeStatus(ENTITY.WO, woId, ACTION.RETURN, user, {
+  var plan = await changeStatus(ENTITY.WO, woId, ACTION.RETURN, user, {
     reason: reason,
     expectedUpdatedDate: expectedUpdatedDate,
     fields: {
@@ -1004,7 +1004,7 @@ function returnWorkOrder(woId, reason, user, expectedUpdatedDate) {
    * จึงเป็นโค้ดที่ไม่มีวันถูกเรียก ระบบจึงเงียบสนิททุกครั้งที่มีการตีกลับ
    * และไม่มีอะไรฟ้องเลย เพราะไม่ใช่ข้อผิดพลาด แค่ไม่ทำงาน
    */
-  notifyEvent_(NOTIFY_EVENT.RETURN, getWorkOrder(woId), { reason: reason });
+  await notifyEvent_(NOTIFY_EVENT.RETURN, await getWorkOrder(woId), { reason: reason });
   return plan;
 }
 
@@ -1013,14 +1013,14 @@ function returnWorkOrder(woId, reason, user, expectedUpdatedDate) {
  * @param {string} woId เลขที่ใบงาน
  * @return {number} จำนวน Task ที่บันทึกไว้
  */
-function rememberTaskStatuses_(woId) {
-  var tasks = listTasksByWo(woId);
+async function rememberTaskStatuses_(woId) {
+  var tasks = await listTasksByWo(woId);
   var saved = 0;
   for (var i = 0; i < tasks.length; i++) {
     var task = tasks[i];
     var current = task[STATUS_FIELD[ENTITY.TASK]];
     if (isEmptyValue_(current)) continue;
-    updateTask(task['Task_ID'], { 'Status_Before_Return': current });
+    await updateTask(task['Task_ID'], { 'Status_Before_Return': current });
     saved++;
   }
   return saved;
@@ -1036,8 +1036,8 @@ function rememberTaskStatuses_(woId) {
  * @param {Date|string} [expectedUpdatedDate] ค่า Updated_Date ที่หน้าจอถืออยู่
  * @return {Object} แผนการเปลี่ยนสถานะ
  */
-function cancelWorkOrder(woId, reason, user, expectedUpdatedDate) {
-  var plan = changeStatus(ENTITY.WO, woId, ACTION.CANCEL_WO, user, {
+async function cancelWorkOrder(woId, reason, user, expectedUpdatedDate) {
+  var plan = await changeStatus(ENTITY.WO, woId, ACTION.CANCEL_WO, user, {
     reason: reason,
     expectedUpdatedDate: expectedUpdatedDate,
     fields: { 'Cancel_Reason': reason }
@@ -1046,7 +1046,7 @@ function cancelWorkOrder(woId, reason, user, expectedUpdatedDate) {
    * ยกเลิกทั้งใบ ต้องแจ้งทุกฝ่ายที่เกี่ยวข้อง (SPEC 15.3)
    * เพราะอาจมีคนกำลังเตรียมของหรือกำลังเดินทางไปหน้างานอยู่แล้ว
    */
-  notifyEvent_(NOTIFY_EVENT.WO_CANCELLED, getWorkOrder(woId), { reason: reason });
+  await notifyEvent_(NOTIFY_EVENT.WO_CANCELLED, await getWorkOrder(woId), { reason: reason });
   return plan;
 }
 
@@ -1065,7 +1065,7 @@ function cancelWorkOrder(woId, reason, user, expectedUpdatedDate) {
  * @return {Object} {plan, taskPlan, steps}
  * @throws {Error} เมื่อไม่ระบุแผนก หรือไม่พบ Task ของแผนกนั้น
  */
-function reopenWorkOrder(woId, reason, department, user, options) {
+async function reopenWorkOrder(woId, reason, department, user, options) {
   options = options || {};
 
   // ข้อ 2: บังคับให้ระบุแผนก ถ้าไม่ระบุต้องปฏิเสธตั้งแต่ยังไม่แตะอะไร
@@ -1076,12 +1076,12 @@ function reopenWorkOrder(woId, reason, department, user, options) {
     throw new Error('ต้องระบุเหตุผลการเปิดงานใหม่');
   }
 
-  var target = findTaskOfDepartment_(woId, department);
+  var target = await findTaskOfDepartment_(woId, department);
   if (!target) {
     throw new Error('ใบงานนี้ไม่มีงานของ' + toThai_(ASSIGNMENT_TH, department) + ' จึงเปิดงานใหม่ให้แผนกนั้นไม่ได้');
   }
 
-  var before = getWorkOrder(woId);
+  var before = await getWorkOrder(woId);
   if (!before) throw new Error('ไม่พบใบงาน ' + woId);
 
   /*
@@ -1093,7 +1093,7 @@ function reopenWorkOrder(woId, reason, department, user, options) {
    * `Closed_Date` ไม่ได้อยู่ในรายการนี้โดยตั้งใจ — `changeStatus` ล้างให้เองเมื่อ
    * ใบงานออกจากสถานะปิด ซึ่งเป็นที่เดียวที่รู้ว่าสถานะเดิมคืออะไร (กฎข้อ 1)
    */
-  var plan = changeStatus(ENTITY.WO, woId, ACTION.REOPEN, user, {
+  var plan = await changeStatus(ENTITY.WO, woId, ACTION.REOPEN, user, {
     reason: reason,
     department: department,
     expectedUpdatedDate: options.expectedUpdatedDate,
@@ -1101,7 +1101,7 @@ function reopenWorkOrder(woId, reason, department, user, options) {
   });
 
   // ข้อ 3: ดึง Task ของแผนกนั้นกลับมาทำต่อในรายการเดียวกัน
-  var taskPlan = changeStatus(ENTITY.TASK, target['Task_ID'], ACTION.REOPEN, user, {
+  var taskPlan = await changeStatus(ENTITY.TASK, target['Task_ID'], ACTION.REOPEN, user, {
     reason: reason,
     department: department
   });
@@ -1113,7 +1113,7 @@ function reopenWorkOrder(woId, reason, department, user, options) {
    * ต้องไม่หาย · การรีเซ็ตทั้งหมดอัตโนมัติจะลบหลักฐานว่ารอบก่อนทำอะไรไปบ้าง
    * แล้วไม่มีทางได้กลับคืน
    */
-  var steps = reopenSteps_(target['Task_ID'], options.stepIds);
+  var steps = await reopenSteps_(target['Task_ID'], options.stepIds);
 
   /*
    * แจ้ง Admin ว่างานที่เชื่อว่าปิดแล้วกลับมาเปิดอีก (SPEC 15.3)
@@ -1121,11 +1121,11 @@ function reopenWorkOrder(woId, reason, department, user, options) {
    * Admin เป็นเจ้าของวงจรชีวิตใบงาน ถ้าใบที่ปิดไปแล้วกลับมาโดยไม่มีใครบอก
    * ภาพรวมที่ Admin ถืออยู่จะผิดทันที และจะไปรู้ตอนสรุปยอดสิ้นเดือนซึ่งสายไปแล้ว
    */
-  notifyEvent_(NOTIFY_EVENT.WO_REOPENED, getWorkOrder(woId), {
+  await notifyEvent_(NOTIFY_EVENT.WO_REOPENED, await getWorkOrder(woId), {
     reason: reason,
     department: department,
     // ข้อความที่คนอ่านต้องเป็นชื่อ ส่วนที่บันทึกลง Audit_Log ยังเป็นอีเมลเหมือนเดิม
-    actor: displayNameOf_(actingEmail_(user))
+    actor: await displayNameOf_(actingEmail_(user))
   });
 
   return { plan: plan, taskPlan: taskPlan, steps: steps };
@@ -1161,8 +1161,8 @@ function reopenFields_(wo, reason, user) {
  * @param {string} department ค่าจาก DEPT
  * @return {Object|null}
  */
-function findTaskOfDepartment_(woId, department) {
-  var tasks = listTasksByWo(woId);
+async function findTaskOfDepartment_(woId, department) {
+  var tasks = await listTasksByWo(woId);
   for (var i = 0; i < tasks.length; i++) {
     if (String(tasks[i]['Department'] || '').toUpperCase() === String(department).toUpperCase()) {
       return tasks[i];
@@ -1177,11 +1177,11 @@ function findTaskOfDepartment_(woId, department) {
  * @param {string[]} [stepIds] Step ที่ต้องเปิดใหม่
  * @return {Object[]} Step ที่ถูกแก้
  */
-function reopenSteps_(taskId, stepIds) {
+async function reopenSteps_(taskId, stepIds) {
   if (!stepIds || !stepIds.length) return [];
 
   var updated = [];
-  var steps = listStepsByTask(taskId);
+  var steps = await listStepsByTask(taskId);
   for (var i = 0; i < steps.length; i++) {
     if (stepIds.indexOf(steps[i]['Step_ID']) === -1) continue;
     /*
@@ -1192,7 +1192,7 @@ function reopenSteps_(taskId, stepIds) {
      * ส่วนยุคชีตรับข้อความว่างได้ โค้ดบรรทัดนี้จึงเคยถูกต้องและกลายเป็นผิด
      * ตอนย้ายฐานข้อมูล โดยไม่มีอะไรฟ้องจนกว่าจะมีคนกดเปิดงานใหม่จริง
      */
-    updated.push(updateStep(steps[i]['Step_ID'], {
+    updated.push(await updateStep(steps[i]['Step_ID'], {
       'Status': STEP_STATUS.PENDING,
       'Completed_By': '',
       'Completed_Date': null
@@ -1220,28 +1220,28 @@ function reopenSteps_(taskId, stepIds) {
  * @return {Object} แถวใบงานหลังบันทึก
  * @throws {Error} เมื่อไม่พบใบงาน หรือใบนั้นบันทึกว่าชำระแล้ว
  */
-function recordPayment(woId, remark, user) {
-  var wo = getWorkOrder(woId);
+async function recordPayment(woId, remark, user) {
+  var wo = await getWorkOrder(woId);
   if (!wo) throw new Error('ไม่พบใบงาน ' + woId);
 
   if (String(wo['Payment_Status'] || '') === PAYMENT.PAID) {
     throw new Error('ใบงานนี้บันทึกว่าได้รับชำระเงินแล้ว ไม่ต้องบันทึกซ้ำ');
   }
 
-  var saved = updateWorkOrder(woId, {
+  var saved = await updateWorkOrder(woId, {
     'Payment_Status': PAYMENT.PAID,
     'Payment_Date':   new Date(),
     'Payment_By':     actingEmail_(user),
     'Payment_Remark': isEmptyValue_(remark) ? '' : String(remark)
   });
 
-  writeAudit(ENTITY.WO, woId, ACTION.EDIT, 'Payment_Status',
+  await writeAudit(ENTITY.WO, woId, ACTION.EDIT, 'Payment_Status',
     wo['Payment_Status'] || PAYMENT.UNPAID, PAYMENT.PAID,
     isEmptyValue_(remark) ? 'บันทึกรับชำระเงิน' : String(remark), { woId: woId });
 
   // แจ้งห้องของแผนกที่รออยู่ทันที เพราะเป็นสัญญาณว่าเริ่มงานได้แล้ว (SPEC 12 · 15.3)
   // ข้อความบอกแค่ว่ารับชำระแล้ว ไม่มีจำนวนเงินและไม่มีรายละเอียดการชำระ (SPEC 15.4)
-  notifyEvent_(NOTIFY_EVENT.PAYMENT, getWorkOrder(woId));
+  await notifyEvent_(NOTIFY_EVENT.PAYMENT, await getWorkOrder(woId));
   return saved;
 }
 
@@ -1253,7 +1253,7 @@ function recordPayment(woId, remark, user) {
  *
  * @return {Object[]} รายการที่หน้าจอใช้ได้ทันที
  */
-function listReturnedWorkOrders() {
+async function listReturnedWorkOrders() {
   /*
    * ให้ฐานข้อมูลกรองมาให้ ไม่ลากทั้งตารางมาคัดเอง (กฎข้อ 28)
    *
@@ -1261,11 +1261,11 @@ function listReturnedWorkOrders() {
    * จำนวนใบที่ถูกตีกลับไม่โตตามอายุของระบบ แต่จำนวนใบทั้งหมดโต ต้นทุนของหน้านี้
    * จึงเคยโตขึ้นเรื่อย ๆ เพื่อคำตอบที่ขนาดเท่าเดิมตลอด
    */
-  var rows = findWorkOrdersBy('Overall_Status', WO_STATUS.RETURNED);
+  var rows = await findWorkOrdersBy('Overall_Status', WO_STATUS.RETURNED);
   var returned = [];
 
   for (var i = 0; i < rows.length; i++) {
-    returned.push(returnedViewOf_(rows[i]));
+    returned.push(await returnedViewOf_(rows[i]));
   }
 
   returned.sort(function (a, b) { return a.returnedAt - b.returnedAt; });
@@ -1280,7 +1280,7 @@ function listReturnedWorkOrders() {
  * @param {Object} wo แถวใบงาน
  * @return {Object}
  */
-function returnedViewOf_(wo) {
+async function returnedViewOf_(wo) {
   var when = toDate_(wo['Returned_Date']) || toDate_(wo['Updated_Date']);
 
   return {
@@ -1291,9 +1291,9 @@ function returnedViewOf_(wo) {
     assignmentType: wo['Assignment_Type'] || '',
     jobDescription: wo['Job_Description'] || '',
     returnReason: wo['Return_Reason'] || '',
-    returnedBy:   displayNameOf_(wo['Returned_By']),
+    returnedBy:   await displayNameOf_(wo['Returned_By']),
     returnCount:  Number(wo['Return_Count'] || 0),
-    createdBy:    displayNameOf_(wo['Created_By']),
+    createdBy:    await displayNameOf_(wo['Created_By']),
     // ใช้เรียงลำดับเท่านั้น ไม่ได้เอาไปแสดง จึงเป็นตัวเลขไม่ใช่ข้อความ
     returnedAt:   when ? when.getTime() : 0,
     display: {
@@ -1320,10 +1320,10 @@ function returnedViewOf_(wo) {
  * @return {Object} {plan, workOrder} — workOrder คือค่าหลังแก้ไข ใช้ Updated_Date ตัวใหม่ทำรายการต่อ
  * @throws {Error} เมื่อไม่พบใบงาน กรอกข้อมูลบังคับไม่ครบ หรือมีคนแก้ไปก่อนแล้ว
  */
-function editWorkOrder(woId, form, user, expectedUpdatedDate) {
+async function editWorkOrder(woId, form, user, expectedUpdatedDate) {
   form = form || {};
 
-  var current = getWorkOrder(woId);
+  var current = await getWorkOrder(woId);
   if (!current) throw new Error('ไม่พบใบงาน ' + woId);
 
   if (isEmptyValue_(form['Customer_Code'])) {
@@ -1337,7 +1337,7 @@ function editWorkOrder(woId, form, user, expectedUpdatedDate) {
   assertScheduleOrder_(fields);   // ตรวจก่อนแตะทะเบียนสถานที่ ซึ่งเป็นการเขียนจุดแรกของขั้นตอนนี้
 
   // สถานที่อาจถูกเปลี่ยน จึงต้องหา PJ_ID ใหม่ทุกครั้ง — เจอของเดิมก็ใช้ซ้ำตามปกติ
-  var pjId = resolveProjectLocation(
+  var pjId = await resolveProjectLocation(
     form['Customer_Code'], form['Project'], form['Location'], woId,
     { customerName: form['Customer_Name'] });
 
@@ -1345,12 +1345,12 @@ function editWorkOrder(woId, form, user, expectedUpdatedDate) {
   fields['Route'] = routeOfAssignment_(form['Assignment_Type']);
   fields['Request_Types'] = joinList_(form['Request_Types']);
 
-  var plan = changeStatus(ENTITY.WO, woId, ACTION.EDIT, user, {
+  var plan = await changeStatus(ENTITY.WO, woId, ACTION.EDIT, user, {
     expectedUpdatedDate: expectedUpdatedDate,
     fields: fields
   });
 
-  return { plan: plan, workOrder: getWorkOrder(woId) };
+  return { plan: plan, workOrder: await getWorkOrder(woId) };
 }
 
 /**
@@ -1364,14 +1364,14 @@ function editWorkOrder(woId, form, user, expectedUpdatedDate) {
  * @param {number} [limit=20] จำนวนผลลัพธ์สูงสุด
  * @return {Object[]} [{name, code, salesPerson, startContactDate, hasCode}]
  */
-function searchCustomers(query, limit) {
+async function searchCustomers(query, limit) {
   /*
    * ฐานข้อมูลกรองและจำกัดจำนวนมาให้ก่อน แล้ว filterCustomers_ คัดรอบสุดท้าย
    * ในหน่วยความจำและจัดรูปให้หน้าจอ · สองขั้นนี้ไม่ซ้ำซ้อนกัน เพราะตัวกรองของ
    * ฐานข้อมูลอาจกว้างกว่าที่ขอเล็กน้อยเมื่อคำค้นมีดอกจันปนอยู่ (ดู dbLikeLiteral_)
    * การคัดรอบสุดท้ายจึงเป็นสิ่งที่ทำให้ผลลัพธ์ตรงกับของเดิมเป๊ะทุกกรณี
    */
-  return filterCustomers_(findCustomers_(query, limit), query, limit);
+  return filterCustomers_(await findCustomers_(query, limit), query, limit);
 }
 
 /**
@@ -1412,8 +1412,8 @@ function filterCustomers_(rows, query, limit) {
  * @param {Object} user ผู้ใช้จาก getCurrentUser_()
  * @return {Object[]} ใบงานที่รออนุมัติ เรียงจากใหม่ไปเก่า
  */
-function listPendingApprovals(user, onlyRoute) {
-  return pendingApprovalsPage_(user, onlyRoute).rows;
+async function listPendingApprovals(user, onlyRoute) {
+  return await pendingApprovalsPage_(user, onlyRoute).rows;
 }
 
 /**
@@ -1427,7 +1427,7 @@ function listPendingApprovals(user, onlyRoute) {
  * @param {string} [onlyRoute] จำกัดเฉพาะสายเดียว
  * @return {Object} {rows, truncated, limit}
  */
-function pendingApprovalsPage_(user, onlyRoute) {
+async function pendingApprovalsPage_(user, onlyRoute) {
   var routes = [];
   if (hasRole_(user, [ROLE.APPROVER_SP])) routes.push(ROUTE.SP);
   if (hasRole_(user, [ROLE.APPROVER_LAB])) routes.push(ROUTE.LAB);
@@ -1457,7 +1457,7 @@ function pendingApprovalsPage_(user, onlyRoute) {
   filters[STATUS_FIELD[ENTITY.WO]] = WO_STATUS.PENDING_APPROVE;
   filters['Route'] = { op: 'in', value: routes };
 
-  var page = queryRowsCounted_(SHEET.WORK_ORDER, filters, { limit: PENDING_APPROVE_SCAN });
+  var page = await queryRowsCounted_(SHEET.WORK_ORDER, filters, { limit: PENDING_APPROVE_SCAN });
 
   page.rows.sort(function (a, b) {
     var left = toDate_(a['Created_Date']);

@@ -19,7 +19,7 @@
  * @param {function()} work งานที่ต้องทำ คืนค่าอะไรก็ได้
  * @return {Object} {ok: true, data} หรือ {ok: false, message}
  */
-function apiRun_(work) {
+async function apiRun_(work) {
   try {
     // ผ่านตัวแปลงกลางเสมอ ทั้งขาสำเร็จและขาผิดพลาด (กฎข้อ 14 · SPEC 19)
     return jsonSafe_({ ok: true, data: work() });
@@ -28,7 +28,7 @@ function apiRun_(work) {
     var message = (e && e.message) ? e.message : String(e);
     Logger.log('[' + formatForDisplay_(new Date()) + '] API error: ' + message + (e && e.stack ? '\n' + e.stack : ''));
     // ปัญหาเรื่องสิทธิ์ต้องเหลือร่องรอยใน System_Log ด้วย — Logger หายไปเมื่อปิดหน้าต่าง
-    logPermissionProblem_(e);
+    await logPermissionProblem_(e);
     return jsonSafe_({ ok: false, message: userFacingMessage_(e) });
   }
 }
@@ -224,7 +224,7 @@ function apiPublicActions_() {
  * @param {string} token โทเคนจากเบราว์เซอร์ (ไม่ต้องมีเมื่อเรียก api_login)
  * @return {Object} {ok, data} หรือ {ok, message}
  */
-function api_call(action, args, token) {
+async function api_call(action, args, token) {
   var name = String(action || '');
   var list = (Object.prototype.toString.call(args) === '[object Array]') ? args : [];
 
@@ -245,7 +245,7 @@ function api_call(action, args, token) {
      * ตรวจโทเคนก่อนถึงตัวรายการเสมอ และปฏิเสธเมื่อใช้ไม่ได้ (fail closed — กฎข้อ 16)
      * ธง needLogin มีไว้ให้หน้าเว็บพากลับไปหน้าเข้าสู่ระบบเอง แทนที่จะขึ้นข้อความค้างไว้เฉย ๆ
      */
-    var email = emailOfToken_(token);
+    var email = await emailOfToken_(token);
     if (!email) return { ok: false, message: NEED_LOGIN_MESSAGE, needLogin: true };
 
     beginRequest_(email, token);
@@ -266,9 +266,9 @@ function api_call(action, args, token) {
  * @param {string} password รหัสผ่าน
  * @return {Object} {ok, data:{token, user, mustChangePassword}}
  */
-function api_login(username, password) {
-  return apiRun_(function () {
-    return login(username, password);
+async function api_login(username, password) {
+  return await apiRun_(async function () {
+    return await login(username, password);
   });
 }
 
@@ -279,9 +279,9 @@ function api_login(username, password) {
  *
  * @return {Object} {ok, data:{loggedOut}}
  */
-function api_logout() {
-  return apiRun_(function () {
-    return { loggedOut: logout(REQUEST_CONTEXT_.token) };
+async function api_logout() {
+  return await apiRun_(async function () {
+    return { loggedOut: await logout(REQUEST_CONTEXT_.token) };
   });
 }
 
@@ -291,9 +291,9 @@ function api_logout() {
  * @param {string} newPassword รหัสใหม่
  * @return {Object} {ok, data:{changed}}
  */
-function api_changePassword(oldPassword, newPassword) {
-  return apiRun_(function () {
-    return changeOwnPassword(getCurrentUser_(), oldPassword, newPassword);
+async function api_changePassword(oldPassword, newPassword) {
+  return await apiRun_(async function () {
+    return await changeOwnPassword(await getCurrentUser_(), oldPassword, newPassword);
   });
 }
 
@@ -303,11 +303,11 @@ function api_changePassword(oldPassword, newPassword) {
  * @param {string} tempPassword รหัสชั่วคราว
  * @return {Object} {ok, data:{email, forcedLogout}}
  */
-function api_adminSetPassword(email, tempPassword) {
-  return apiRun_(function () {
-    var user = getCurrentUser_();
+async function api_adminSetPassword(email, tempPassword) {
+  return await apiRun_(async function () {
+    var user = await getCurrentUser_();
     assertRole_(user, [ROLE.ADMIN], 'ตั้งรหัสผ่านให้ผู้ใช้คนอื่น');
-    return setPasswordFor(email, tempPassword, user);
+    return await setPasswordFor(email, tempPassword, user);
   });
 }
 
@@ -316,11 +316,11 @@ function api_adminSetPassword(email, tempPassword) {
  * @param {string} email อีเมลของผู้ใช้
  * @return {Object} {ok, data:{closed}}
  */
-function api_adminForceLogout(email) {
-  return apiRun_(function () {
-    var user = getCurrentUser_();
+async function api_adminForceLogout(email) {
+  return await apiRun_(async function () {
+    var user = await getCurrentUser_();
     assertRole_(user, [ROLE.ADMIN], 'บังคับให้ผู้ใช้คนอื่นออกจากระบบ');
-    return { closed: forceLogoutUser(email) };
+    return { closed: await forceLogoutUser(email) };
   });
 }
 
@@ -337,9 +337,9 @@ function api_adminForceLogout(email) {
  * @param {Object} params ค่าที่หน้าส่งมา เช่น {dept, wo}
  * @return {Object} {ok, data} — data คือก้อนเดียวกับที่ pageBootstrap_ เคยฝังลงหน้า
  */
-function api_pageData(page, params) {
-  return apiRun_(function () {
-    return pageBootstrap_(String(page || ''), params || {});
+async function api_pageData(page, params) {
+  return await apiRun_(async function () {
+    return await pageBootstrap_(String(page || ''), params || {});
   });
 }
 
@@ -439,7 +439,7 @@ function endRequest_() {
  * @return {Object} {email, displayName, roles, department, telegramUserId, active}
  * @throws {Error} เมื่อระบุตัวตนไม่ได้ ไม่พบในทะเบียนผู้ใช้ หรือถูกปิดใช้งาน
  */
-function getCurrentUser_() {
+async function getCurrentUser_() {
   if (TEST_IDENTITY_) return TEST_IDENTITY_;
 
   /*
@@ -458,7 +458,7 @@ function getCurrentUser_() {
     ? String(REQUEST_CONTEXT_.email || '') : '';
   if (!email) throw new Error(NEED_LOGIN_MESSAGE);
 
-  var row = getUserRole(email);
+  var row = await getUserRole(email);
   if (!row) {
     throw new Error('ไม่พบบัญชีของคุณในทะเบียนผู้ใช้ กรุณาติดต่อผู้ดูแลระบบ');
   }
@@ -521,8 +521,8 @@ function assertRole_(user, allowed, what) {
  * @return {Object} แถวใบงาน
  * @throws {Error} เมื่อไม่พบใบงานหรือสิทธิ์ไม่ตรงสาย
  */
-function assertApproverOfWo_(user, woId, what) {
-  var wo = getWorkOrder(woId);
+async function assertApproverOfWo_(user, woId, what) {
+  var wo = await getWorkOrder(woId);
   if (!wo) throw new Error('ไม่พบใบงาน ' + woId);
 
   var need = approverRoleOfRoute(wo['Route']);
@@ -558,9 +558,9 @@ function uiLabels_() {
  * เพื่อไม่ให้หน้าจอยิง google.script.run หลายรอบตั้งแต่เปิดหน้า (SPEC G)
  * @return {Object} {ok, data:{user, requestTypes, attachmentTopics, assignmentTypes}}
  */
-function api_getBootstrap(woId) {
-  return apiRun_(function () {
-    var user = getCurrentUser_();
+async function api_getBootstrap(woId) {
+  return await apiRun_(async function () {
+    var user = await getCurrentUser_();
     var wo = String(woId || '');
 
     /*
@@ -568,12 +568,12 @@ function api_getBootstrap(woId) {
      * บอกชั้น Repo ไว้ก่อนจึงยิงขนานได้ในรอบเดียว แทนที่จะรอทีละตารางเรียงกัน
      * ลืมเรียกบรรทัดนี้ก็ยังได้ผลลัพธ์ถูกต้อง เพียงแต่ช้ากว่าที่ควรหนึ่งรอบ
      */
-    warmSnapshots_([SHEET.REQUEST_TYPE, SHEET.ATTACHMENT_TOPIC]);
+    await warmSnapshots_([SHEET.REQUEST_TYPE, SHEET.ATTACHMENT_TOPIC]);
 
     return {
       user: user,
-      requestTypes: toOptionList_(listRequestTypes(), 'Request_ID', 'Request_Name', 'Sort_Order'),
-      attachmentTopics: attachmentTopicOptions_(),
+      requestTypes: toOptionList_(await listRequestTypes(), 'Request_ID', 'Request_Name', 'Sort_Order'),
+      attachmentTopics: await attachmentTopicOptions_(),
       assignmentTypes: [
         ASSIGNMENT.SERVICE, ASSIGNMENT.PROJECT, ASSIGNMENT.SERVICE_PROJECT,
         ASSIGNMENT.LAB, ASSIGNMENT.UNSPECIFIED
@@ -582,8 +582,8 @@ function api_getBootstrap(woId) {
       // ไม่งั้นวันหนึ่งจะบอกผู้ใช้ว่ารับ 10 MB แล้วเซิร์ฟเวอร์ปฏิเสธที่ 5 MB
       upload: uploadLimits_(),
       // ใบงานที่กำลังแก้ไขอยู่ มีไฟล์อะไรแนบแล้วบ้าง และยังขาดหัวข้อบังคับใด
-      files: wo ? listWoFileViews(wo) : [],
-      missingTopics: wo ? missingRequiredTopics_(wo) : [],
+      files: wo ? await listWoFileViews(wo) : [],
+      missingTopics: wo ? await missingRequiredTopics_(wo) : [],
       /*
        * ใครกดสั่งออกใบสั่งงานใหม่ได้ (SPEC 16.1)
        *
@@ -602,8 +602,8 @@ function api_getBootstrap(woId) {
  * ส่งเฉพาะหัวข้อของขอบเขต WO เพราะหน้าสร้างใบงานแนบได้แค่กลุ่มนี้
  * @return {Object[]} [{topicId, name, required, multiple}]
  */
-function attachmentTopicOptions_() {
-  var rows = listAttachmentTopics();
+async function attachmentTopicOptions_() {
+  var rows = await listAttachmentTopics();
   var list = [];
   for (var i = 0; i < rows.length; i++) {
     if (String(rows[i]['Scope'] || '') !== FILE_SCOPE.WO) continue;
@@ -664,10 +664,10 @@ function toOptionList_(rows, idField, nameField, sortField) {
  * @param {string} project ชื่อโครงการ
  * @return {Object} {ok, data}
  */
-function api_listLocations(customerCode, project) {
-  return apiRun_(function () {
-    getCurrentUser_();   // ทุกคนในองค์กรดูได้ แต่ต้องอยู่ในทะเบียนผู้ใช้ก่อน
-    return listLocations(customerCode, project);
+async function api_listLocations(customerCode, project) {
+  return await apiRun_(async function () {
+    await getCurrentUser_();   // ทุกคนในองค์กรดูได้ แต่ต้องอยู่ในทะเบียนผู้ใช้ก่อน
+    return await listLocations(customerCode, project);
   });
 }
 
@@ -678,10 +678,10 @@ function api_listLocations(customerCode, project) {
  * @param {string} location ชื่อสถานที่ที่กำลังจะเพิ่ม
  * @return {Object} {ok, data}
  */
-function api_findSimilarLocation(customerCode, project, location) {
-  return apiRun_(function () {
-    getCurrentUser_();
-    return findSimilarLocation(customerCode, project, location);
+async function api_findSimilarLocation(customerCode, project, location) {
+  return await apiRun_(async function () {
+    await getCurrentUser_();
+    return await findSimilarLocation(customerCode, project, location);
   });
 }
 
@@ -694,12 +694,12 @@ function api_findSimilarLocation(customerCode, project, location) {
  * @param {Object} form ข้อมูลจากฟอร์ม โดย key ต้องตรงกับชื่อคอลัมน์ใน SPEC หัวข้อ 13
  * @return {Object} {ok, data:{woId, pjId, workOrder}}
  */
-function api_createWorkOrder(form, filesPending) {
-  return apiRun_(function () {
-    var user = getCurrentUser_();
+async function api_createWorkOrder(form, filesPending) {
+  return await apiRun_(async function () {
+    var user = await getCurrentUser_();
     assertRole_(user, ROLE_GROUP.ADMIN, 'สร้างใบงาน');
     // จำนวนไฟล์ที่หน้าเว็บกำลังจะส่งตามมา · ตัดสินแค่จังหวะที่ออกใบสั่งงาน (SPEC 16.1)
-    return createWorkOrder(form, user, { filesPending: Number(filesPending || 0) });
+    return await createWorkOrder(form, user, { filesPending: Number(filesPending || 0) });
   });
 }
 
@@ -723,12 +723,12 @@ function api_createWorkOrder(form, filesPending) {
  * @param {string} woId เลขที่ใบงาน
  * @return {Object} {ok, data:{issued, woId, version, url}}
  */
-function api_ensureWoReport(woId) {
-  return apiRun_(function () {
-    var user = getCurrentUser_();
+async function api_ensureWoReport(woId) {
+  return await apiRun_(async function () {
+    var user = await getCurrentUser_();
     assertRole_(user, ROLE_GROUP.ADMIN.concat(ROLE_GROUP.APPROVER), 'ออกใบสั่งงานที่ยังขาด');
 
-    var made = ensureWorkOrderReport_(woId, user, REPORT_WHEN_MISSING);
+    var made = await ensureWorkOrderReport_(woId, user, REPORT_WHEN_MISSING);
     return made
       ? { issued: true, woId: made.woId, version: made.version, url: made.url }
       : { issued: false, woId: String(woId || '') };
@@ -741,11 +741,11 @@ function api_ensureWoReport(woId) {
  * @param {Date|string} [expectedUpdatedDate] ค่า Updated_Date ที่หน้าจอถืออยู่
  * @return {Object} {ok, data}
  */
-function api_submitWorkOrder(woId, expectedUpdatedDate) {
-  return apiRun_(function () {
-    var user = getCurrentUser_();
+async function api_submitWorkOrder(woId, expectedUpdatedDate) {
+  return await apiRun_(async function () {
+    var user = await getCurrentUser_();
     assertRole_(user, ROLE_GROUP.ADMIN, 'ส่งใบงานขออนุมัติ');
-    return submitWorkOrder(woId, user, expectedUpdatedDate);
+    return await submitWorkOrder(woId, user, expectedUpdatedDate);
   });
 }
 
@@ -756,11 +756,11 @@ function api_submitWorkOrder(woId, expectedUpdatedDate) {
  * @param {Object} [options] {expectedUpdatedDate}
  * @return {Object} {ok, data:{plan, tasks, resumed}}
  */
-function api_approveWorkOrder(woId, assignmentType, options) {
-  return apiRun_(function () {
-    var user = getCurrentUser_();
-    assertApproverOfWo_(user, woId, 'อนุมัติ');
-    return approveWorkOrder(woId, assignmentType, user, options);
+async function api_approveWorkOrder(woId, assignmentType, options) {
+  return await apiRun_(async function () {
+    var user = await getCurrentUser_();
+    await assertApproverOfWo_(user, woId, 'อนุมัติ');
+    return await approveWorkOrder(woId, assignmentType, user, options);
   });
 }
 
@@ -771,11 +771,11 @@ function api_approveWorkOrder(woId, assignmentType, options) {
  * @param {Date|string} [expectedUpdatedDate] ค่า Updated_Date ที่หน้าจอถืออยู่
  * @return {Object} {ok, data}
  */
-function api_returnWorkOrder(woId, reason, expectedUpdatedDate) {
-  return apiRun_(function () {
-    var user = getCurrentUser_();
-    assertApproverOfWo_(user, woId, 'ตีกลับ');
-    return returnWorkOrder(woId, reason, user, expectedUpdatedDate);
+async function api_returnWorkOrder(woId, reason, expectedUpdatedDate) {
+  return await apiRun_(async function () {
+    var user = await getCurrentUser_();
+    await assertApproverOfWo_(user, woId, 'ตีกลับ');
+    return await returnWorkOrder(woId, reason, user, expectedUpdatedDate);
   });
 }
 
@@ -786,13 +786,13 @@ function api_returnWorkOrder(woId, reason, expectedUpdatedDate) {
  * @param {Date|string} [expectedUpdatedDate] ค่า Updated_Date ที่หน้าจอถืออยู่
  * @return {Object} {ok, data}
  */
-function api_cancelWorkOrder(woId, reason, expectedUpdatedDate) {
-  return apiRun_(function () {
-    var user = getCurrentUser_();
+async function api_cancelWorkOrder(woId, reason, expectedUpdatedDate) {
+  return await apiRun_(async function () {
+    var user = await getCurrentUser_();
     if (!hasRole_(user, ROLE_GROUP.ADMIN)) {
-      assertApproverOfWo_(user, woId, 'ยกเลิก');
+      await assertApproverOfWo_(user, woId, 'ยกเลิก');
     }
-    return cancelWorkOrder(woId, reason, user, expectedUpdatedDate);
+    return await cancelWorkOrder(woId, reason, user, expectedUpdatedDate);
   });
 }
 
@@ -815,9 +815,9 @@ function api_cancelWorkOrder(woId, reason, expectedUpdatedDate) {
  * @param {Object} [options] {stepIds, expectedUpdatedDate}
  * @return {Object} {ok, data}
  */
-function api_reopenWorkOrder(woId, reason, department, options) {
-  return apiRun_(function () {
-    var user = getCurrentUser_();
+async function api_reopenWorkOrder(woId, reason, department, options) {
+  return await apiRun_(async function () {
+    var user = await getCurrentUser_();
     assertRole_(user, ROLE_GROUP.APPROVER.concat(REOPEN_DEPARTMENTS), 'เปิดงานใหม่');
 
     var target = String(department || '');
@@ -825,10 +825,10 @@ function api_reopenWorkOrder(woId, reason, department, options) {
       // ไม่ใช่ผู้อนุมัติ = เป็นแผนก · แผนกมาจากทะเบียนผู้ใช้เท่านั้น ไม่รับจากหน้าเว็บ
       target = String(user.department || '');
     } else {
-      assertApproverOfWo_(user, woId, 'เปิดงานใหม่');
+      await assertApproverOfWo_(user, woId, 'เปิดงานใหม่');
     }
 
-    return reopenWorkOrder(woId, reason, target, user, options);
+    return await reopenWorkOrder(woId, reason, target, user, options);
   });
 }
 
@@ -844,9 +844,9 @@ function api_reopenWorkOrder(woId, reason, department, options) {
  *
  * @return {Object} {ok, data:{user, menu, labels}}
  */
-function api_getMenu() {
-  return apiRun_(function () {
-    var user = getCurrentUser_();
+async function api_getMenu() {
+  return await apiRun_(async function () {
+    var user = await getCurrentUser_();
     return { user: user, menu: menuForUser_(user), labels: uiLabels_() };
   });
 }
@@ -856,24 +856,24 @@ function api_getMenu() {
  * @param {string} woId เลขที่ใบงาน
  * @return {Object} {ok, data:{workOrder, tasks, steps, location}}
  */
-function api_getWorkOrder(woId) {
-  return apiRun_(function () {
-    getCurrentUser_();
+async function api_getWorkOrder(woId) {
+  return await apiRun_(async function () {
+    await getCurrentUser_();
 
-    var wo = getWorkOrder(woId);
+    var wo = await getWorkOrder(woId);
     if (!wo) throw new Error('ไม่พบใบงาน ' + woId);
 
-    var tasks = listTasksByWo(woId);
+    var tasks = await listTasksByWo(woId);
     var steps = [];
     for (var i = 0; i < tasks.length; i++) {
-      steps = steps.concat(listStepsByTask(tasks[i]['Task_ID']));
+      steps = steps.concat(await listStepsByTask(tasks[i]['Task_ID']));
     }
 
     return {
-      workOrder: withDisplayNames_([wo], ['Created_By'])[0],
+      workOrder: await withDisplayNames_([wo], ['Created_By'])[0],
       tasks: tasks,
       steps: steps,
-      location: wo['PJ_ID'] ? getLocation(wo['PJ_ID']) : null
+      location: wo['PJ_ID'] ? await getLocation(wo['PJ_ID']) : null
     };
   });
 }
@@ -890,11 +890,11 @@ function api_getWorkOrder(woId) {
  * @return {Object} {ok, data:{rows, total, totalAll, page, pageSize, pageCount,
  *                             filters, similar, emptyReason}}
  */
-function api_listWorkOrders(query) {
-  return apiRun_(function () {
+async function api_listWorkOrders(query) {
+  return await apiRun_(async function () {
     // ทุก Role เห็นได้ทุกใบ แต่ต้องล็อกอินก่อนเสมอ — ด่านนี้ห้ามผ่อน (SPEC 17.3)
-    getCurrentUser_();
-    return listWorkOrdersPage(query);
+    await getCurrentUser_();
+    return await listWorkOrdersPage(query);
   });
 }
 
@@ -910,9 +910,9 @@ function api_listWorkOrders(query) {
  *
  * @return {Object} {ok, data:{cards, cardGroups, total, isEmpty, asOf}}
  */
-function api_getDashboard() {
-  return apiRun_(function () {
-    return dashboardFor(getCurrentUser_());
+async function api_getDashboard() {
+  return await apiRun_(async function () {
+    return await dashboardFor(await getCurrentUser_());
   });
 }
 
@@ -925,10 +925,10 @@ function api_getDashboard() {
  * @param {string} query คำค้นจากชื่อลูกค้า
  * @return {Object} {ok, data:[{name, code, salesPerson, startContactDate, hasCode}]}
  */
-function api_searchCustomers(query) {
-  return apiRun_(function () {
-    getCurrentUser_();
-    return searchCustomers(query);
+async function api_searchCustomers(query) {
+  return await apiRun_(async function () {
+    await getCurrentUser_();
+    return await searchCustomers(query);
   });
 }
 
@@ -940,11 +940,11 @@ function api_searchCustomers(query) {
  * @param {Date|string} [expectedUpdatedDate] ค่า Updated_Date ที่หน้าจอถืออยู่
  * @return {Object} {ok, data:{plan, workOrder}}
  */
-function api_editWorkOrder(woId, form, expectedUpdatedDate) {
-  return apiRun_(function () {
-    var user = getCurrentUser_();
+async function api_editWorkOrder(woId, form, expectedUpdatedDate) {
+  return await apiRun_(async function () {
+    var user = await getCurrentUser_();
     assertRole_(user, ROLE_GROUP.ADMIN, 'แก้ไขใบงาน');
-    return editWorkOrder(woId, form, user, expectedUpdatedDate);
+    return await editWorkOrder(woId, form, user, expectedUpdatedDate);
   });
 }
 
@@ -953,11 +953,11 @@ function api_editWorkOrder(woId, form, expectedUpdatedDate) {
  * ผู้ที่ไม่ใช่ผู้อนุมัติจะได้รายการว่าง ไม่ใช่ error เพราะหน้าจอต้องแสดงข้อความว่าไม่มีสิทธิ์เอง
  * @return {Object} {ok, data:{user, rows, assignmentTypes}}
  */
-function api_listPendingApprovals(route) {
-  return apiRun_(function () {
-    var user = getCurrentUser_();
+async function api_listPendingApprovals(route) {
+  return await apiRun_(async function () {
+    var user = await getCurrentUser_();
     // สายที่ขอมาต้องเป็นสายที่ผู้ใช้อนุมัติได้จริง ไม่งั้นได้รายการว่าง (ตรวจใน listPendingApprovals)
-    var page = pendingApprovalsPage_(user, String(route || ''));
+    var page = await pendingApprovalsPage_(user, String(route || ''));
 
     /*
      * รายการถูกตัดหรือไม่ — ต้องบอก ไม่ใช่ปล่อยให้ใบงานหายจากหน้าจอเงียบ ๆ (กฎข้อ 32)
@@ -976,7 +976,7 @@ function api_listPendingApprovals(route) {
     return {
       user: user,
       route: String(route || ''),
-      rows: withDisplayNames_(page.rows, ['Created_By']),
+      rows: await withDisplayNames_(page.rows, ['Created_By']),
       truncated: page.truncated,
       scanLimit: page.limit,
       // แยกตามสาย เพราะไม่มีการส่งต่อข้ามสายแล้ว หน้าอนุมัติสาย SP จึงต้องไม่มีตัวเลือก Lab (SPEC 3.1)
@@ -1003,11 +1003,11 @@ function api_listPendingApprovals(route) {
  * @param {Date|string} [expectedUpdatedDate] ค่า Updated_Date ที่หน้าจอถืออยู่
  * @return {Object} {ok, data}
  */
-function api_acceptTask(taskId, expectedUpdatedDate) {
-  return apiRun_(function () {
-    var user = getCurrentUser_();
+async function api_acceptTask(taskId, expectedUpdatedDate) {
+  return await apiRun_(async function () {
+    var user = await getCurrentUser_();
     assertRole_(user, ROLE_GROUP.DEPARTMENT, 'รับงาน');
-    return acceptTask(taskId, user, expectedUpdatedDate);
+    return await acceptTask(taskId, user, expectedUpdatedDate);
   });
 }
 
@@ -1017,11 +1017,11 @@ function api_acceptTask(taskId, expectedUpdatedDate) {
  * @param {Object} data ค่าที่ต้องการเปลี่ยน
  * @return {Object} {ok, data:{plan, step}}
  */
-function api_updateTaskStep(stepId, data) {
-  return apiRun_(function () {
-    var user = getCurrentUser_();
+async function api_updateTaskStep(stepId, data) {
+  return await apiRun_(async function () {
+    var user = await getCurrentUser_();
     assertRole_(user, ROLE_GROUP.DEPARTMENT, 'บันทึกความคืบหน้าของงาน');
-    return updateTaskStep(stepId, data, user);
+    return await updateTaskStep(stepId, data, user);
   });
 }
 
@@ -1031,11 +1031,11 @@ function api_updateTaskStep(stepId, data) {
  * @param {Date|string} [expectedUpdatedDate] ค่า Updated_Date ที่หน้าจอถืออยู่
  * @return {Object} {ok, data}
  */
-function api_completeTask(taskId, expectedUpdatedDate) {
-  return apiRun_(function () {
-    var user = getCurrentUser_();
+async function api_completeTask(taskId, expectedUpdatedDate) {
+  return await apiRun_(async function () {
+    var user = await getCurrentUser_();
     assertRole_(user, ROLE_GROUP.DEPARTMENT, 'ปิดงาน');
-    return completeTask(taskId, user, expectedUpdatedDate);
+    return await completeTask(taskId, user, expectedUpdatedDate);
   });
 }
 
@@ -1045,11 +1045,11 @@ function api_completeTask(taskId, expectedUpdatedDate) {
  * @param {string} reason เหตุผล
  * @return {Object} {ok, data:{plan, remembered, returnCount}}
  */
-function api_returnTask(taskId, reason) {
-  return apiRun_(function () {
-    var user = getCurrentUser_();
+async function api_returnTask(taskId, reason) {
+  return await apiRun_(async function () {
+    var user = await getCurrentUser_();
     assertRole_(user, ROLE_GROUP.DEPARTMENT, 'ตีกลับใบงาน');
-    return returnTask(taskId, reason, user);
+    return await returnTask(taskId, reason, user);
   });
 }
 
@@ -1060,12 +1060,12 @@ function api_returnTask(taskId, reason) {
  * @param {Date|string} [expectedUpdatedDate] ค่า Updated_Date ที่หน้าจอถืออยู่
  * @return {Object} {ok, data}
  */
-function api_cancelTask(taskId, reason, expectedUpdatedDate) {
-  return apiRun_(function () {
-    var user = getCurrentUser_();
+async function api_cancelTask(taskId, reason, expectedUpdatedDate) {
+  return await apiRun_(async function () {
+    var user = await getCurrentUser_();
     var allowed = ROLE_GROUP.DEPARTMENT.concat(ROLE_GROUP.APPROVER, ROLE_GROUP.ADMIN);
     assertRole_(user, allowed, 'ยกเลิกงานของแผนก');
-    return cancelTask(taskId, reason, user, expectedUpdatedDate);
+    return await cancelTask(taskId, reason, user, expectedUpdatedDate);
   });
 }
 
@@ -1081,11 +1081,11 @@ function api_cancelTask(taskId, reason, expectedUpdatedDate) {
  * @param {string} visitEnd 'YYYY-MM-DDTHH:mm' หรือค่าว่าง
  * @return {Object} {ok, data:{plan, task}}
  */
-function api_setTaskVisit(taskId, visitStart, visitEnd) {
-  return apiRun_(function () {
-    var user = getCurrentUser_();
+async function api_setTaskVisit(taskId, visitStart, visitEnd) {
+  return await apiRun_(async function () {
+    var user = await getCurrentUser_();
     assertRole_(user, ROLE_GROUP.DEPARTMENT, 'กำหนดวันเวลาเข้างาน');
-    return setTaskVisit(taskId, visitStart, visitEnd, user);
+    return await setTaskVisit(taskId, visitStart, visitEnd, user);
   });
 }
 
@@ -1099,10 +1099,10 @@ function api_setTaskVisit(taskId, visitStart, visitEnd) {
  *
  * @return {Object} {ok, data:{user, rows, labels, today}}
  */
-function api_listTodayTasks(page) {
-  return apiRun_(function () {
-    var user = getCurrentUser_();
-    return taskPagePayload_(user, { view: TASK_TODAY_VIEW, page: page });
+async function api_listTodayTasks(page) {
+  return await apiRun_(async function () {
+    var user = await getCurrentUser_();
+    return await taskPagePayload_(user, { view: TASK_TODAY_VIEW, page: page });
   });
 }
 
@@ -1123,10 +1123,10 @@ function api_listTodayTasks(page) {
  * @param {number} [page] หน้าที่ต้องการ เริ่มที่ 1
  * @return {Object} {ok, data:{user, rows, total, page, pageSize, view, today, labels}}
  */
-function api_listMyTasks(includeClosed, view, page) {
-  return apiRun_(function () {
-    var user = getCurrentUser_();
-    return taskPagePayload_(user, {
+async function api_listMyTasks(includeClosed, view, page) {
+  return await apiRun_(async function () {
+    var user = await getCurrentUser_();
+    return await taskPagePayload_(user, {
       includeClosed: !!includeClosed,
       view: view,
       page: page
@@ -1144,9 +1144,9 @@ function api_listMyTasks(includeClosed, view, page) {
  * @param {Object} options {view, page, includeClosed}
  * @return {Object}
  */
-function taskPagePayload_(user, options) {
+async function taskPagePayload_(user, options) {
   var empty = { rows: [], total: 0, page: 1, pageSize: TASK_PAGE_SIZE, view: '', today: '' };
-  var got = user.department ? listTaskPage_(user.department, options) : empty;
+  var got = user.department ? await listTaskPage_(user.department, options) : empty;
 
   return {
     user:     user,
@@ -1174,7 +1174,7 @@ function taskPagePayload_(user, options) {
      * ไม่ได้แพงขึ้นหนึ่งคำขอ เพราะ taskCountsForDepartment_ จำคำตอบไว้ภายในการรันเดียว
      * ตอนเปิดหน้า แถบเมนูกับรายการจึงใช้คำตอบเดียวกัน
      */
-    counts:   user.department ? taskCountsForDepartment_(user.department) : null,
+    counts:   user.department ? await taskCountsForDepartment_(user.department) : null,
     labels:   uiLabels_()
   };
 }
@@ -1188,10 +1188,10 @@ function taskPagePayload_(user, options) {
  * @param {string} taskId เลขที่งานของแผนก
  * @return {Object} {ok, data:{taskId, department, scope, options, slots, missing, missingMessage}}
  */
-function api_listTaskReports(taskId) {
-  return apiRun_(function () {
-    getCurrentUser_();
-    return taskReportView(String(taskId || ''));
+async function api_listTaskReports(taskId) {
+  return await apiRun_(async function () {
+    await getCurrentUser_();
+    return await taskReportView(String(taskId || ''));
   });
 }
 
@@ -1201,12 +1201,12 @@ function api_listTaskReports(taskId) {
  * @param {string} [name] ชื่องวดที่ผู้ใช้ตั้ง
  * @return {Object} {ok, data:{step, reports}}
  */
-function api_addTaskPeriod(taskId, name) {
-  return apiRun_(function () {
-    var user = getCurrentUser_();
+async function api_addTaskPeriod(taskId, name) {
+  return await apiRun_(async function () {
+    var user = await getCurrentUser_();
     assertRole_(user, [ROLE.PROJECT], 'เพิ่มงวดงาน');
-    var step = addTaskPeriod(String(taskId || ''), String(name || ''), user);
-    return { step: step, reports: taskReportView(String(taskId || '')) };
+    var step = await addTaskPeriod(String(taskId || ''), String(name || ''), user);
+    return { step: step, reports: await taskReportView(String(taskId || '')) };
   });
 }
 
@@ -1215,12 +1215,12 @@ function api_addTaskPeriod(taskId, name) {
  * @param {string} stepId เลขที่งวดงาน
  * @return {Object} {ok, data:{taskId, reports}}
  */
-function api_removeTaskPeriod(stepId) {
-  return apiRun_(function () {
-    var user = getCurrentUser_();
+async function api_removeTaskPeriod(stepId) {
+  return await apiRun_(async function () {
+    var user = await getCurrentUser_();
     assertRole_(user, [ROLE.PROJECT], 'ลบงวดงาน');
-    var removed = removeTaskPeriod(String(stepId || ''), user);
-    return { taskId: removed.taskId, reports: taskReportView(removed.taskId) };
+    var removed = await removeTaskPeriod(String(stepId || ''), user);
+    return { taskId: removed.taskId, reports: await taskReportView(removed.taskId) };
   });
 }
 
@@ -1230,11 +1230,11 @@ function api_removeTaskPeriod(stepId) {
  * @param {string} [remark] เลขที่ใบเสร็จหรือหมายเหตุ
  * @return {Object} {ok, data}
  */
-function api_recordPayment(woId, remark) {
-  return apiRun_(function () {
-    var user = getCurrentUser_();
+async function api_recordPayment(woId, remark) {
+  return await apiRun_(async function () {
+    var user = await getCurrentUser_();
     assertRole_(user, ROLE_GROUP.ADMIN, 'บันทึกรับชำระเงิน');
-    return recordPayment(woId, remark, user);
+    return await recordPayment(woId, remark, user);
   });
 }
 
@@ -1268,9 +1268,9 @@ function uploaderRolesOfScope_(scope) {
  *                          fileName, mimeType, content}
  * @return {Object} {ok, data:{file, files}}
  */
-function api_uploadFile(request) {
-  return apiRun_(function () {
-    var user = getCurrentUser_();
+async function api_uploadFile(request) {
+  return await apiRun_(async function () {
+    var user = await getCurrentUser_();
     var scope = String((request && request.scope) || '');
     var allowed = uploaderRolesOfScope_(scope);
     if (!allowed.length) {
@@ -1278,8 +1278,8 @@ function api_uploadFile(request) {
     }
     assertRole_(user, allowed, 'แนบไฟล์ประเภทนี้');
 
-    var row = uploadFile(request, user);
-    return { file: fileViewOf_(row), files: listWoFileViews(request.woId) };
+    var row = await uploadFile(request, user);
+    return { file: await fileViewOf_(row), files: await listWoFileViews(request.woId) };
   });
 }
 
@@ -1288,17 +1288,17 @@ function api_uploadFile(request) {
  * @param {string} fileId เลขที่ไฟล์ในทะเบียน
  * @return {Object} {ok, data:{files}}
  */
-function api_removeFile(fileId) {
-  return apiRun_(function () {
-    var user = getCurrentUser_();
-    var file = getFile(fileId);
+async function api_removeFile(fileId) {
+  return await apiRun_(async function () {
+    var user = await getCurrentUser_();
+    var file = await getFile(fileId);
     if (!file) throw new Error('ไม่พบไฟล์ที่ต้องการลบ อาจถูกลบไปแล้ว');
 
     // ใช้กติกาเดียวกับตอนแนบ — ใครแนบได้ คนนั้นลบได้
-    assertRole_(user, uploaderRolesOfScope_(scopeOfFile_(file)), 'ลบไฟล์ประเภทนี้');
+    assertRole_(user, uploaderRolesOfScope_(await scopeOfFile_(file)), 'ลบไฟล์ประเภทนี้');
 
-    removeFile(fileId);
-    return { files: listWoFileViews(file['WO_ID']) };
+    await removeFile(fileId);
+    return { files: await listWoFileViews(file['WO_ID']) };
   });
 }
 
@@ -1316,13 +1316,13 @@ function api_removeFile(fileId) {
  * @param {Object} file แถวจาก File_Index
  * @return {string} ค่าจาก FILE_SCOPE
  */
-function scopeOfFile_(file) {
+async function scopeOfFile_(file) {
   var taskId = String(file['Task_ID'] || '');
   if (taskId) {
-    var task = getTask(taskId);
+    var task = await getTask(taskId);
     if (task) return fileScopeOfDepartment_(task['Department']);
   }
-  if (file['Report_Code']) return scopeOfReport_(file['Report_Code']);
+  if (file['Report_Code']) return await scopeOfReport_(file['Report_Code']);
   return file['Topic_ID'] ? FILE_SCOPE.WO : FILE_SCOPE.PAYMENT;
 }
 
@@ -1340,15 +1340,15 @@ function scopeOfFile_(file) {
  * @param {string} woId เลขที่ใบงาน
  * @return {Object} {ok, data:{woId, found, reportUrl, groups}}
  */
-function api_listWoAttachments(woId) {
-  return apiRun_(function () {
-    getCurrentUser_();   // ต้องระบุตัวตนได้ก่อนเสมอ แม้เป็นการอ่าน (กฎข้อ 16)
-    var wo = getWorkOrder(woId);
+async function api_listWoAttachments(woId) {
+  return await apiRun_(async function () {
+    await getCurrentUser_();   // ต้องระบุตัวตนได้ก่อนเสมอ แม้เป็นการอ่าน (กฎข้อ 16)
+    var wo = await getWorkOrder(woId);
     return {
       woId:      String(woId || ''),
       found:     !!wo,
       reportUrl: wo ? String(wo['Report_URL'] || '') : '',
-      groups:    wo ? listWoAttachmentGroups(woId) : []
+      groups:    wo ? await listWoAttachmentGroups(woId) : []
     };
   });
 }
@@ -1368,11 +1368,11 @@ function api_listWoAttachments(woId) {
  * @param {string} [size] 'full' = ไฟล์เต็ม · ค่าอื่นหรือไม่ส่ง = ภาพย่อ
  * @return {Object} {ok, data:{fileId, found, mimeType, dataUrl, size}}
  */
-function api_fileImage(fileId, size) {
-  return apiRun_(function () {
-    getCurrentUser_();   // ต้องระบุตัวตนได้ก่อนเสมอ แม้เป็นการอ่าน (กฎข้อ 16)
+async function api_fileImage(fileId, size) {
+  return await apiRun_(async function () {
+    await getCurrentUser_();   // ต้องระบุตัวตนได้ก่อนเสมอ แม้เป็นการอ่าน (กฎข้อ 16)
 
-    var row = getFile(fileId);
+    var row = await getFile(fileId);
     /*
      * ไฟล์ที่ถูกลบไปแล้วต้องไม่ถูกส่งออกไป · การลบของระบบคือ Is_Active = false
      * ตัวไฟล์ยังอยู่ในถังขยะของ Drive และยังเปิดด้วยรหัสได้อยู่ (SPEC D-8)
@@ -1452,11 +1452,11 @@ function canSeeWorkOrder_(user, wo) {
  * @param {string} ref เลขที่ไฟล์ในทะเบียน (kind=file) หรือลำดับฉบับ (kind=archive)
  * @return {Object} {ok, data:{found, kind, name, mimeType, size, dataUrl}}
  */
-function api_woDocument(woId, kind, ref) {
-  return apiRun_(function () {
-    var user = getCurrentUser_();   // ไม่รู้ว่าใครขอ = ปฏิเสธ (กฎข้อ 16)
+async function api_woDocument(woId, kind, ref) {
+  return await apiRun_(async function () {
+    var user = await getCurrentUser_();   // ไม่รู้ว่าใครขอ = ปฏิเสธ (กฎข้อ 16)
 
-    var wo = getWorkOrder(woId);
+    var wo = await getWorkOrder(woId);
     if (!canSeeWorkOrder_(user, wo)) return docMiss_('ไม่พบใบงาน หรือไม่มีสิทธิ์เห็น');
 
     var want = String(kind || DOC_KIND.REPORT);
@@ -1464,7 +1464,7 @@ function api_woDocument(woId, kind, ref) {
     var name = '';
 
     if (want === DOC_KIND.FILE) {
-      var row = getFile(ref);
+      var row = await getFile(ref);
       /*
        * ต้องเป็นไฟล์ของใบงานที่ขอมาจริง ๆ · ถ้าไม่ผูกสองค่านี้เข้าด้วยกัน
        * การส่งเลขที่ใบงานที่ตัวเองเห็นได้ มาคู่กับเลขที่ไฟล์ของใบงานอื่น
@@ -1544,7 +1544,7 @@ function api_woDocument(woId, kind, ref) {
  * @param {string[]} fields ชื่อคอลัมน์ที่เก็บอีเมล
  * @return {Object[]} แถวชุดใหม่ที่มีคอลัมน์ <ชื่อเดิม>_Name เพิ่มมา
  */
-function withDisplayNames_(rows, fields) {
+async function withDisplayNames_(rows, fields) {
   var out = [];
   for (var i = 0; i < rows.length; i++) {
     var copy = {};
@@ -1552,7 +1552,7 @@ function withDisplayNames_(rows, fields) {
       if (Object.prototype.hasOwnProperty.call(rows[i], key)) copy[key] = rows[i][key];
     }
     for (var f = 0; f < fields.length; f++) {
-      copy[fields[f] + '_Name'] = displayNameOf_(rows[i][fields[f]]);
+      copy[fields[f] + '_Name'] = await displayNameOf_(rows[i][fields[f]]);
     }
     out.push(copy);
   }
@@ -1576,9 +1576,9 @@ function docMiss_(why) {
  * @param {number} kilobytes ขนาดที่ต้องการ
  * @return {Object} {ok, data:{size, dataUrl}}
  */
-function api_probePaddingBytes(kilobytes) {
-  return apiRun_(function () {
-    var user = getCurrentUser_();
+async function api_probePaddingBytes(kilobytes) {
+  return await apiRun_(async function () {
+    var user = await getCurrentUser_();
     assertRole_(user, [ROLE.ADMIN], 'ใช้เครื่องมือวัดการเปิดไฟล์');
 
     // เพดานเดียวกับที่ระบบยอมให้อัปโหลด — ไม่มีเหตุผลให้วัดเกินกว่าที่รับได้จริง
@@ -1598,8 +1598,8 @@ function api_probePaddingBytes(kilobytes) {
  * @param {string} reportCode รหัส Report
  * @return {string} ค่าจาก FILE_SCOPE
  */
-function scopeOfReport_(reportCode) {
-  var report = getReport(reportCode);
+async function scopeOfReport_(reportCode) {
+  var report = await getReport(reportCode);
   var type = String((report && report['Type']) || '').toUpperCase();
   if (type === FILE_SCOPE.PROJECT) return FILE_SCOPE.PROJECT;
   if (type === FILE_SCOPE.LAB) return FILE_SCOPE.LAB;
@@ -1610,12 +1610,12 @@ function scopeOfReport_(reportCode) {
  * ใบงานที่ถูกตีกลับทั้งหมด — เมนูของ ADMIN / SALE (SPEC 17.2)
  * @return {Object} {ok, data:{user, rows, labels}}
  */
-function api_listReturnedWorkOrders() {
-  return apiRun_(function () {
-    var user = getCurrentUser_();
+async function api_listReturnedWorkOrders() {
+  return await apiRun_(async function () {
+    var user = await getCurrentUser_();
     // เมนูนี้เป็นของผู้เปิดใบงาน ไม่ใช่ของทุกคน — ผู้อนุมัติมีหน้ารายการรออนุมัติของตัวเองอยู่แล้ว
     assertRole_(user, ROLE_GROUP.ADMIN, 'ดูรายการใบงานที่ถูกตีกลับ');
-    return { user: user, rows: listReturnedWorkOrders(), labels: uiLabels_() };
+    return { user: user, rows: await listReturnedWorkOrders(), labels: uiLabels_() };
   });
 }
 
@@ -1625,13 +1625,13 @@ function api_listReturnedWorkOrders() {
  * @param {string} woId เลขที่ใบงาน
  * @return {Object} {ok, data:{files, missingTopics}}
  */
-function api_listWoFiles(woId) {
-  return apiRun_(function () {
-    getCurrentUser_();   // ต้องระบุตัวตนได้ก่อนเสมอ แม้เป็นการอ่าน (กฎข้อ 16)
-    var wo = getWorkOrder(woId);
+async function api_listWoFiles(woId) {
+  return await apiRun_(async function () {
+    await getCurrentUser_();   // ต้องระบุตัวตนได้ก่อนเสมอ แม้เป็นการอ่าน (กฎข้อ 16)
+    var wo = await getWorkOrder(woId);
     return {
-      files: listWoFileViews(woId),
-      missingTopics: missingRequiredTopics_(woId),
+      files: await listWoFileViews(woId),
+      missingTopics: await missingRequiredTopics_(woId),
       /*
        * ค่า Updated_Date ล่าสุดของใบงาน
        *
@@ -1656,10 +1656,10 @@ function api_listWoFiles(woId) {
  * @param {string} woId เลขที่ใบงาน
  * @return {Object} {ok, data:{detail}}
  */
-function api_getWoDetail(woId) {
-  return apiRun_(function () {
-    getCurrentUser_();   // ต้องระบุตัวตนได้ก่อนเสมอ แม้เป็นการอ่าน
-    return { detail: workOrderDetail(woId), labels: uiLabels_() };
+async function api_getWoDetail(woId) {
+  return await apiRun_(async function () {
+    await getCurrentUser_();   // ต้องระบุตัวตนได้ก่อนเสมอ แม้เป็นการอ่าน
+    return { detail: await workOrderDetail(woId), labels: uiLabels_() };
   });
 }
 
@@ -1675,10 +1675,10 @@ function api_getWoDetail(woId) {
  * @param {string} woId เลขที่ใบงาน
  * @return {Object} {ok, data:{woId, version, url}}
  */
-function api_generateReport(woId) {
-  return apiRun_(function () {
-    var user = getCurrentUser_();
+async function api_generateReport(woId) {
+  return await apiRun_(async function () {
+    var user = await getCurrentUser_();
     assertRole_(user, [ROLE.ADMIN], 'สั่งออกใบสั่งงานใหม่');
-    return generateWorkOrderReport(woId, user);
+    return await generateWorkOrderReport(woId, user);
   });
 }
