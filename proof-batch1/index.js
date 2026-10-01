@@ -118,19 +118,22 @@ function say(body) {
 }
 
 /* ---------------------------------------------------------------------------
- * ทางที่มีไว้ให้ตัวเองยิงใส่ — สร้างสถานการณ์ที่ควบคุมได้โดยไม่พึ่งใคร
+ * เป้าที่ควบคุมได้ — Durable Object ไม่ใช่การยิง fetch ใส่ตัวเอง
+ *
+ * **ยิง fetch ใส่ Worker ตัวเองไม่ได้** · Cloudflare ปฏิเสธด้วย `404 error code: 1042`
+ * ("Worker tried to fetch from another Worker on the same zone") · วัดเจอจริง
+ * 01-10-2026 — ข้อ 3, 5, 6 ได้ 1042 ทุกทาง จึงไม่มีคำตอบสักข้อ
+ *
+ * `wrangler dev` ในเครื่องยอมให้ยิงใส่ตัวเองสบาย ๆ ข้อจำกัดนี้จึงมองไม่เห็นเลย
+ * จนกว่าจะ deploy จริง — เป็นครั้งที่สามในวันเดียวที่ในเครื่องผ่านแต่ของจริงไม่ผ่าน
+ *
+ * Durable Object เรียกผ่าน stub ซึ่งเป็นการเรียกภายใน ไม่ใช่คำขอ HTTP ที่วิ่งออกไป
+ * หา zone เดิม จึงไม่ควรชนข้อห้ามนั้น · **ยังไม่เคยพิสูจน์ ต้องดูผลรอบนี้**
+ *
+ * ผลพลอยได้ที่สำคัญกว่า — ตัวนับของข้อ 5 ย้ายมาอยู่ใน object เดียวที่เรียกด้วยชื่อ
+ * ทุกคำขอจึงไปถึงตัวเดียวกันแน่นอน · ปัญหา "สามคำขอตกคนละ isolate" หายไปทั้งหมด
+ * ไม่ใช่แค่ถูกตรวจจับได้
  * --------------------------------------------------------------------------- */
-
-/** ตอบทันที ใช้เป็นเป้าราคาถูกตอนนับเพดานจำนวนคำขอ */
-function routePing() {
-  return new Response('ok');
-}
-
-/** ตอบ 503 พร้อม body — ใช้แยก "5xx" ออกจาก "ต่อไม่ติด" */
-function route503() {
-  return new Response(JSON.stringify({ message: 'จำลองฝั่งโน้นล่ม', code: '53300' }),
-    { status: 503, headers: { 'content-type': 'application/json' } });
-}
 
 /*
  * ข้อความที่ทางค้างจะตอบกลับมาเมื่อมันค้างจนครบเวลาได้สำเร็จ
@@ -142,70 +145,78 @@ function route503() {
  */
 const SLOW_DONE_MARK = 'ค้างครบแล้วตอบเอง';
 
-/** ค้างไว้ตามจำนวนวินาทีที่สั่ง แล้วค่อยตอบ — ใช้วัดว่า fetch มีเพดานเวลาในตัวไหม */
-async function routeSlow(url) {
-  const seconds = Number(url.searchParams.get('s') || '30');
-  await new Promise((r) => setTimeout(r, seconds * 1000));
-  // เครื่องหมายนี้คือหลักฐานว่าฝั่งที่ค้าง **ค้างจนครบแล้วตอบเอง** ไม่ใช่ถูกใครฆ่ากลางทาง
-  return new Response(SLOW_DONE_MARK + ' ' + seconds);
-}
+export class ProbeTarget {
+  constructor(state, env) {
+    this.state = state;
+    // อยู่ในหน่วยความจำของ object นี้ · ไม่ต้องเขียนลงที่เก็บ เพราะต้องการแค่
+    // ช่วงชีวิตของการวัดหนึ่งรอบ และการเขียนจะเพิ่มตัวแปรที่ไม่ได้ถูกถาม
+    this.hits = 0;
+  }
 
-/** body ใหญ่ ๆ ที่ตั้งใจจะไม่อ่านให้จบ */
-function routeBig(url) {
-  const mb = Number(url.searchParams.get('mb') || '4');
-  const chunk = 'ก'.repeat(64 * 1024);
-  const stream = new ReadableStream({
-    start(controller) {
-      const total = Math.ceil((mb * 1024 * 1024) / (64 * 1024));
-      for (let i = 0; i < total; i++) controller.enqueue(new TextEncoder().encode(chunk));
-      controller.close();
+  async fetch(request) {
+    const url = new URL(request.url);
+
+    switch (url.pathname) {
+      /** ตอบทันที ใช้เป็นเป้าราคาถูกตอนนับเพดานจำนวนคำขอ */
+      case '/ping':
+        return new Response('ok');
+
+      /** ตอบ 503 พร้อม body — ใช้แยก "5xx ของปลายทางจริง" ออกจาก "ต่อไม่ติด" */
+      case '/503':
+        return new Response(JSON.stringify({ message: 'จำลองฝั่งโน้นล่ม', code: '53300' }),
+          { status: 503, headers: { 'content-type': 'application/json' } });
+
+      /** ค้างไว้ตามจำนวนวินาทีที่สั่ง แล้วค่อยตอบ — วัดว่า fetch มีเพดานเวลาในตัวไหม */
+      case '/slow': {
+        const seconds = Number(url.searchParams.get('s') || '30');
+        await new Promise((r) => setTimeout(r, seconds * 1000));
+        // หลักฐานว่าฝั่งที่ค้าง **ค้างจนครบแล้วตอบเอง** ไม่ใช่ถูกใครฆ่ากลางทาง
+        return new Response(SLOW_DONE_MARK + ' ' + seconds);
+      }
+
+      /** body ใหญ่ ๆ ที่ตั้งใจจะไม่อ่านให้จบ */
+      case '/big': {
+        const mb = Number(url.searchParams.get('mb') || '4');
+        const chunk = 'ก'.repeat(64 * 1024);
+        const stream = new ReadableStream({
+          start(controller) {
+            const total = Math.ceil((mb * 1024 * 1024) / (64 * 1024));
+            for (let i = 0; i < total; i++) controller.enqueue(new TextEncoder().encode(chunk));
+            controller.close();
+          }
+        });
+        return new Response(stream, { headers: { 'content-type': 'text/plain; charset=utf-8' } });
+      }
+
+      /** นับว่าถูกเรียกไปกี่ครั้ง แล้วตอบ 500 — ใช้ดูว่า Worker ลองใหม่ให้เองไหม */
+      case '/counted':
+        this.hits++;
+        return new Response(JSON.stringify({ ครั้งที่: this.hits }), { status: 500 });
+
+      case '/hits':
+        return new Response(JSON.stringify({ hits: this.hits }));
+
+      default:
+        return new Response('ไม่มีทางนี้ในเป้า\n', { status: 404 });
     }
-  });
-  return new Response(stream, { headers: { 'content-type': 'text/plain; charset=utf-8' } });
+  }
 }
-
-/*
- * ตัวนับว่าทางนี้ถูกเรียกไปกี่ครั้ง — ใช้ดูว่า Worker ลองใหม่ให้เองหรือไม่
- *
- * อยู่ในตัวแปรระดับโมดูล จึงอยู่ได้เท่าที่ isolate ตัวนี้ยังอยู่ · ไม่ใช่ตัวนับที่
- * เชื่อถือได้ข้ามคำขอในระยะยาว แต่พอสำหรับคำถามว่า "ยิงหนึ่งครั้ง ปลายทางเห็นกี่ครั้ง"
- * ภายในคำขอเดียวกัน ซึ่งเป็นคำถามที่เรากำลังถาม
- */
-let hitCount = 0;
-
-/*
- * รหัสประจำ isolate ตัวนี้ — เกิดครั้งเดียวตอนโมดูลถูกโหลด
- *
- * ตัวนับข้างบนอยู่ในหน่วยความจำของ isolate เดียว แต่ `/self/counted` ถูกเรียกผ่าน
- * เครือข่าย ซึ่ง **ไปตกที่ isolate ตัวไหนก็ได้** · ถ้าอ่านค่าก่อนกับหลังจากคนละตัว
- * ส่วนต่างที่ได้ไม่ได้แปลว่าอะไรเลย แต่หน้าตาของมันเหมือนคำตอบทุกประการ
- *
- * เดิมโค้ดนี้แค่เขียนหมายเหตุเตือนไว้ว่า "ถ้าตัวเลขกระโดดแปลก ๆ แปลว่าคนละ isolate"
- * ซึ่งโยนภาระให้คนอ่านเดา · **ตัวตรวจที่แยกไม่ออกต้องประกาศว่าแยกไม่ออก ไม่ใช่พิมพ์ตัวเลข**
- * (CLAUDE.md ข้อ 32 · ตระกูลเดียวกับ "200 พร้อม 0 แถว")
- */
-let ISOLATE_ID = null;
 
 /**
- * คืนรหัสประจำ isolate ตัวนี้ สร้างครั้งแรกที่มีคนถาม
+ * ยิงไปที่เป้า — เป้าเดียวเสมอ เรียกด้วยชื่อคงที่
  *
- * **ห้ามสร้างตอนโหลดโมดูล** · Workers ห้ามสุ่มค่า ตั้งเวลา และยิง I/O ที่ระดับบนสุด
- * ของไฟล์ แล้วปฏิเสธตั้งแต่ตอน deploy ด้วย `Disallowed operation called within
- * global scope` (รหัส 10021) · เป็นข้อห้ามที่ Apps Script ไม่มี จึงเป็นของที่
- * มองไม่เห็นจนกว่าจะลอง deploy จริง — เจอจริงตอน deploy ครั้งแรก 01-10-2026
+ * ชื่อคงที่สำคัญ เพราะข้อ 5 ต้องอ่านตัวนับก่อนและหลังจาก **object ตัวเดียวกัน**
+ * ถ้าใช้ `newUniqueId()` จะได้ object ใหม่ทุกครั้งแล้วตัวนับเริ่มที่ศูนย์เสมอ
  *
- * สร้างตอนถูกเรียกครั้งแรกให้ผลเท่ากันทุกอย่างสำหรับงานนี้ เพราะค่าที่ต้องการคือ
- * ค่าที่คงที่ตลอดอายุของ isolate หนึ่งตัว ไม่ใช่ค่าที่เกิดในวินาทีที่โมดูลถูกโหลด
+ * ชื่อโดเมนใน URL ไม่มีความหมาย stub ไม่ได้เอาไปใช้หาปลายทาง แต่ `new URL()`
+ * ข้างใน DO ต้องการ URL ที่สมบูรณ์ จึงต้องใส่อะไรสักอย่างที่ไม่มีวันเป็นของจริง
  */
-function isolateId() {
-  if (ISOLATE_ID === null) ISOLATE_ID = crypto.randomUUID();
-  return ISOLATE_ID;
-}
-
-function routeCounted() {
-  hitCount++;
-  return new Response(JSON.stringify({ ครั้งที่: hitCount, isolate: isolateId() }),
-    { status: 500 });
+function hitTarget(env, path) {
+  if (!env.PROBE) {
+    throw new Error('ยังไม่ได้ผูก Durable Object ชื่อ PROBE — ต้อง deploy พร้อม migration ก่อน');
+  }
+  const stub = env.PROBE.get(env.PROBE.idFromName('เป้าเดียวของการวัดทุกรอบ'));
+  return stub.fetch('https://probe.invalid' + path);
 }
 
 /* ---------------------------------------------------------------------------
@@ -265,7 +276,7 @@ async function measureBody4xx(env) {
 }
 
 /** ข้อ 2 — ความล้มเหลวทางเครือข่ายหน้าตาเป็นอะไร และแยกจาก 5xx ด้วยอะไร */
-async function measureNetworkFailure(origin) {
+async function measureNetworkFailure(env) {
   const results = [];
 
   results.push(await observe('ชื่อโดเมนที่ไม่มีอยู่จริง',
@@ -279,18 +290,18 @@ async function measureNetworkFailure(origin) {
 
   // 5xx ที่ควบคุมได้ ยิงใส่ตัวเอง — ต้องได้ Response ไม่ใช่การโยน
   results.push(await observe('5xx จริงจากปลายทางที่ยังตอบอยู่',
-    () => fetch(origin + '/self/503', { headers: { 'x-proof-depth': '1' } })));
+    () => hitTarget(env, '/503')));
 
   return results;
 }
 
 /** ข้อ 3 — fetch มีเพดานเวลาในตัวหรือไม่ */
-async function measureTimeout(origin, url) {
+async function measureTimeout(env, url) {
   const wait = Number(url.searchParams.get('s') || '35');
   const results = [];
 
   const ปล่อยค้าง = await observe('ปล่อยให้ค้าง ' + wait + ' วินาที ไม่ใส่เพดานเอง',
-    () => fetch(origin + '/self/slow?s=' + wait, { headers: { 'x-proof-depth': '1' } }));
+    () => hitTarget(env, '/slow?s=' + wait));
 
   // แยกให้ขาดว่าใครเป็นคนจบรอบนี้ ไม่ใช่ปล่อยให้คนอ่านเดาจากตัวเลข ms
   if (ปล่อยค้าง.ผล === 'คืน Response') {
@@ -303,11 +314,23 @@ async function measureTimeout(origin, url) {
   results.push(ปล่อยค้าง);
 
   // ใส่เพดานเองด้วย AbortSignal — ต้องรู้ว่าหน้าตาของการยกเลิกเป็นอะไร
-  results.push(await observe('ใส่เพดานเอง 3 วินาที แล้วยกเลิก', () => {
-    return fetch(origin + '/self/slow?s=' + wait, {
-      headers: { 'x-proof-depth': '1' },
-      signal: AbortSignal.timeout(3000)
+  /*
+   * `AbortSignal` ส่งผ่าน stub ของ Durable Object ไม่ได้เหมือน `fetch` ธรรมดา
+   * จึงวัดด้วยการแข่งกับนาฬิกาของเราเองแทน · สิ่งที่อยากรู้คือ **หน้าตาของการยกเลิก
+   * ที่เราสั่งเอง** ซึ่งเป็นสิ่งที่ `httpSend_` ต้องรับมือ ไม่ใช่กลไกของ AbortSignal เอง
+   */
+  results.push(await observe('ใส่เพดานเอง 3 วินาที แล้วยกเลิก', async () => {
+    let นาฬิกา;
+    const หมดเวลา = new Promise((_, ปฏิเสธ) => {
+      นาฬิกา = setTimeout(
+        () => ปฏิเสธ(new DOMException('ครบ 3 วินาทีแล้ว ยกเลิกเอง', 'TimeoutError')),
+        3000);
     });
+    try {
+      return await Promise.race([hitTarget(env, '/slow?s=' + wait), หมดเวลา]);
+    } finally {
+      clearTimeout(นาฬิกา);
+    }
   }));
 
   return results;
@@ -319,7 +342,7 @@ async function measureTimeout(origin, url) {
  * หน้ารายการงานแผนกเคยใช้ 62 คำขอก่อนที่เราจะลดเหลือ 5 · ถ้าเพดานต่ำกว่านั้น
  * หน้าที่ยิงเยอะจะตายโดยไม่มีใครเดาถูกว่าทำไม จึงต้องรู้ทั้งตัวเลขและหน้าตาตอนชน
  */
-async function measureSubrequests(origin, url) {
+async function measureSubrequests(env, url) {
   /*
    * **เป้าที่ยิงต้องเป็นของนอก ไม่ใช่ตัวเอง** · 62 คำขอที่เป็นต้นเหตุของข้อนี้ยิงไป
    * Supabase ซึ่งเป็นคนละเครื่อง · การยิงใส่ตัวเองเป็นคำขอที่ปลุก Worker ตัวใหม่
@@ -329,7 +352,7 @@ async function measureSubrequests(origin, url) {
    * เป้าปริยายคือ PostgREST ที่ไม่ส่งกุญแจ ซึ่งตอบ 401 เร็วและไม่ได้อ่านข้อมูลอะไรเลย
    * ส่งมา `?target=self` ได้ถ้าอยากเทียบว่าสองชนิดคิดราคาต่างกันไหม
    */
-  const target = url.searchParams.get('target') === 'self' ? 'self' : 'rest';
+  const target = url.searchParams.get('target') === 'do' ? 'do' : 'rest';
 
   /*
    * **ต้องไต่ให้สูงพอที่จะเจอเพดานของแผนที่จะใช้จริง ไม่ใช่แผนที่ใช้อยู่วันนี้**
@@ -344,8 +367,8 @@ async function measureSubrequests(origin, url) {
 
   for (let i = 0; i < want; i++) {
     try {
-      const res = target === 'self'
-        ? await fetch(origin + '/self/ping?i=' + i, { headers: { 'x-proof-depth': '1' } })
+      const res = target === 'do'
+        ? await hitTarget(env, '/ping?i=' + i)
         : await fetch(REST + 'work_order?select=wo_id&limit=1&i=' + i);
       await res.text();
       done++;
@@ -361,7 +384,7 @@ async function measureSubrequests(origin, url) {
   }
 
   return {
-    ยิงใส่: target === 'self' ? 'ตัวเอง (เทียบเฉย ๆ)' : 'PostgREST ของจริง',
+    ยิงใส่: target === 'do' ? 'Durable Object (เทียบเฉย ๆ)' : 'PostgREST ของจริง',
     ขอไป: want,
     สำเร็จ: done,
     ชนเพดาน: broke,
@@ -384,13 +407,13 @@ async function measureSubrequests(origin, url) {
  * **เครื่องวัดที่ล้มแทนที่จะรายงาน คือเครื่องวัดที่ซ่อนผลการวัด** และรอบที่ล้ม
  * ก็คือรอบที่มีอะไรน่าสนใจที่สุดเสมอ · ตัวนี้จึงคืนสิ่งที่เจอทุกกรณี
  */
-async function readHits(origin, label) {
+async function readHits(env, label) {
   try {
-    const res = await fetch(origin + '/self/hits', { headers: { 'x-proof-depth': '1' } });
+    const res = await hitTarget(env, '/hits');
     const text = await res.text();
     try {
       const asJson = JSON.parse(text);
-      return { อ่านได้: true, status: res.status, hits: asJson.hits, isolate: asJson.isolate };
+      return { อ่านได้: true, status: res.status, hits: asJson.hits };
     } catch (e) {
       return {
         อ่านได้: false, เมื่อ: label, status: res.status,
@@ -403,24 +426,24 @@ async function readHits(origin, label) {
   } catch (e) {
     return {
       อ่านได้: false, เมื่อ: label,
-      เพราะ: 'fetch โยนออกมา — ยิงใส่ตัวเองไม่สำเร็จ',
+      เพราะ: 'เรียกเป้าไม่สำเร็จ',
       ชื่อ: e && e.name, ข้อความ: e && e.message,
       สาเหตุซ้อน: e && e.cause ? String(e.cause && e.cause.message || e.cause) : null
     };
   }
 }
 
-async function measureRetry(origin) {
-  const before = await readHits(origin, 'ก่อนยิง');
+async function measureRetry(env) {
+  const before = await readHits(env, 'ก่อนยิง');
   const one = await observe('ยิงไปที่ทางที่ตอบ 500 หนึ่งครั้ง',
-    () => fetch(origin + '/self/counted', { headers: { 'x-proof-depth': '1' } }));
-  const after = await readHits(origin, 'หลังยิง');
+    () => hitTarget(env, '/counted'));
+  const after = await readHits(env, 'หลังยิง');
 
   // อ่านตัวนับไม่ได้สักข้าง = ไม่มีอะไรให้ลบกัน ต้องบอกว่าทำไม ไม่ใช่ล้มเงียบ
   if (!before.อ่านได้ || !after.อ่านได้) {
     return {
       ผล: 'วัดไม่ได้ในรอบนี้',
-      เพราะ: 'อ่านตัวนับจากทางที่ยิงใส่ตัวเองไม่สำเร็จ',
+      เพราะ: 'อ่านตัวนับจากเป้าไม่สำเร็จ',
       ห้ามสรุปว่า: 'Worker ไม่ลองใหม่',
       ก่อนยิง: before,
       ผลของการยิง: one,
@@ -428,30 +451,14 @@ async function measureRetry(origin) {
     };
   }
 
-  // ทั้งสามคำขอต้องตกที่ isolate เดียวกัน ไม่งั้นส่วนต่างของตัวนับไม่มีความหมาย
-  const bodyของรอบที่ยิง = String(one.bodyต้น || '');
-  const สามตัวเดียวกัน =
-    Boolean(before.isolate) &&
-    before.isolate === after.isolate &&
-    bodyของรอบที่ยิง.indexOf(before.isolate) !== -1;
-
-  if (!สามตัวเดียวกัน) {
-    return {
-      ผล: 'วัดไม่ได้ในรอบนี้',
-      เพราะ: 'สามคำขอไม่ได้ตกที่ isolate เดียวกัน ส่วนต่างของตัวนับจึงไม่มีความหมาย',
-      ห้ามสรุปว่า: 'Worker ไม่ลองใหม่',
-      ให้ทำ: 'ยิงซ้ำจนกว่า isolate ทั้งสามตรงกัน หรือเปลี่ยนไปนับด้วยที่เก็บที่อยู่ข้าม isolate ได้',
-      isolateก่อนยิง: before.isolate,
-      isolateหลังยิง: after.isolate,
-      ก่อนยิง: before,
-      ผลของการยิง: one,
-      หลังยิง: after
-    };
-  }
+  /*
+   * ไม่ต้องตรวจว่าสามคำขอตกที่เดียวกันอีกแล้ว — Durable Object ที่เรียกด้วยชื่อคงที่
+   * คือ object ตัวเดียวเสมอ · ปัญหา "คนละ isolate" ที่เคยต้องเฝ้าหายไปจริง
+   * ไม่ใช่แค่ถูกตรวจจับได้ · นี่คือเหตุผลหลักที่ย้ายมาใช้ DO ไม่ใช่แค่หลบ 1042
+   */
 
   return {
     ผล: 'วัดได้',
-    isolate: before.isolate,
     ก่อนยิง: before,
     ผลของการยิง: one,
     หลังยิง: after,
@@ -463,7 +470,7 @@ async function measureRetry(origin) {
 }
 
 /** ข้อ 6 — ไม่อ่าน body จนจบ มีผลอะไรไหม */
-async function measureUnreadBody(origin, url) {
+async function measureUnreadBody(env, url) {
   const rounds = Number(url.searchParams.get('n') || '12');
   const results = [];
   const started = Date.now();
@@ -472,7 +479,7 @@ async function measureUnreadBody(origin, url) {
   for (let i = 0; i < rounds; i++) {
     try {
       // ขอ body ใหญ่ แล้วทิ้งไปเลยโดยไม่อ่าน
-      const res = await fetch(origin + '/self/big?mb=4', { headers: { 'x-proof-depth': '1' } });
+      const res = await hitTarget(env, '/big?mb=4');
       results.push({ รอบที่: i + 1, status: res.status, อ่านbody: false });
     } catch (e) {
       failedAt = { รอบที่: i + 1, ชื่อ: e && e.name, ข้อความ: e && e.message };
@@ -482,7 +489,7 @@ async function measureUnreadBody(origin, url) {
 
   // รอบสุดท้ายอ่านจนจบ เพื่อเทียบว่าต่างกันไหม
   const readFully = await observe('รอบที่อ่าน body จนจบ', async () => {
-    const res = await fetch(origin + '/self/big?mb=4', { headers: { 'x-proof-depth': '1' } });
+    const res = await hitTarget(env, '/big?mb=4');
     return res;
   });
 
@@ -501,28 +508,13 @@ async function measureUnreadBody(origin, url) {
 export default {
   async fetch(request, env) {
     const url = new URL(request.url);
-    const origin = url.origin;
 
     /*
-     * ทางที่มีไว้ให้ตัวเองยิงใส่ ไม่ต้องผ่านด่านรหัสลับ แต่ต้องมาจากการยิงของตัวเอง
-     * เท่านั้น · ดูจากหัวข้อความที่เราใส่เอง ซึ่งคนนอกใส่ตามได้ — แต่ทางเหล่านี้
-     * ไม่ได้ทำอะไรนอกจากตอบข้อความคงที่ จึงไม่มีอะไรให้เสียหาย
+     * ทาง `/self/*` ถูกถอดออกทั้งหมด · มันเคยมีไว้ให้ Worker ยิง fetch ใส่ตัวเอง
+     * ซึ่ง **Cloudflare ไม่อนุญาต** — ได้ `404 error code: 1042` ทุกครั้งบนของจริง
+     * (วัดเจอ 01-10-2026 · `wrangler dev` ในเครื่องยอมให้ทำ จึงไม่มีใครรู้มาก่อน)
+     * เป้าที่ควบคุมได้ย้ายไปอยู่ใน Durable Object ชื่อ ProbeTarget แทน
      */
-    if (url.pathname.startsWith('/self/')) {
-      if (request.headers.get('x-proof-depth') !== '1') {
-        return new Response('ทางนี้มีไว้ให้เครื่องวัดยิงใส่ตัวเองเท่านั้น\n', { status: 403 });
-      }
-      switch (url.pathname) {
-        case '/self/ping':    return routePing();
-        case '/self/503':     return route503();
-        case '/self/slow':    return await routeSlow(url);
-        case '/self/big':     return routeBig(url);
-        case '/self/counted': return routeCounted();
-        case '/self/hits':
-          return new Response(JSON.stringify({ hits: hitCount, isolate: isolateId() }));
-        default: return new Response('ไม่มีทางนี้\n', { status: 404 });
-      }
-    }
 
     const denied = refuseUnlessAllowed(request, env);
     if (denied) return denied;
@@ -535,15 +527,15 @@ export default {
       case '/body4xx':
         return say({ วัด: '4xx อ่าน body ได้ไหม', ที่: where, ผล: await measureBody4xx(env) });
       case '/netfail':
-        return say({ วัด: 'ความล้มเหลวทางเครือข่าย', ที่: where, ผล: await measureNetworkFailure(origin) });
+        return say({ วัด: 'ความล้มเหลวทางเครือข่าย', ที่: where, ผล: await measureNetworkFailure(env) });
       case '/timeout':
-        return say({ วัด: 'เพดานเวลาของ fetch', ที่: where, ผล: await measureTimeout(origin, url) });
+        return say({ วัด: 'เพดานเวลาของ fetch', ที่: where, ผล: await measureTimeout(env, url) });
       case '/subrequests':
-        return say({ วัด: 'เพดานจำนวนคำขอย่อย', ที่: where, ผล: await measureSubrequests(origin, url) });
+        return say({ วัด: 'เพดานจำนวนคำขอย่อย', ที่: where, ผล: await measureSubrequests(env, url) });
       case '/retry':
-        return say({ วัด: 'Worker ลองใหม่ให้เองไหม', ที่: where, ผล: await measureRetry(origin) });
+        return say({ วัด: 'Worker ลองใหม่ให้เองไหม', ที่: where, ผล: await measureRetry(env) });
       case '/unread':
-        return say({ วัด: 'ไม่อ่าน body จนจบ', ที่: where, ผล: await measureUnreadBody(origin, url) });
+        return say({ วัด: 'ไม่อ่าน body จนจบ', ที่: where, ผล: await measureUnreadBody(env, url) });
       default:
         return say({
           เครื่องวัด: 'กองที่ 1 ข้อ 2 — fetch เทียบ UrlFetchApp',
@@ -553,6 +545,9 @@ export default {
             PROOF_TOKEN: Boolean(env.PROOF_TOKEN),
             SUPABASE_ANON_KEY: Boolean(env.SUPABASE_ANON_KEY)
           },
+          เป้าที่ควบคุมได้: env.PROBE
+            ? 'Durable Object ผูกไว้แล้ว'
+            : '!! ยังไม่ได้ผูก Durable Object ชื่อ PROBE — ข้อ 3, 5, 6 จะวัดไม่ได้',
           เตือน: 'ลบ Worker ตัวนี้ทิ้งทันทีที่วัดเสร็จ'
         });
     }

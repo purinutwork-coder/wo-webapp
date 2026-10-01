@@ -16,3 +16,21 @@ compatibility_flags = ["nodejs_compat"]
 
 [observability]
 enabled = true
+
+# เป้าที่ควบคุมได้ของข้อ 3, 5, 6
+#
+# เดิมเครื่องวัดสร้างสถานการณ์ด้วยการยิง fetch ใส่ตัวเอง ซึ่ง Cloudflare ไม่อนุญาต
+# ได้ `404 error code: 1042` ทุกครั้งบนของจริง (วัดเจอ 01-10-2026)
+# `wrangler dev` ในเครื่องยอมให้ทำ ข้อห้ามนี้จึงมองไม่เห็นจนกว่าจะ deploy
+#
+# Durable Object เรียกผ่าน stub เป็นการเรียกภายใน ไม่ใช่คำขอ HTTP ที่วิ่งออกไปหา
+# zone เดิม · และตัวนับของข้อ 5 อยู่ใน object เดียวที่เรียกด้วยชื่อคงที่
+# ทุกคำขอจึงไปถึงตัวเดียวกันแน่นอน ปัญหา "คนละ isolate" หายไปจริง
+[[durable_objects.bindings]]
+name = "PROBE"
+class_name = "ProbeTarget"
+
+# ต้องเป็น new_sqlite_classes ไม่ใช่ new_classes เพราะแผนฟรีรองรับเฉพาะแบบ SQLite
+[[migrations]]
+tag = "v1"
+new_sqlite_classes = ["ProbeTarget"]
