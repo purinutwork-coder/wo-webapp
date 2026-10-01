@@ -88,6 +88,20 @@ function parseSchema(sqlText) {
   return tables;
 }
 
+/** แยกเงื่อนไขของ or=(...) ที่ระดับบนสุด · ห้ามตัดจุลภาคที่อยู่ในวงเล็บของ in.(...) */
+function splitTopLevel(text) {
+  var out = [], depth = 0, cur = '';
+  for (var i = 0; i < text.length; i++) {
+    var c = text.charAt(i);
+    if (c === '(') depth++;
+    if (c === ')') depth--;
+    if (c === ',' && depth === 0) { out.push(cur); cur = ''; continue; }
+    cur += c;
+  }
+  if (cur) out.push(cur);
+  return out;
+}
+
 function jsonBody(value) { return JSON.stringify(value); }
 
 /** แปลงตัวกรองหนึ่งตัวเป็นฟังก์ชันคัดแถว · รองรับเท่าที่ระบบใช้จริง */
@@ -268,6 +282,23 @@ function makePostgrest(options) {
       var tests = [];
       params.forEach(function (value, key) {
         if (['select', 'order', 'limit', 'offset', 'on_conflict'].indexOf(key) !== -1) return;
+
+        /*
+         * `or=(col.op.value,col.op.value)` — ตรงสักเงื่อนไขหนึ่งก็พอ
+         * ใช้โดยการค้นหาที่ต้องตรงสักคอลัมน์หนึ่งในหลายคอลัมน์ · ถ้าไม่รองรับ
+         * ของจำลองจะมอง `or` เป็นชื่อคอลัมน์แล้วคืนศูนย์แถวทุกครั้งโดยไม่มี error
+         * ซึ่งเป็นอาการเดียวกับที่ SPEC 22.2 เตือนเรื่องเครื่องหมายคำพูด
+         */
+        if (key === 'or') {
+          var inner = String(value).replace(/^\(/, '').replace(/\)$/, '');
+          var ors = splitTopLevel(inner).map(function (cond) {
+            var dot = cond.indexOf('.');
+            return predicate(cond.slice(0, dot), cond.slice(dot + 1));
+          });
+          tests.push(function (r) { return ors.some(function (t) { return t(r); }); });
+          return;
+        }
+
         tests.push(predicate(key, value));
       });
       function matches(r) { return tests.every(function (t) { return t(r); }); }

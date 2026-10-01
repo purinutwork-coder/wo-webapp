@@ -31,6 +31,7 @@ var vm = require('vm');
 var gas = require('./gas');
 var http = require('./http');
 var supabase = require('./supabase');
+var drive = require('./drive');
 
 var SRC = path.join(__dirname, '..', '..', 'src');
 var RUNNER_NAME = 'ตัวรันในเครื่อง (tools/runner)';
@@ -55,6 +56,8 @@ function buildContext(mode) {
    * Supabase ทั้งหมด** แล้วรายงานตัวเลขที่อ่านดีแต่ไม่ได้พิสูจน์ชั้นเชื่อมต่อเลย
    * ที่อยู่ไม่ใช่ของจริง เพราะทุกคำขอถูกดักด้วยของจำลองก่อนออกเครือข่าย
    */
+  var fileStore = drive.makeDrive();
+
   var g = gas.makeGasGlobals({
     timeZone: 'Asia/Bangkok',
 
@@ -77,9 +80,12 @@ function buildContext(mode) {
     scriptProperties: {
       SUPABASE_URL: 'https://mock-no-network.supabase.co',
       SUPABASE_SERVICE_KEY: 'service-role-ของจำลอง',
-      SUPABASE_ANON_KEY: 'anon-ของจำลอง'
+      SUPABASE_ANON_KEY: 'anon-ของจำลอง',
+      // รากของที่เก็บไฟล์ มีตั้งแต่ต้น เหมือนระบบที่เคยรัน setupDriveFolder() แล้ว
+      DRIVE_ROOT_FOLDER_ID: fileStore.rootId
     }
   });
+  g.globals.DriveApp = fileStore.DriveApp;
 
   /*
    * PostgREST จำลองรับทุกคำขอที่ไปหา /rest/v1 เป็นกฎพื้นหลัง
