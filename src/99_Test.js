@@ -19164,19 +19164,35 @@ function dbExpectUserMessage_(fn, label) {
  * ผลคือคนถูกส่งไปนั่งตรวจคีย์ที่ถูกต้องอยู่แล้ว ซึ่งไม่มีวันเจออะไร
  *
  * อาการของสองประตูต่างกันคนละแบบสิ้นเชิง
- *   ยังไม่ได้ GRANT        → 403 พร้อม code 42501 เป็นข้อผิดพลาด
+ *   ยังไม่ได้ GRANT        → **401 พร้อม code 42501** เป็นข้อผิดพลาด
  *   GRANT แล้วแต่ RLS กัน  → 200 พร้อม 0 แถว ไม่ใช่ข้อผิดพลาดเลย
+ *
+ * **ข้อนี้เคยเขียวอยู่บนสถานการณ์ที่ไม่เคยเกิดจริง** · มันป้อน `403 + 42501` ให้ตัวแปล
+ * ซึ่งเป็นรูปที่เราคิดเอาเองว่า Supabase ตอบ · วัดกับของจริง 01-10-2026 ที่ colo BKK
+ * แล้วพบว่า **GRANT ที่ขาดคืน 401** · ของจริงจึงตกเข้ากลุ่ม `'KEY'` มาตลอด
+ * โดยที่เทสต์ข้อนี้ยังเขียวทุกรอบ เพราะมันถามคำถามที่ไม่มีใครถาม
+ *
+ * นี่คือกฎข้อ 27 ในรูปที่เงียบที่สุด — ของจำลองไม่ได้ใจดีกว่าของจริง
+ * แต่มัน**คนละตัวกับของจริง** และไม่มีอะไรเตือนเลยสักอย่าง
+ * → ตั้งแต่นี้ไป ทุกข้อในชุดนี้ต้องมีที่มาจากผลวัด ไม่ใช่จากรูปที่เราคาดว่าจะเป็น
  *
  * เป็นตรรกะล้วน ไม่ต้องต่อเน็ต จึงอยู่ในส่วนที่รันได้ทุกที่
  */
 function test_db_doorTelling() {
   beginTest_('แยกประตู GRANT ออกจากประตูคีย์และ RLS');
 
-  /* ---------- แยกประตูจากรหัสที่ได้มา ---------- */
+  /* ---------- สามรูปที่วัดมาจากของจริง 01-10-2026 — ทั้งสามคืน 401 เหมือนกัน ---------- */
   assertEquals_(dbDoorOfFailure_({ status: 401, code: '' }), 'KEY',
-    '401 คือคีย์ไม่ถูกยอมรับ');
+    'ไม่ส่ง apikey → 401 ไม่มี code · "No API key found in request"');
+  assertEquals_(dbDoorOfFailure_({ status: 401, code: '' }), 'KEY',
+    'apikey ใช้ไม่ได้ → 401 ไม่มี code · "Invalid API key"');
+  assertEquals_(dbDoorOfFailure_({ status: 401, code: '42501' }), 'GRANT',
+    'anon ที่ใช้ได้แต่ยังไม่ GRANT → **401 พร้อม 42501** · นี่คือรูปของจริง ' +
+    'และเป็นข้อที่จับบั๊กซึ่งซ่อนอยู่มาตลอด');
+
+  /* ---------- 403 ยังต้องทำงานถูก เผื่อ Supabase เปลี่ยนใจวันหน้า ---------- */
   assertEquals_(dbDoorOfFailure_({ status: 403, code: '42501' }), 'GRANT',
-    '403 พร้อม 42501 คือยังไม่ได้ GRANT ไม่ใช่เรื่องคีย์');
+    '403 พร้อม 42501 ก็คือ GRANT เหมือนกัน — ตัวแยกคือ code ไม่ใช่ status');
   assertEquals_(dbDoorOfFailure_({ status: 403, code: '' }), 'UNKNOWN_403',
     '403 ที่ไม่มี code ต้องไม่ถูกเดาว่าเป็นเรื่อง GRANT');
   assertEquals_(dbDoorOfFailure_({ status: 403, code: '42P01' }), 'UNKNOWN_403',
@@ -19190,10 +19206,10 @@ function test_db_doorTelling() {
   var hint = 'Grant SELECT on table public.counter to role service_role';
   var grantLines = [];
   checkDbAdvice_(grantLines, {
-    status: 403, code: '42501',
+    status: 401, code: '42501',
     message: 'permission denied for table counter',
     hint: hint,
-    detail: 'รหัสตอบกลับ: 403 · code=42501 · message=permission denied for table counter'
+    detail: 'รหัสตอบกลับ: 401 · code=42501 · message=permission denied for table counter'
   });
   var grantText = grantLines.join(' ');
 
